@@ -126,4 +126,3 @@ def test_dashboard_browser_append_instruction_in_japanese_locale(tmp_path, monke
         expect(page.locator("#viewResultBtn")).to_be_enabled()
         page.locator("#tasksTab").click()
         expect(page.locator("#tasksList")).to_contain_text("append_followup")
-

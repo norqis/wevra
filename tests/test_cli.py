@@ -236,7 +236,9 @@ def test_planner_question_can_be_answered_and_resumed(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
 
-    submitted = read_json(runner.invoke(app, ["submit", "[planner_question] clarify before planning"]))
+    submitted = read_json(
+        runner.invoke(app, ["submit", "[planner_question] clarify before planning"])
+    )
     command_id = submitted["id"]
 
     blocked = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
@@ -394,7 +396,12 @@ def test_review_changes_in_implementation_mode_reruns_tester_and_reviews(tmp_pat
     submitted = read_json(
         runner.invoke(
             app,
-            ["submit", "--mode", "implementation", "[review_changes] rerun tests after review rework"],
+            [
+                "submit",
+                "--mode",
+                "implementation",
+                "[review_changes] rerun tests after review rework",
+            ],
         )
     )
     command_id = submitted["id"]

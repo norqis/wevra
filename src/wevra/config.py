@@ -14,6 +14,7 @@ working_dir = .
 db_path = .wevra/wevra.db
 language = en
 dangerously_bypass_approvals_and_sandbox = false
+home =
 
 [ui]
 auto_start = true
@@ -106,6 +107,7 @@ class AppConfig:
     working_dir: Path
     db_path: Path
     language: str
+    runtime_home: Path | None
     ui_port: int
     ui_host: str
     ui_auto_start: bool
@@ -145,6 +147,16 @@ def read_simple_env(path: Path) -> Dict[str, str]:
     return data
 
 
+def resolve_optional_config_path(value: str, repo_root: Path) -> Path | None:
+    raw = value.strip()
+    if not raw:
+        return None
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = (repo_root / path).resolve()
+    return path
+
+
 def init_repo_config(repo_root: Path) -> Dict[str, str]:
     repo_root = repo_root.resolve()
     created: Dict[str, str] = {}
@@ -176,6 +188,10 @@ def load_config(repo_root: Path) -> AppConfig:
     working_dir_raw = parser.get("runtime", "working_dir", fallback=".").strip() or "."
     db_path_raw = (
         parser.get("runtime", "db_path", fallback=".wevra/wevra.db").strip() or ".wevra/wevra.db"
+    )
+    runtime_home = resolve_optional_config_path(
+        parser.get("runtime", "home", fallback=""),
+        repo_root,
     )
 
     working_dir = Path(working_dir_raw)
@@ -213,6 +229,7 @@ def load_config(repo_root: Path) -> AppConfig:
         working_dir=working_dir,
         db_path=db_path,
         language=parser.get("runtime", "language", fallback="en").strip() or "en",
+        runtime_home=runtime_home,
         ui_port=parser.getint("ui", "port", fallback=43861),
         ui_host=parser.get("ui", "host", fallback="127.0.0.1").strip() or "127.0.0.1",
         ui_auto_start=normalize_bool(parser.get("ui", "auto_start", fallback="true")),

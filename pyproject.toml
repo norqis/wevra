@@ -16,6 +16,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8,<9",
+  "ruff>=0.12,<1.0",
 ]
 
 [project.scripts]
@@ -23,6 +24,13 @@ wevra = "wevra.cli:app"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
 
 [tool.setuptools.package-dir]
 "" = "src"

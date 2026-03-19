@@ -242,6 +242,98 @@
       margin-top: 8px;
     }
 
+    .detail-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .detail-card {
+      border: 1px solid rgba(13, 23, 36, 0.09);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.72);
+      padding: 12px 14px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .detail-card h3 {
+      margin: 0;
+      font-size: 14px;
+      font-family: var(--font-display);
+    }
+
+    .detail-keyvals {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .detail-keyvals strong {
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .result-preview {
+      min-height: 112px;
+      max-height: 220px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      border-radius: 14px;
+      background: rgba(13, 23, 36, 0.92);
+      color: #f4f8ff;
+      padding: 14px;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(13, 23, 36, 0.42);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      z-index: 40;
+    }
+
+    .modal-backdrop.open {
+      display: flex;
+    }
+
+    .modal {
+      width: min(960px, 100%);
+      max-height: min(82vh, 920px);
+      border-radius: 24px;
+      background: rgba(255, 252, 245, 0.98);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      display: grid;
+      grid-template-rows: auto 1fr;
+      overflow: hidden;
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 18px;
+      border-bottom: 1px solid rgba(13, 23, 36, 0.1);
+    }
+
+    .modal-body {
+      padding: 18px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 14px;
+      line-height: 1.65;
+      color: var(--ink);
+    }
+
     pre {
       margin: 0;
       padding: 14px;
@@ -331,7 +423,9 @@
         </section>
         <section class="panel">
           <h2>Selected Command</h2>
-          <pre id="commandDetail">Select a command from the list.</pre>
+          <div class="detail-grid" id="commandDetail">
+            <div class="meta">Select a command from the list.</div>
+          </div>
           <div class="question-form">
             <textarea id="appendInstruction" placeholder="Append a new instruction to the selected command."></textarea>
             <button class="secondary" id="appendBtn">Append And Replan</button>
@@ -341,10 +435,24 @@
     </section>
   </main>
 
+  <div class="modal-backdrop" id="resultModal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="resultModalTitle">
+      <div class="modal-header">
+        <div>
+          <div class="eyebrow">Command Result</div>
+          <h2 id="resultModalTitle" style="margin: 6px 0 0; font-size: 24px;">Result</h2>
+        </div>
+        <button class="secondary" id="closeResultBtn">Close</button>
+      </div>
+      <div class="modal-body" id="resultModalBody">No result available yet.</div>
+    </div>
+  </div>
+
   <script>
     const state = {
       snapshot: null,
-      selectedCommandId: null
+      selectedCommandId: null,
+      modalCommandId: null
     };
 
     const metricsEl = document.getElementById('metrics');
@@ -356,6 +464,18 @@
     const commandDetailEl = document.getElementById('commandDetail');
     const statusLineEl = document.getElementById('statusLine');
     const appendInstructionEl = document.getElementById('appendInstruction');
+    const resultModalEl = document.getElementById('resultModal');
+    const resultModalTitleEl = document.getElementById('resultModalTitle');
+    const resultModalBodyEl = document.getElementById('resultModalBody');
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
 
     async function api(url, options = {}) {
       const response = await fetch(url, {
@@ -497,15 +617,56 @@
     function renderDetail(snapshot) {
       const selected = state.selectedCommandId || snapshot.commands.active[0]?.id || snapshot.commands.items[0]?.id;
       if (!selected) {
-        commandDetailEl.textContent = 'No command selected.';
+        commandDetailEl.innerHTML = '<div class="meta">No command selected.</div>';
         appendInstructionEl.disabled = true;
         return;
       }
       state.selectedCommandId = selected;
       const command = snapshot.commands.items.find((item) => item.id === selected);
       const instructions = snapshot.instructions.items.filter((item) => item.command_id === selected);
-      commandDetailEl.textContent = JSON.stringify({ command, instructions }, null, 2);
+      const resultPreview = command?.final_response ? escapeHtml(command.final_response) : 'No final result yet.';
+      commandDetailEl.innerHTML = `
+        <div class="detail-card">
+          <h3>Overview</h3>
+          <div class="detail-keyvals">
+            <div><strong>ID:</strong> ${escapeHtml(command.id)}</div>
+            <div><strong>Mode:</strong> ${escapeHtml(command.effective_mode || command.workflow_mode)}</div>
+            <div><strong>Stage:</strong> ${escapeHtml(command.stage)}</div>
+            <div><strong>Priority:</strong> ${escapeHtml(command.priority)}</div>
+            <div><strong>Goal:</strong> ${escapeHtml(command.goal)}</div>
+          </div>
+        </div>
+        <div class="detail-card">
+          <h3>Result</h3>
+          <div class="result-preview">${resultPreview}</div>
+          <div class="actions">
+            <button class="secondary" id="viewResultBtn" ${command?.final_response ? '' : 'disabled'}>View Result</button>
+          </div>
+        </div>
+        <div class="detail-card">
+          <h3>Instructions</h3>
+          <div class="detail-keyvals">
+            ${instructions.length ? instructions.map((item) => `<div>${escapeHtml(item.body)}</div>`).join('') : '<div>No appended instructions.</div>'}
+          </div>
+        </div>
+      `;
+      const viewResultBtn = document.getElementById('viewResultBtn');
+      if (viewResultBtn && command?.final_response) {
+        viewResultBtn.addEventListener('click', () => openResultModal(command));
+      }
       appendInstructionEl.disabled = false;
+    }
+
+    function openResultModal(command) {
+      state.modalCommandId = command.id;
+      resultModalTitleEl.textContent = `Result · ${command.id}`;
+      resultModalBodyEl.textContent = command.final_response || 'No final result available yet.';
+      resultModalEl.classList.add('open');
+    }
+
+    function closeResultModal() {
+      state.modalCommandId = null;
+      resultModalEl.classList.remove('open');
     }
 
     function renderMetrics(snapshot) {
@@ -569,6 +730,10 @@
       });
       appendInstructionEl.value = '';
       await refreshSnapshot();
+    });
+    document.getElementById('closeResultBtn').addEventListener('click', closeResultModal);
+    resultModalEl.addEventListener('click', (event) => {
+      if (event.target === resultModalEl) closeResultModal();
     });
 
     refreshSnapshot();

@@ -34,15 +34,15 @@ engine はその DAG と `agents.ini` の role 設定を使って、どの task 
 ## Workflow Modes
 
 - `auto`
-  依頼内容を見て、もっとも合う mode を Wevra が選びます。
+  依頼内容に合わせて、Wevra が最適な進め方を選びます。
 - `implementation`
-  実装や変更を進める mode です。必要なら先に調査しますが、既存テストが通り、レビュアー全員が承認するまで完了しません。
+  実装や修正を進めたいときの mode です。必要なら先に調査し、その後に実装を進め、既存テストと最終レビューまで含めて完了させます。最終結果は command の result として保存され、dashboard から確認できます。
 - `research`
-  調査して報告や結論を返す mode です。最終テスト gate は不要です。
+  調査、比較、分析、報告書作成をしたいときの mode です。情報を集めて整理し、結論や比較結果を command の result としてまとめます。
 - `review`
-  いまの workspace をレビューして、所見を返す mode です。実装フェーズは必須ではありません。
+  いまある差分や workspace の状態を見てほしいときの mode です。問題点、リスク、改善ポイントを command の result としてまとめます。
 - `planning`
-  設計、方針決め、タスク分解だけを行う mode です。実装完了までは持っていきません。
+  実装の前に、設計、進め方、タスク分解だけを固めたいときの mode です。設計書や実行計画を command の result としてまとめ、実装までは進めません。
 
 ## 実行フロー
 
@@ -125,6 +125,8 @@ wevra dashboard start
 wevra dashboard status
 wevra dashboard stop
 ```
+
+dashboard では command の履歴を見られます。各 command を選ぶと、その詳細、追加指示、完了後の result を確認できます。
 
 既定の dashboard URL:
 

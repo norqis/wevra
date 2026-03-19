@@ -64,6 +64,7 @@ def test_run_happy_path_completes_command(tmp_path, monkeypatch):
     run_result = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
     assert run_result["final_command"]["stage"] == "done"
     assert run_result["final_command"]["effective_mode"] == "implementation"
+    assert "Completed tasks:" in run_result["final_command"]["final_response"]
     assert any(step["action"] == "command_completed" for step in run_result["steps"])
 
     tasks = read_json(runner.invoke(app, ["tasks", "--command-id", command_id]))
@@ -123,6 +124,7 @@ def test_research_mode_skips_final_review(tmp_path, monkeypatch):
     completed = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
     assert completed["final_command"]["stage"] == "done"
     assert completed["final_command"]["effective_mode"] == "research"
+    assert "Completed tasks:" in completed["final_command"]["final_response"]
 
     tasks = read_json(runner.invoke(app, ["tasks", "--command-id", command_id]))
     assert [task["capability"] for task in tasks["tasks"]] == ["investigation", "analyst"]

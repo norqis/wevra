@@ -36,15 +36,15 @@ The engine uses that DAG plus role concurrency settings from `agents.ini` to dec
 ## Workflow Modes
 
 - `auto`
-  Wevra picks the most suitable mode from the request.
+  Wevra chooses the most suitable workflow from the request.
 - `implementation`
-  Build or change something. Research can happen first, but the run only finishes after the existing tests pass and every reviewer approves.
+  Use this when you want Wevra to build, change, or fix something. It can research first, then implement the work, run the existing tests, and keep iterating until the final review passes. The final outcome is stored as the command result and can be viewed in the dashboard.
 - `research`
-  Investigate a topic and return a report or conclusion. No final test gate is required.
+  Use this when you want an investigation, comparison, or report. Wevra gathers findings, analyzes them, and stores the written conclusion as the command result instead of treating the request as an implementation task.
 - `review`
-  Review the current workspace state and return review findings. No implementation phase is required.
+  Use this when you want feedback on the current workspace or changes. Wevra inspects what already exists and stores the review findings, risks, and follow-up points as the command result.
 - `planning`
-  Produce a plan, design, or task breakdown without carrying the request all the way into implementation.
+  Use this when you want a plan before writing code. Wevra turns the request into a design, rollout plan, or task breakdown and stores that plan as the command result without carrying it through implementation.
 
 ## Workflow
 
@@ -127,6 +127,8 @@ wevra dashboard start
 wevra dashboard status
 wevra dashboard stop
 ```
+
+The dashboard keeps a command history. Selecting a command shows its current details, appended instructions, and final result when one is available.
 
 Default dashboard URL:
 

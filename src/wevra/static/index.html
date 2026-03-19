@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wevra Dashboard</title>
+  <link rel="icon" href="data:,">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f1efe7;
+      --ink: #0d1724;
+      --muted: #6d7785;
+      --panel: rgba(255, 252, 245, 0.88);
+      --line: rgba(13, 23, 36, 0.12);
+      --accent: #d45b21;
+      --accent-2: #0f766e;
+      --good: #16803c;
+      --warn: #c27b08;
+      --bad: #be123c;
+      --font-ui: "IBM Plex Sans", sans-serif;
+      --font-display: "Space Grotesk", sans-serif;
+      --radius: 22px;
+      --shadow: 0 20px 60px rgba(13, 23, 36, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      font-family: var(--font-ui);
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(212, 91, 33, 0.14), transparent 28%),
+        radial-gradient(circle at bottom right, rgba(15, 118, 110, 0.12), transparent 24%),
+        linear-gradient(135deg, #f6f1e7, #f0ece3 40%, #ebe6dc);
+    }
+
+    .shell {
+      width: min(1500px, calc(100% - 28px));
+      margin: 18px auto 28px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .hero, .panel {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      backdrop-filter: blur(12px);
+      box-shadow: var(--shadow);
+    }
+
+    .hero {
+      padding: 18px 20px;
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .eyebrow {
+      color: var(--accent);
+      font-family: var(--font-display);
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    h1 {
+      margin: 8px 0 8px;
+      font-family: var(--font-display);
+      font-size: clamp(28px, 4vw, 48px);
+      line-height: 0.95;
+    }
+
+    .hero p {
+      margin: 0;
+      color: var(--muted);
+      max-width: 760px;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .metric {
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.75);
+      border: 1px solid rgba(13, 23, 36, 0.08);
+      padding: 12px;
+    }
+
+    .metric .label {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .metric .value {
+      margin-top: 8px;
+      font-family: var(--font-display);
+      font-size: 26px;
+      font-weight: 700;
+    }
+
+    .composer {
+      display: grid;
+      gap: 10px;
+    }
+
+    textarea, select, input, button {
+      font: inherit;
+    }
+
+    textarea, select, input {
+      width: 100%;
+      border: 1px solid rgba(13, 23, 36, 0.12);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.82);
+      padding: 12px 14px;
+      color: var(--ink);
+    }
+
+    textarea {
+      min-height: 116px;
+      resize: vertical;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 999px;
+      padding: 12px 18px;
+      cursor: pointer;
+      font-weight: 700;
+      transition: transform 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    button:hover { transform: translateY(-1px); }
+    .primary {
+      background: linear-gradient(135deg, var(--accent), #f08a33);
+      color: #fff;
+      box-shadow: 0 10px 24px rgba(212, 91, 33, 0.22);
+    }
+    .secondary {
+      background: rgba(13, 23, 36, 0.08);
+      color: var(--ink);
+    }
+
+    .status-line {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 16px;
+    }
+
+    .column {
+      display: grid;
+      gap: 16px;
+      align-content: start;
+    }
+
+    .panel {
+      padding: 16px;
+    }
+
+    .panel h2 {
+      margin: 0 0 12px;
+      font-size: 18px;
+      font-family: var(--font-display);
+    }
+
+    .list {
+      display: grid;
+      gap: 10px;
+      max-height: 58vh;
+      overflow: auto;
+    }
+
+    .card {
+      border: 1px solid rgba(13, 23, 36, 0.09);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.78);
+      padding: 12px 14px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .title {
+      font-weight: 700;
+    }
+
+    .meta {
+      color: var(--muted);
+      font-size: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      padding: 3px 9px;
+      font-size: 11px;
+      font-weight: 700;
+      background: rgba(13, 23, 36, 0.08);
+    }
+
+    .pill.done, .pill.approve { color: var(--good); }
+    .pill.waiting_question, .pill.blocked, .pill.request_changes { color: var(--warn); }
+    .pill.failed, .pill.fail { color: var(--bad); }
+    .pill.running, .pill.planning, .pill.replanning, .pill.verifying { color: var(--accent-2); }
+
+    .question-form {
+      display: grid;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    pre {
+      margin: 0;
+      padding: 14px;
+      border-radius: 14px;
+      background: rgba(13, 23, 36, 0.92);
+      color: #f4f8ff;
+      overflow: auto;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 1100px) {
+      .hero, .grid { grid-template-columns: 1fr; }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <div class="eyebrow">Wevra Runtime</div>
+        <h1>Web Control For Structured AI Work</h1>
+        <p>
+          Submit commands, inspect dependency-aware task graphs, answer blocked questions,
+          and resume execution from the browser. The runtime state is sourced from SQLite,
+          not from terminal session scraping.
+        </p>
+        <div class="metrics" id="metrics"></div>
+      </div>
+      <div class="composer">
+        <textarea id="goal" placeholder="Describe the command you want Wevra to run."></textarea>
+        <div class="row">
+          <select id="priority">
+            <option value="high">high</option>
+            <option value="medium">medium</option>
+            <option value="low">low</option>
+          </select>
+          <select id="backend">
+            <option value="">config default</option>
+            <option value="mock">mock</option>
+            <option value="codex">codex</option>
+            <option value="claude">claude</option>
+          </select>
+          <input id="runCommandId" placeholder="Optional command id for run">
+        </div>
+        <div class="actions">
+          <button class="primary" id="submitBtn">Submit Command</button>
+          <button class="secondary" id="runBtn">Run Engine</button>
+          <button class="secondary" id="refreshBtn">Refresh</button>
+        </div>
+        <div class="status-line" id="statusLine">Loading snapshot…</div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="column">
+        <section class="panel">
+          <h2>Commands</h2>
+          <div class="list" id="commandsList"></div>
+        </section>
+        <section class="panel">
+          <h2>Tasks</h2>
+          <div class="list" id="tasksList"></div>
+        </section>
+      </div>
+      <div class="column">
+        <section class="panel">
+          <h2>Open Questions</h2>
+          <div class="list" id="questionsList"></div>
+        </section>
+        <section class="panel">
+          <h2>Reviews</h2>
+          <div class="list" id="reviewsList"></div>
+        </section>
+        <section class="panel">
+          <h2>Latest Events</h2>
+          <div class="list" id="eventsList"></div>
+        </section>
+        <section class="panel">
+          <h2>Selected Command</h2>
+          <pre id="commandDetail">Select a command from the list.</pre>
+          <div class="question-form">
+            <textarea id="appendInstruction" placeholder="Append a new instruction to the selected command."></textarea>
+            <button class="secondary" id="appendBtn">Append And Replan</button>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const state = {
+      snapshot: null,
+      selectedCommandId: null
+    };
+
+    const metricsEl = document.getElementById('metrics');
+    const commandsListEl = document.getElementById('commandsList');
+    const tasksListEl = document.getElementById('tasksList');
+    const questionsListEl = document.getElementById('questionsList');
+    const reviewsListEl = document.getElementById('reviewsList');
+    const eventsListEl = document.getElementById('eventsList');
+    const commandDetailEl = document.getElementById('commandDetail');
+    const statusLineEl = document.getElementById('statusLine');
+    const appendInstructionEl = document.getElementById('appendInstruction');
+
+    async function api(url, options = {}) {
+      const response = await fetch(url, {
+        headers: { 'Content-Type': 'application/json' },
+        ...options,
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `Request failed: ${response.status}`);
+      }
+      return response.json();
+    }
+
+    function metric(label, value) {
+      return `
+        <div class="metric">
+          <div class="label">${label}</div>
+          <div class="value">${value}</div>
+        </div>
+      `;
+    }
+
+    function pill(value) {
+      const klass = String(value || '').replace(/\s+/g, '_');
+      return `<span class="pill ${klass}">${value || '-'}</span>`;
+    }
+
+    function renderCommands(snapshot) {
+      const commands = snapshot.commands.items;
+      commandsListEl.innerHTML = commands.map((command) => `
+        <article class="card" data-command-id="${command.id}">
+          <div class="title">${command.id}</div>
+          <div>${command.goal}</div>
+          <div class="meta">
+            ${pill(command.stage)}
+            ${pill(command.priority)}
+            <span>runs: ${command.run_count}</span>
+          </div>
+        </article>
+      `).join('') || '<div class="meta">No commands yet.</div>';
+
+      commandsListEl.querySelectorAll('[data-command-id]').forEach((node) => {
+        node.addEventListener('click', () => {
+          state.selectedCommandId = node.getAttribute('data-command-id');
+          renderDetail(snapshot);
+          renderTasks(snapshot);
+          renderReviews(snapshot);
+          renderEvents(snapshot);
+        });
+      });
+    }
+
+    function renderTasks(snapshot) {
+      const selected = state.selectedCommandId;
+      const tasks = snapshot.tasks.items.filter((task) => !selected || task.command_id === selected);
+      tasksListEl.innerHTML = tasks.map((task) => `
+        <article class="card">
+          <div class="title">${task.title}</div>
+          <div>${task.description}</div>
+          <div class="meta">
+            ${pill(task.state)}
+            <span>${task.capability}</span>
+            <span>key: ${task.task_key}</span>
+          </div>
+          <div class="meta">
+            <span>depends_on: ${(task.depends_on || []).join(', ') || '-'}</span>
+            <span>write_files: ${(task.input_payload.write_files || []).join(', ') || '-'}</span>
+          </div>
+        </article>
+      `).join('') || '<div class="meta">No tasks for the current selection.</div>';
+    }
+
+    function renderQuestions(snapshot) {
+      const questions = snapshot.questions.open;
+      questionsListEl.innerHTML = questions.map((question) => `
+        <article class="card">
+          <div class="title">${question.id}</div>
+          <div>${question.question}</div>
+          <div class="meta">
+            ${pill(question.state)}
+            <span>${question.resolution_mode}</span>
+            <span>${question.command_id}</span>
+          </div>
+          <div class="question-form">
+            <textarea data-answer-id="${question.id}" placeholder="Type the answer to resume the workflow."></textarea>
+            <button class="primary" data-submit-answer="${question.id}">Answer And Resume</button>
+          </div>
+        </article>
+      `).join('') || '<div class="meta">No open questions.</div>';
+
+      questionsListEl.querySelectorAll('[data-submit-answer]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const questionId = button.getAttribute('data-submit-answer');
+          const textarea = questionsListEl.querySelector(`[data-answer-id="${questionId}"]`);
+          const answer = textarea.value.trim();
+          if (!answer) return;
+          statusLineEl.textContent = `Answering ${questionId}…`;
+          await api('/api/questions/answer', {
+            method: 'POST',
+            body: JSON.stringify({ question_id: questionId, answer }),
+          });
+          textarea.value = '';
+          await refreshSnapshot();
+        });
+      });
+    }
+
+    function renderReviews(snapshot) {
+      const selected = state.selectedCommandId;
+      const reviews = snapshot.reviews.items.filter((review) => !selected || review.command_id === selected);
+      reviewsListEl.innerHTML = reviews.map((review) => `
+        <article class="card">
+          <div class="title">reviewer ${review.reviewer_slot}</div>
+          <div>${review.summary}</div>
+          <div class="meta">
+            ${pill(review.decision)}
+            <span>${review.command_id}</span>
+          </div>
+        </article>
+      `).join('') || '<div class="meta">No reviews yet.</div>';
+    }
+
+    function renderEvents(snapshot) {
+      const selected = state.selectedCommandId;
+      const events = snapshot.events.filter((event) => !selected || event.payload.command_id === selected || event.stream_id === selected).slice().reverse().slice(0, 18);
+      eventsListEl.innerHTML = events.map((event) => `
+        <article class="card">
+          <div class="title">${event.event_type}</div>
+          <div class="meta">
+            <span>${event.stream_type}:${event.stream_id}</span>
+            <span>${event.created_at}</span>
+          </div>
+        </article>
+      `).join('') || '<div class="meta">No events yet.</div>';
+    }
+
+    function renderDetail(snapshot) {
+      const selected = state.selectedCommandId || snapshot.commands.active[0]?.id || snapshot.commands.items[0]?.id;
+      if (!selected) {
+        commandDetailEl.textContent = 'No command selected.';
+        appendInstructionEl.disabled = true;
+        return;
+      }
+      state.selectedCommandId = selected;
+      const command = snapshot.commands.items.find((item) => item.id === selected);
+      const instructions = snapshot.instructions.items.filter((item) => item.command_id === selected);
+      commandDetailEl.textContent = JSON.stringify({ command, instructions }, null, 2);
+      appendInstructionEl.disabled = false;
+    }
+
+    function renderMetrics(snapshot) {
+      metricsEl.innerHTML = [
+        metric('Commands', snapshot.commands.items.length),
+        metric('Active', snapshot.commands.active.length),
+        metric('Open Questions', snapshot.questions.open.length),
+        metric('Tasks', snapshot.tasks.items.length),
+      ].join('');
+    }
+
+    function render(snapshot) {
+      state.snapshot = snapshot;
+      renderMetrics(snapshot);
+      renderCommands(snapshot);
+      renderTasks(snapshot);
+      renderQuestions(snapshot);
+      renderReviews(snapshot);
+      renderEvents(snapshot);
+      renderDetail(snapshot);
+      statusLineEl.textContent = `Updated ${snapshot.generated_at} · ${snapshot.runtime.dashboard_url}`;
+    }
+
+    async function refreshSnapshot() {
+      const snapshot = await api('/api/snapshot');
+      render(snapshot);
+    }
+
+    document.getElementById('refreshBtn').addEventListener('click', refreshSnapshot);
+    document.getElementById('runBtn').addEventListener('click', async () => {
+      const commandId = document.getElementById('runCommandId').value.trim();
+      statusLineEl.textContent = commandId ? `Running ${commandId}…` : 'Running engine…';
+      await api('/api/commands/run', {
+        method: 'POST',
+        body: JSON.stringify({ command_id: commandId || null }),
+      });
+      await refreshSnapshot();
+    });
+    document.getElementById('submitBtn').addEventListener('click', async () => {
+      const goal = document.getElementById('goal').value.trim();
+      if (!goal) return;
+      const priority = document.getElementById('priority').value;
+      const backend = document.getElementById('backend').value;
+      statusLineEl.textContent = 'Submitting command…';
+      await api('/api/commands', {
+        method: 'POST',
+        body: JSON.stringify({ goal, priority, backend }),
+      });
+      document.getElementById('goal').value = '';
+      await refreshSnapshot();
+    });
+    document.getElementById('appendBtn').addEventListener('click', async () => {
+      const commandId = state.selectedCommandId;
+      const body = appendInstructionEl.value.trim();
+      if (!commandId || !body) return;
+      statusLineEl.textContent = `Appending instruction to ${commandId}…`;
+      await api('/api/commands/append', {
+        method: 'POST',
+        body: JSON.stringify({ command_id: commandId, body }),
+      });
+      appendInstructionEl.value = '';
+      await refreshSnapshot();
+    });
+
+    refreshSnapshot();
+    setInterval(refreshSnapshot, 2500);
+  </script>
+</body>
+</html>

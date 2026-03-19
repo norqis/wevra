@@ -1,0 +1,195 @@
+from __future__ import annotations
+
+from enum import Enum
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field
+
+
+class Priority(str, Enum):
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+class RuntimeBackend(str, Enum):
+    INHERIT = "inherit"
+    MOCK = "mock"
+    CODEX = "codex"
+    CLAUDE = "claude"
+
+
+class CommandStage(str, Enum):
+    QUEUED = "queued"
+    PLANNING = "planning"
+    RUNNING = "running"
+    WAITING_QUESTION = "waiting_question"
+    VERIFYING = "verifying"
+    REPLANNING = "replanning"
+    DONE = "done"
+    FAILED = "failed"
+
+
+class TaskState(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    BLOCKED = "blocked"
+    DONE = "done"
+    FAILED = "failed"
+    CANCELED = "canceled"
+
+
+class QuestionState(str, Enum):
+    OPEN = "open"
+    ANSWERED = "answered"
+    RESOLVED = "resolved"
+
+
+class QuestionResolutionMode(str, Enum):
+    RESUME_TASK = "resume_task"
+    REPLAN_COMMAND = "replan_command"
+
+
+class ReviewDecision(str, Enum):
+    APPROVE = "approve"
+    REQUEST_CHANGES = "request_changes"
+    FAIL = "fail"
+
+
+class PlannerDecision(str, Enum):
+    CREATE_TASKS = "create_tasks"
+    ASK_QUESTION = "ask_question"
+    COMPLETE = "complete"
+    FAIL = "fail"
+
+
+class WorkerDecision(str, Enum):
+    COMPLETE = "complete"
+    ASK_QUESTION = "ask_question"
+    FAIL = "fail"
+
+
+class CommandRecord(BaseModel):
+    id: str
+    goal: str
+    stage: CommandStage
+    priority: Priority
+    backend: RuntimeBackend
+    workspace_root: str
+    created_at: str
+    updated_at: str
+    final_response: Optional[str] = None
+    failure_reason: Optional[str] = None
+    question_state: str = "none"
+    planning_attempts: int = 0
+    run_count: int = 0
+    replan_requested: bool = False
+    version: int = 1
+
+
+class TaskRecord(BaseModel):
+    id: str
+    command_id: str
+    task_key: str
+    kind: str
+    capability: str
+    title: str
+    description: str
+    state: TaskState
+    plan_order: int
+    depends_on: List[str] = Field(default_factory=list)
+    input_payload: Dict[str, Any] = Field(default_factory=dict)
+    output_payload: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    attempt_count: int = 0
+    assigned_run_id: Optional[str] = None
+    created_at: str
+    updated_at: str
+
+
+class QuestionRecord(BaseModel):
+    id: str
+    command_id: str
+    task_id: Optional[str] = None
+    source: str
+    resolution_mode: QuestionResolutionMode
+    resume_stage: CommandStage
+    question: str
+    answer: Optional[str] = None
+    state: QuestionState
+    created_at: str
+    updated_at: str
+
+
+class ReviewRecord(BaseModel):
+    id: str
+    command_id: str
+    task_id: Optional[str] = None
+    reviewer_kind: str
+    reviewer_slot: int = 1
+    decision: ReviewDecision
+    summary: str
+    findings: List[str] = Field(default_factory=list)
+    created_at: str
+    updated_at: str
+
+
+class InstructionRecord(BaseModel):
+    id: str
+    command_id: str
+    body: str
+    created_at: str
+
+
+class EventRecord(BaseModel):
+    id: int
+    stream_type: str
+    stream_id: str
+    event_type: str
+    payload: Dict[str, Any] = Field(default_factory=dict)
+    created_at: str
+
+
+class PlannerTaskSpec(BaseModel):
+    key: str
+    kind: str
+    capability: str
+    title: str
+    description: str
+    depends_on: List[str] = Field(default_factory=list)
+    write_files: List[str] = Field(default_factory=list)
+    input_payload: Dict[str, Any] = Field(default_factory=dict)
+
+
+class PlannerOutput(BaseModel):
+    decision: PlannerDecision
+    tasks: List[PlannerTaskSpec] = Field(default_factory=list)
+    question: Optional[str] = None
+    final_response: Optional[str] = None
+    failure_reason: Optional[str] = None
+
+
+class WorkerOutput(BaseModel):
+    decision: WorkerDecision
+    summary: Optional[str] = None
+    result: Dict[str, Any] = Field(default_factory=dict)
+    question: Optional[str] = None
+    resolution_mode: Optional[QuestionResolutionMode] = None
+    failure_reason: Optional[str] = None
+
+
+class ReviewerOutput(BaseModel):
+    decision: ReviewDecision
+    summary: str
+    findings: List[str] = Field(default_factory=list)
+    failure_reason: Optional[str] = None
+
+
+class TickOutcome(BaseModel):
+    action: str
+    command: Optional[CommandRecord] = None
+    task: Optional[TaskRecord] = None
+    tasks: List[TaskRecord] = Field(default_factory=list)
+    question: Optional[QuestionRecord] = None
+    review: Optional[ReviewRecord] = None
+    note: Optional[str] = None

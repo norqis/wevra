@@ -1,6 +1,6 @@
 # Wevra
 
-Japanese README: [README.ja.md](README.ja.md)
+[日本語](README.ja.md)
 
 Wevra is a local workflow engine for structured AI execution.
 
@@ -31,6 +31,21 @@ Each command moves through explicit stages:
 
 The planner emits task specs with explicit `key`, `depends_on`, and `write_files`.  
 The engine uses that DAG plus role concurrency settings from `agents.ini` to decide which tasks are ready and which can run in parallel without colliding on write targets.
+
+## Workflow
+
+Typical command execution looks like this:
+
+1. A user submits a command from the CLI or dashboard.
+2. The engine moves the command into `planning`.
+3. The planner inspects the command, current workspace state, prior questions, prior reviews, and appended instructions.
+4. The planner either asks a question, completes immediately, or emits a task DAG.
+5. That DAG can include investigation or analysis tasks before implementation tasks when the command needs research first.
+6. The engine runs dependency-safe tasks in `running`, respecting `depends_on`, `write_files`, and per-role concurrency limits.
+7. If a worker or planner asks a question, the command moves to `waiting_question` until the user answers.
+8. If the user appends a new instruction, the current active batch is allowed to finish, then the command moves to `replanning` and the planner updates the task graph.
+9. Once all tasks are complete, the engine moves the command into `verifying` for final review.
+10. If review requests changes, the command goes back to `replanning`; otherwise it completes in `done`.
 
 ## Install
 

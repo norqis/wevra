@@ -30,6 +30,21 @@ Wevra は、構造化された AI 実行のためのローカル workflow engine
 planner は `key`、`depends_on`、`write_files` を持つ task spec を返します。  
 engine はその DAG と `agents.ini` の role 設定を使って、どの task が ready か、どの task を安全に並列実行できるかを決めます。
 
+## 実行フロー
+
+典型的な command の流れはこうです。
+
+1. ユーザーが CLI か dashboard から command を投入する
+2. engine が command を `planning` に進める
+3. planner が command、workspace 状態、過去の質問、過去の review、append された追加指示を見て判断する
+4. planner は「質問する」「即完了する」「task DAG を返す」のどれかを返す
+5. command に調査が必要なら、implementation の前に investigation / analysis 系の task を切れる
+6. engine は `depends_on`、`write_files`、role ごとの並列数を見ながら `running` で task を実行する
+7. planner や worker から質問が出たら `waiting_question` に入り、ユーザー回答を待つ
+8. ユーザーが追加指示を append したら、いま走っている active batch だけ完走させてから `replanning` に入り、planner が task graph を更新する
+9. task が全部終わると `verifying` に進み、最後の全体 review を回す
+10. review で差し戻しがあれば `replanning` に戻り、問題なければ `done` で完了する
+
 ## Install
 
 ```bash

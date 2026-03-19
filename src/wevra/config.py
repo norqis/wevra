@@ -4,7 +4,7 @@ import configparser
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 
 from wevra.models import RuntimeBackend
 
@@ -174,7 +174,9 @@ def load_config(repo_root: Path) -> AppConfig:
     merged_env.update({key: value for key, value in os.environ.items() if key not in merged_env})
 
     working_dir_raw = parser.get("runtime", "working_dir", fallback=".").strip() or "."
-    db_path_raw = parser.get("runtime", "db_path", fallback=".wevra/wevra.db").strip() or ".wevra/wevra.db"
+    db_path_raw = (
+        parser.get("runtime", "db_path", fallback=".wevra/wevra.db").strip() or ".wevra/wevra.db"
+    )
 
     working_dir = Path(working_dir_raw)
     if not working_dir.is_absolute():
@@ -185,13 +187,19 @@ def load_config(repo_root: Path) -> AppConfig:
         db_path = (repo_root / db_path).resolve()
 
     notifications = {
-        "question_opened": normalize_bool(parser.get("notification", "question_opened", fallback="false")),
-        "workflow_completed": normalize_bool(parser.get("notification", "workflow_completed", fallback="false")),
+        "question_opened": normalize_bool(
+            parser.get("notification", "question_opened", fallback="false")
+        ),
+        "workflow_completed": normalize_bool(
+            parser.get("notification", "workflow_completed", fallback="false")
+        ),
     }
 
     roles: Dict[str, RoleConfig] = {}
     for name, defaults in ROLE_DEFAULTS.items():
-        runtime_raw = agents.get(name, "runtime", fallback=str(defaults["runtime"].value)).strip().lower()
+        runtime_raw = (
+            agents.get(name, "runtime", fallback=str(defaults["runtime"].value)).strip().lower()
+        )
         model = agents.get(name, "model", fallback="").strip()
         count = max(agents.getint(name, "count", fallback=defaults["count"]), 1)
         runtime = RuntimeBackend(runtime_raw) if runtime_raw else defaults["runtime"]
@@ -210,9 +218,10 @@ def load_config(repo_root: Path) -> AppConfig:
         ui_auto_start=normalize_bool(parser.get("ui", "auto_start", fallback="true")),
         ui_open_browser=normalize_bool(parser.get("ui", "open_browser", fallback="true")),
         ui_language=parser.get("ui", "language", fallback="").strip(),
-        danger=normalize_bool(parser.get("runtime", "dangerously_bypass_approvals_and_sandbox", fallback="false")),
+        danger=normalize_bool(
+            parser.get("runtime", "dangerously_bypass_approvals_and_sandbox", fallback="false")
+        ),
         notifications=notifications,
         env=merged_env,
         roles=roles,
     )
-

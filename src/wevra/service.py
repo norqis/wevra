@@ -54,7 +54,15 @@ STAGE_RANK = {
 }
 
 MODE_KEYWORDS = {
-    WorkflowMode.RESEARCH: ("research", "investigate", "analysis", "report", "調査", "分析", "報告"),
+    WorkflowMode.RESEARCH: (
+        "research",
+        "investigate",
+        "analysis",
+        "report",
+        "調査",
+        "分析",
+        "報告",
+    ),
     WorkflowMode.REVIEW: ("review", "audit", "inspect", "pr", "diff", "レビュー", "確認"),
     WorkflowMode.PLANNING: ("plan", "design", "spec", "task breakdown", "設計", "計画", "分解"),
 }
@@ -68,7 +76,9 @@ def new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
 
 
-def resolve_settings(settings: Optional[AppConfig] = None, repo_root: Optional[Path] = None) -> AppConfig:
+def resolve_settings(
+    settings: Optional[AppConfig] = None, repo_root: Optional[Path] = None
+) -> AppConfig:
     if settings is not None:
         return settings
     return load_config((repo_root or Path.cwd()).resolve())
@@ -104,7 +114,11 @@ def infer_mode_from_goal(goal: str) -> WorkflowMode:
 
 def infer_mode_from_specs(specs: Sequence[PlannerTaskSpec], goal: str) -> WorkflowMode:
     capabilities = {spec.capability for spec in specs}
-    if "implementer" in capabilities or "implementation" in capabilities or "rework" in capabilities:
+    if (
+        "implementer" in capabilities
+        or "implementation" in capabilities
+        or "rework" in capabilities
+    ):
         return WorkflowMode.IMPLEMENTATION
     if "tester" in capabilities:
         return WorkflowMode.IMPLEMENTATION
@@ -148,7 +162,9 @@ def mode_prompt_guidance(mode: WorkflowMode) -> str:
     )
 
 
-def add_mode_control_tasks(mode: WorkflowMode, specs: Sequence[PlannerTaskSpec]) -> List[PlannerTaskSpec]:
+def add_mode_control_tasks(
+    mode: WorkflowMode, specs: Sequence[PlannerTaskSpec]
+) -> List[PlannerTaskSpec]:
     planned = list(specs)
     if not mode_requires_test(mode):
         return planned
@@ -156,9 +172,7 @@ def add_mode_control_tasks(mode: WorkflowMode, specs: Sequence[PlannerTaskSpec])
         return planned
 
     dependency_keys = [spec.key for spec in planned]
-    planned.append(
-        build_final_test_spec(dependency_keys)
-    )
+    planned.append(build_final_test_spec(dependency_keys))
     return planned
 
 
@@ -224,7 +238,9 @@ def command_from_row(row) -> CommandRecord:
 def task_from_row(row) -> TaskRecord:
     payload = dict(row)
     payload["input_payload"] = json.loads(payload["input_payload"] or "{}")
-    payload["output_payload"] = json.loads(payload["output_payload"]) if payload["output_payload"] else None
+    payload["output_payload"] = (
+        json.loads(payload["output_payload"]) if payload["output_payload"] else None
+    )
     payload.setdefault("depends_on", [])
     return TaskRecord.model_validate(payload)
 
@@ -273,7 +289,9 @@ def dependency_map_for_command(conn, command_id: str) -> Dict[str, List[str]]:
     return mapping
 
 
-def attach_dependencies(tasks: Sequence[TaskRecord], dep_map: Dict[str, List[str]]) -> List[TaskRecord]:
+def attach_dependencies(
+    tasks: Sequence[TaskRecord], dep_map: Dict[str, List[str]]
+) -> List[TaskRecord]:
     return [task.model_copy(update={"depends_on": dep_map.get(task.id, [])}) for task in tasks]
 
 
@@ -398,12 +416,15 @@ class MockBackend(BackendInterface):
         instructions: List[InstructionRecord],
     ) -> PlannerOutput:
         goal = " ".join([command.goal, *[instruction.body for instruction in instructions]]).lower()
-        current_mode = (
-            command.effective_mode
-            or (command.workflow_mode if command.workflow_mode != WorkflowMode.AUTO else infer_mode_from_goal(goal))
+        current_mode = command.effective_mode or (
+            command.workflow_mode
+            if command.workflow_mode != WorkflowMode.AUTO
+            else infer_mode_from_goal(goal)
         )
         planner_questions = [question for question in questions if question.source == "planner"]
-        if "[planner_question]" in goal and not any(question.answer for question in planner_questions):
+        if "[planner_question]" in goal and not any(
+            question.answer for question in planner_questions
+        ):
             return PlannerOutput(
                 decision=PlannerDecision.ASK_QUESTION,
                 workflow_mode=current_mode,
@@ -422,7 +443,8 @@ class MockBackend(BackendInterface):
                             kind="rework",
                             capability="implementer",
                             title="Address review findings",
-                            description=f"{latest_review.summary}\n\n" + "\n".join(latest_review.findings),
+                            description=f"{latest_review.summary}\n\n"
+                            + "\n".join(latest_review.findings),
                             input_payload={"review_id": latest_review.id},
                             write_files=["src/rework.txt"],
                         )
@@ -452,7 +474,8 @@ class MockBackend(BackendInterface):
         active_or_done = [
             task
             for task in tasks
-            if task.state in {TaskState.PENDING, TaskState.RUNNING, TaskState.BLOCKED, TaskState.DONE}
+            if task.state
+            in {TaskState.PENDING, TaskState.RUNNING, TaskState.BLOCKED, TaskState.DONE}
         ]
         default_specs: List[PlannerTaskSpec]
         if current_mode == WorkflowMode.IMPLEMENTATION and "[parallel]" in goal:
@@ -547,7 +570,9 @@ class MockBackend(BackendInterface):
                     title="Apply appended instruction",
                     description="Incorporate the latest user-appended instruction into the result.",
                     depends_on=[dependency_key],
-                    write_files=[] if current_mode != WorkflowMode.IMPLEMENTATION else ["src/append_followup.txt"],
+                    write_files=[]
+                    if current_mode != WorkflowMode.IMPLEMENTATION
+                    else ["src/append_followup.txt"],
                 )
             )
 
@@ -560,7 +585,11 @@ class MockBackend(BackendInterface):
 
         if not active_or_done:
             if current_mode == WorkflowMode.IMPLEMENTATION and "[parallel]" in goal:
-                return PlannerOutput(decision=PlannerDecision.CREATE_TASKS, workflow_mode=current_mode, tasks=default_specs)
+                return PlannerOutput(
+                    decision=PlannerDecision.CREATE_TASKS,
+                    workflow_mode=current_mode,
+                    tasks=default_specs,
+                )
             return PlannerOutput(
                 decision=PlannerDecision.CREATE_TASKS,
                 workflow_mode=current_mode,
@@ -585,21 +614,34 @@ class MockBackend(BackendInterface):
         goal = " ".join([command.goal, *[instruction.body for instruction in instructions]]).lower()
         task_questions = [question for question in questions if question.task_id == task.id]
         is_primary_worker = task.capability == "implementer"
-        if "[worker_question]" in goal and is_primary_worker and not any(question.answer for question in task_questions):
+        if (
+            "[worker_question]" in goal
+            and is_primary_worker
+            and not any(question.answer for question in task_questions)
+        ):
             return WorkerOutput(
                 decision=WorkerDecision.ASK_QUESTION,
                 question=f"Need clarification before continuing task '{task.title}'.",
                 resolution_mode=QuestionResolutionMode.RESUME_TASK,
             )
 
-        if "[worker_replan]" in goal and is_primary_worker and not any(question.answer for question in task_questions):
+        if (
+            "[worker_replan]" in goal
+            and is_primary_worker
+            and not any(question.answer for question in task_questions)
+        ):
             return WorkerOutput(
                 decision=WorkerDecision.ASK_QUESTION,
                 question=f"Clarification will change the plan for '{task.title}'.",
                 resolution_mode=QuestionResolutionMode.REPLAN_COMMAND,
             )
 
-        if "[worker_fail]" in goal and is_primary_worker and task.input_payload.get("retry_of") is None and task.attempt_count <= 1:
+        if (
+            "[worker_fail]" in goal
+            and is_primary_worker
+            and task.input_payload.get("retry_of") is None
+            and task.attempt_count <= 1
+        ):
             return WorkerOutput(
                 decision=WorkerDecision.FAIL,
                 failure_reason=f"Mock worker failed '{task.title}' and requested replanning.",
@@ -633,7 +675,9 @@ class MockBackend(BackendInterface):
                 failure_reason="Review backend encountered a terminal validation failure.",
             )
 
-        if "[review_changes]" in goal and not any(review.decision == ReviewDecision.REQUEST_CHANGES for review in reviews):
+        if "[review_changes]" in goal and not any(
+            review.decision == ReviewDecision.REQUEST_CHANGES for review in reviews
+        ):
             return ReviewerOutput(
                 decision=ReviewDecision.REQUEST_CHANGES,
                 summary=f"Reviewer {reviewer_slot} requested a follow-up pass.",
@@ -677,7 +721,9 @@ class StructuredCliBackend(BackendInterface):
             "If this is replanning, preserve completed work as fact, reuse still-valid task keys, and only omit tasks that should be superseded.\n\n"
             f"Context:\n{json.dumps(context, indent=2, sort_keys=True)}"
         )
-        payload = self._run_structured(prompt, PlannerOutput.model_json_schema(), command.workspace_root)
+        payload = self._run_structured(
+            prompt, PlannerOutput.model_json_schema(), command.workspace_root
+        )
         return PlannerOutput.model_validate(payload)
 
     def execute_task(
@@ -696,7 +742,9 @@ class StructuredCliBackend(BackendInterface):
             "Do not mutate engine state. Return only JSON matching the schema.\n\n"
             f"Context:\n{json.dumps(context, indent=2, sort_keys=True)}"
         )
-        payload = self._run_structured(prompt, WorkerOutput.model_json_schema(), command.workspace_root)
+        payload = self._run_structured(
+            prompt, WorkerOutput.model_json_schema(), command.workspace_root
+        )
         return WorkerOutput.model_validate(payload)
 
     def review(
@@ -715,7 +763,9 @@ class StructuredCliBackend(BackendInterface):
             "Return only JSON matching the schema.\n\n"
             f"Context:\n{json.dumps(context, indent=2, sort_keys=True)}"
         )
-        payload = self._run_structured(prompt, ReviewerOutput.model_json_schema(), command.workspace_root)
+        payload = self._run_structured(
+            prompt, ReviewerOutput.model_json_schema(), command.workspace_root
+        )
         return ReviewerOutput.model_validate(payload)
 
     def _run_structured(self, prompt: str, schema: dict, workspace_root: str) -> dict:
@@ -758,7 +808,9 @@ class StructuredCliBackend(BackendInterface):
                 check=False,
             )
             if result.returncode != 0:
-                raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "codex exec failed")
+                raise RuntimeError(
+                    result.stderr.strip() or result.stdout.strip() or "codex exec failed"
+                )
             return json.loads(Path(output_path).read_text())
         finally:
             Path(schema_path).unlink(missing_ok=True)
@@ -787,7 +839,9 @@ class StructuredCliBackend(BackendInterface):
             check=False,
         )
         if result.returncode != 0:
-            raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "claude print failed")
+            raise RuntimeError(
+                result.stderr.strip() or result.stdout.strip() or "claude print failed"
+            )
         return json.loads(result.stdout)
 
 
@@ -799,7 +853,9 @@ def backend_for(command: CommandRecord, settings: AppConfig, capability: str) ->
     return StructuredCliBackend(runtime, role.model, settings.danger)
 
 
-def build_final_response(command: CommandRecord, tasks: List[TaskRecord], reviews: List[ReviewRecord]) -> str:
+def build_final_response(
+    command: CommandRecord, tasks: List[TaskRecord], reviews: List[ReviewRecord]
+) -> str:
     mode = effective_mode(command).value
     lines = [f"Goal: {command.goal}", f"Mode: {mode}", "", "Completed tasks:"]
     completed_tasks = [task for task in tasks if task.state == TaskState.DONE]
@@ -830,22 +886,16 @@ def _resolve_dependency_target(
     return None
 
 
-def create_task_records(conn, command: CommandRecord, task_specs: Iterable[PlannerTaskSpec]) -> List[TaskRecord]:
+def create_task_records(
+    conn, command: CommandRecord, task_specs: Iterable[PlannerTaskSpec]
+) -> List[TaskRecord]:
     specs = list(task_specs)
     if not specs:
         return []
 
     existing_tasks = list_tasks_for_command(conn, command.id)
-    existing_key_map = {
-        task.task_key: task.id
-        for task in existing_tasks
-        if task.task_key
-    }
-    existing_by_key = {
-        task.task_key: task
-        for task in existing_tasks
-        if task.task_key
-    }
+    existing_key_map = {task.task_key: task.id for task in existing_tasks if task.task_key}
+    existing_by_key = {task.task_key: task for task in existing_tasks if task.task_key}
 
     seen_keys: set[str] = set()
     planned_key_map: Dict[str, str] = {}
@@ -965,7 +1015,12 @@ def create_task_records(conn, command: CommandRecord, task_specs: Iterable[Plann
     for task in existing_tasks:
         if task.task_key and task.task_key in seen_keys:
             continue
-        if task.state in {TaskState.PENDING, TaskState.BLOCKED, TaskState.FAILED, TaskState.CANCELED}:
+        if task.state in {
+            TaskState.PENDING,
+            TaskState.BLOCKED,
+            TaskState.FAILED,
+            TaskState.CANCELED,
+        }:
             update_task(
                 conn,
                 task.id,
@@ -985,7 +1040,9 @@ def create_task_records(conn, command: CommandRecord, task_specs: Iterable[Plann
         f"SELECT * FROM tasks WHERE id IN ({','.join('?' for _ in planned_ids)}) ORDER BY plan_order ASC",
         planned_ids,
     ).fetchall()
-    return attach_dependencies([task_from_row(row) for row in rows], dependency_map_for_command(conn, command.id))
+    return attach_dependencies(
+        [task_from_row(row) for row in rows], dependency_map_for_command(conn, command.id)
+    )
 
 
 def create_question_record(
@@ -1168,7 +1225,9 @@ def create_instruction_record(conn, command_id: str, body: str) -> InstructionRe
     return instruction_from_row(row)
 
 
-def append_instruction(db_path: Path, command_id: str, body: str) -> Tuple[InstructionRecord, CommandRecord]:
+def append_instruction(
+    db_path: Path, command_id: str, body: str
+) -> Tuple[InstructionRecord, CommandRecord]:
     initialize_database(db_path)
     instruction_body = body.strip()
     if not instruction_body:
@@ -1193,7 +1252,12 @@ def append_instruction(db_path: Path, command_id: str, body: str) -> Tuple[Instr
             for row in question_rows:
                 question = question_from_row(row)
                 if question.task_id:
-                    update_task(conn, question.task_id, state=TaskState.CANCELED.value, error="Superseded by appended instruction.")
+                    update_task(
+                        conn,
+                        question.task_id,
+                        state=TaskState.CANCELED.value,
+                        error="Superseded by appended instruction.",
+                    )
                 fields = {"state": QuestionState.RESOLVED.value}
                 if question.state == QuestionState.OPEN:
                     fields["answer"] = "[superseded by appended instruction]"
@@ -1212,7 +1276,11 @@ def append_instruction(db_path: Path, command_id: str, body: str) -> Tuple[Instr
                 "command",
                 command.id,
                 "replanning_requested",
-                {"source": "instruction_append", "mode": "after_active_batch", "instruction_id": instruction.id},
+                {
+                    "source": "instruction_append",
+                    "mode": "after_active_batch",
+                    "instruction_id": instruction.id,
+                },
             )
         else:
             update_command(
@@ -1229,11 +1297,17 @@ def append_instruction(db_path: Path, command_id: str, body: str) -> Tuple[Instr
                 "command",
                 command.id,
                 "replanning_requested",
-                {"source": "instruction_append", "mode": "immediate", "instruction_id": instruction.id},
+                {
+                    "source": "instruction_append",
+                    "mode": "immediate",
+                    "instruction_id": instruction.id,
+                },
             )
 
         conn.commit()
-        refreshed_row = conn.execute("SELECT * FROM commands WHERE id = ?", (command_id,)).fetchone()
+        refreshed_row = conn.execute(
+            "SELECT * FROM commands WHERE id = ?", (command_id,)
+        ).fetchone()
         return instruction, command_from_row(refreshed_row)
 
 
@@ -1268,7 +1342,9 @@ def list_tasks(db_path: Path, command_id: Optional[str] = None) -> List[TaskReco
             "SELECT * FROM tasks ORDER BY created_at ASC, plan_order ASC"
         ).fetchall()
         tasks = [task_from_row(row) for row in rows]
-        dep_rows = conn.execute("SELECT task_id, depends_on_task_id FROM task_dependencies").fetchall()
+        dep_rows = conn.execute(
+            "SELECT task_id, depends_on_task_id FROM task_dependencies"
+        ).fetchall()
         dep_map: Dict[str, List[str]] = {}
         for row in dep_rows:
             dep_map.setdefault(row["task_id"], []).append(row["depends_on_task_id"])
@@ -1303,7 +1379,9 @@ def list_reviews(db_path: Path, command_id: Optional[str] = None) -> List[Review
     with connect(db_path) as conn:
         if command_id:
             return list_reviews_for_command(conn, command_id)
-        rows = conn.execute("SELECT * FROM reviews ORDER BY created_at ASC, reviewer_slot ASC").fetchall()
+        rows = conn.execute(
+            "SELECT * FROM reviews ORDER BY created_at ASC, reviewer_slot ASC"
+        ).fetchall()
         return [review_from_row(row) for row in rows]
 
 
@@ -1357,7 +1435,9 @@ def select_actionable_command(conn, command_id: Optional[str]) -> Optional[Comma
     commands = [command_from_row(row) for row in rows]
     actionable = []
     for command in commands:
-        if command.stage == CommandStage.WAITING_QUESTION and not answered_question_ready(conn, command.id):
+        if command.stage == CommandStage.WAITING_QUESTION and not answered_question_ready(
+            conn, command.id
+        ):
             continue
         actionable.append(command)
     if not actionable:
@@ -1429,7 +1509,9 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
             )
             append_event(conn, "command", command.id, "planning_failed", {"error": str(exc)})
             row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
-            return TickOutcome(action="planning_failed", command=command_from_row(row), note=str(exc))
+            return TickOutcome(
+                action="planning_failed", command=command_from_row(row), note=str(exc)
+            )
 
         update_command(
             conn,
@@ -1488,7 +1570,9 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
             {"question_id": question.id, "effective_mode": resolved_mode.value},
         )
         row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
-        return TickOutcome(action="question_created", command=command_from_row(row), question=question)
+        return TickOutcome(
+            action="question_created", command=command_from_row(row), question=question
+        )
 
     if output.decision == PlannerDecision.COMPLETE:
         existing_tester = any(task.capability == "tester" for task in tasks)
@@ -1548,7 +1632,11 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
                 {"source": "planner_complete", "effective_mode": resolved_mode.value},
             )
             row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
-            return TickOutcome(action="verification_started", command=command_from_row(row), note=output.final_response)
+            return TickOutcome(
+                action="verification_started",
+                command=command_from_row(row),
+                note=output.final_response,
+            )
 
         final_response = output.final_response or build_final_response(
             command.model_copy(update={"effective_mode": resolved_mode}),
@@ -1574,7 +1662,9 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
             {"source": "planner", "effective_mode": resolved_mode.value},
         )
         row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
-        return TickOutcome(action="command_completed", command=command_from_row(row), note=final_response)
+        return TickOutcome(
+            action="command_completed", command=command_from_row(row), note=final_response
+        )
 
     update_command(
         conn,
@@ -1594,7 +1684,9 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
         {"reason": output.failure_reason or "Planner returned failure."},
     )
     row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
-    return TickOutcome(action="planning_failed", command=command_from_row(row), note=output.failure_reason)
+    return TickOutcome(
+        action="planning_failed", command=command_from_row(row), note=output.failure_reason
+    )
 
 
 def determine_resume_stage(answered_questions: Sequence[QuestionRecord]) -> CommandStage:
@@ -1604,7 +1696,10 @@ def determine_resume_stage(answered_questions: Sequence[QuestionRecord]) -> Comm
             return CommandStage.PLANNING
         if question.resume_stage == CommandStage.REPLANNING:
             stage = CommandStage.REPLANNING
-        elif question.resolution_mode == QuestionResolutionMode.REPLAN_COMMAND and stage != CommandStage.PLANNING:
+        elif (
+            question.resolution_mode == QuestionResolutionMode.REPLAN_COMMAND
+            and stage != CommandStage.PLANNING
+        ):
             stage = CommandStage.REPLANNING
     return stage
 
@@ -1664,7 +1759,9 @@ def reduce_waiting_question(conn, command: CommandRecord) -> TickOutcome:
         },
     )
     command_row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
-    question_row = conn.execute("SELECT * FROM questions WHERE id = ?", (answered_questions[0].id,)).fetchone()
+    question_row = conn.execute(
+        "SELECT * FROM questions WHERE id = ?", (answered_questions[0].id,)
+    ).fetchone()
     return TickOutcome(
         action="question_resolved",
         command=command_from_row(command_row),
@@ -1746,7 +1843,11 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
             {"source": "instruction_append"},
         )
         row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
-        return TickOutcome(action="replanning_requested", command=command_from_row(row), note="appended instruction queued replanning")
+        return TickOutcome(
+            action="replanning_requested",
+            command=command_from_row(row),
+            note="appended instruction queued replanning",
+        )
 
     tasks = list_tasks_for_command(conn, command.id)
     batch = select_ready_batch(tasks, settings)
@@ -1770,7 +1871,13 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
 
         if mode_requires_review(resolved_mode):
             update_command(conn, command.id, stage=CommandStage.VERIFYING.value)
-            append_event(conn, "command", command.id, "verification_started", {"effective_mode": resolved_mode.value})
+            append_event(
+                conn,
+                "command",
+                command.id,
+                "verification_started",
+                {"effective_mode": resolved_mode.value},
+            )
             row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
             return TickOutcome(action="verification_started", command=command_from_row(row))
 
@@ -1781,12 +1888,22 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
             stage=CommandStage.DONE.value,
             final_response=final_response,
         )
-        append_event(conn, "command", command.id, "command_completed", {"source": "tasks", "effective_mode": resolved_mode.value})
+        append_event(
+            conn,
+            "command",
+            command.id,
+            "command_completed",
+            {"source": "tasks", "effective_mode": resolved_mode.value},
+        )
         row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
-        return TickOutcome(action="command_completed", command=command_from_row(row), note="all tasks completed")
+        return TickOutcome(
+            action="command_completed", command=command_from_row(row), note="all tasks completed"
+        )
 
     for task in batch:
-        update_task(conn, task.id, state=TaskState.RUNNING.value, attempt_count=task.attempt_count + 1)
+        update_task(
+            conn, task.id, state=TaskState.RUNNING.value, attempt_count=task.attempt_count + 1
+        )
         append_event(conn, "task", task.id, "task_started", {"command_id": command.id})
 
     tasks = list_tasks_for_command(conn, command.id)
@@ -1795,7 +1912,9 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
     questions = list_questions_for_command(conn, command.id)
     reviews = list_reviews_for_command(conn, command.id)
     instructions = list_instructions_for_command(conn, command.id)
-    results = execute_task_batch(command, active_batch, tasks, questions, reviews, instructions, settings)
+    results = execute_task_batch(
+        command, active_batch, tasks, questions, reviews, instructions, settings
+    )
 
     updated_tasks: List[TaskRecord] = []
     created_questions: List[QuestionRecord] = []
@@ -1810,7 +1929,9 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
                 error=error,
                 output_payload=json.dumps({"error": error}, sort_keys=True),
             )
-            append_event(conn, "task", task.id, "task_failed", {"command_id": command.id, "error": error})
+            append_event(
+                conn, "task", task.id, "task_failed", {"command_id": command.id, "error": error}
+            )
             failed_any = True
         elif output and output.decision == WorkerDecision.COMPLETE:
             result_payload = dict(output.result)
@@ -1832,8 +1953,16 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
             )
         elif output and output.decision == WorkerDecision.ASK_QUESTION:
             resolution_mode = output.resolution_mode or QuestionResolutionMode.RESUME_TASK
-            resume_stage = CommandStage.RUNNING if resolution_mode == QuestionResolutionMode.RESUME_TASK else CommandStage.REPLANNING
-            task_state = TaskState.BLOCKED if resolution_mode == QuestionResolutionMode.RESUME_TASK else TaskState.CANCELED
+            resume_stage = (
+                CommandStage.RUNNING
+                if resolution_mode == QuestionResolutionMode.RESUME_TASK
+                else CommandStage.REPLANNING
+            )
+            task_state = (
+                TaskState.BLOCKED
+                if resolution_mode == QuestionResolutionMode.RESUME_TASK
+                else TaskState.CANCELED
+            )
             update_task(conn, task.id, state=task_state.value, error=None)
             question = create_question_record(
                 conn,
@@ -1874,7 +2003,9 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
         f"SELECT * FROM tasks WHERE id IN ({','.join('?' for _ in batch_ids)}) ORDER BY plan_order ASC",
         list(batch_ids),
     ).fetchall()
-    updated_tasks = attach_dependencies([task_from_row(row) for row in updated_rows], dependency_map_for_command(conn, command.id))
+    updated_tasks = attach_dependencies(
+        [task_from_row(row) for row in updated_rows], dependency_map_for_command(conn, command.id)
+    )
 
     next_stage = CommandStage.RUNNING
     question_state = "none"
@@ -1888,7 +2019,9 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
         if any(task.state == TaskState.PENDING for task in refreshed_tasks):
             next_stage = CommandStage.RUNNING
         else:
-            next_stage = CommandStage.VERIFYING if mode_requires_review(resolved_mode) else CommandStage.DONE
+            next_stage = (
+                CommandStage.VERIFYING if mode_requires_review(resolved_mode) else CommandStage.DONE
+            )
 
     update_command(
         conn,
@@ -1897,18 +2030,38 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
         question_state=question_state,
         run_count=command.run_count + len(active_batch),
         failure_reason=None,
-        final_response=build_final_response(command, list_tasks_for_command(conn, command.id), []) if next_stage == CommandStage.DONE else None,
+        final_response=build_final_response(command, list_tasks_for_command(conn, command.id), [])
+        if next_stage == CommandStage.DONE
+        else None,
     )
     if next_stage == CommandStage.REPLANNING:
-        append_event(conn, "command", command.id, "replanning_requested", {"task_ids": [task.id for task in updated_tasks]})
+        append_event(
+            conn,
+            "command",
+            command.id,
+            "replanning_requested",
+            {"task_ids": [task.id for task in updated_tasks]},
+        )
         action = "replanning_requested"
     elif next_stage == CommandStage.WAITING_QUESTION:
         action = "question_created"
     elif next_stage == CommandStage.VERIFYING:
-        append_event(conn, "command", command.id, "verification_started", {"effective_mode": resolved_mode.value})
+        append_event(
+            conn,
+            "command",
+            command.id,
+            "verification_started",
+            {"effective_mode": resolved_mode.value},
+        )
         action = "verification_started"
     elif next_stage == CommandStage.DONE:
-        append_event(conn, "command", command.id, "command_completed", {"source": "tasks", "effective_mode": resolved_mode.value})
+        append_event(
+            conn,
+            "command",
+            command.id,
+            "command_completed",
+            {"source": "tasks", "effective_mode": resolved_mode.value},
+        )
         action = "command_completed"
     else:
         action = "task_batch_completed"
@@ -1937,7 +2090,9 @@ def run_review_batch(
     def run_single(slot: int) -> Tuple[int, ReviewerOutput]:
         backend = backend_for(command, settings, "reviewer")
         try:
-            output = backend.review(command, tasks, questions, reviews, instructions, reviewer_slot=slot)
+            output = backend.review(
+                command, tasks, questions, reviews, instructions, reviewer_slot=slot
+            )
             return slot, output
         except Exception as exc:
             return slot, ReviewerOutput(
@@ -1972,7 +2127,11 @@ def reduce_verifying(conn, command: CommandRecord, settings: AppConfig) -> TickO
             {"source": "instruction_append"},
         )
         row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
-        return TickOutcome(action="replanning_requested", command=command_from_row(row), note="appended instruction bypassed verification")
+        return TickOutcome(
+            action="replanning_requested",
+            command=command_from_row(row),
+            note="appended instruction bypassed verification",
+        )
 
     tasks = list_tasks_for_command(conn, command.id)
     questions = list_questions_for_command(conn, command.id)
@@ -1992,7 +2151,14 @@ def reduce_verifying(conn, command: CommandRecord, settings: AppConfig) -> TickO
     next_run_count = command.run_count + len(outputs)
 
     if any(review.decision == ReviewDecision.FAIL for review in created_reviews):
-        failure_reason = next((review.summary for review in created_reviews if review.decision == ReviewDecision.FAIL), "Review failed.")
+        failure_reason = next(
+            (
+                review.summary
+                for review in created_reviews
+                if review.decision == ReviewDecision.FAIL
+            ),
+            "Review failed.",
+        )
         update_command(
             conn,
             command.id,
@@ -2000,9 +2166,20 @@ def reduce_verifying(conn, command: CommandRecord, settings: AppConfig) -> TickO
             run_count=next_run_count,
             failure_reason=failure_reason,
         )
-        append_event(conn, "command", command.id, "review_failed", {"review_ids": [review.id for review in created_reviews]})
+        append_event(
+            conn,
+            "command",
+            command.id,
+            "review_failed",
+            {"review_ids": [review.id for review in created_reviews]},
+        )
         row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
-        return TickOutcome(action="review_failed", command=command_from_row(row), review=created_reviews[0], note=failure_reason)
+        return TickOutcome(
+            action="review_failed",
+            command=command_from_row(row),
+            review=created_reviews[0],
+            note=failure_reason,
+        )
 
     if any(review.decision == ReviewDecision.REQUEST_CHANGES for review in created_reviews):
         update_command(
@@ -2012,7 +2189,13 @@ def reduce_verifying(conn, command: CommandRecord, settings: AppConfig) -> TickO
             run_count=next_run_count,
             failure_reason=None,
         )
-        append_event(conn, "command", command.id, "replanning_requested", {"review_ids": [review.id for review in created_reviews]})
+        append_event(
+            conn,
+            "command",
+            command.id,
+            "replanning_requested",
+            {"review_ids": [review.id for review in created_reviews]},
+        )
         row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
         return TickOutcome(
             action="replanning_requested",
@@ -2030,7 +2213,13 @@ def reduce_verifying(conn, command: CommandRecord, settings: AppConfig) -> TickO
         run_count=next_run_count,
         failure_reason=None,
     )
-    append_event(conn, "command", command.id, "command_completed", {"source": "review", "review_count": len(created_reviews)})
+    append_event(
+        conn,
+        "command",
+        command.id,
+        "command_completed",
+        {"source": "review", "review_count": len(created_reviews)},
+    )
     row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
     return TickOutcome(
         action="command_completed",
@@ -2065,7 +2254,9 @@ def tick_once(
         elif command.stage == CommandStage.VERIFYING:
             outcome = reduce_verifying(conn, command, settings)
         else:
-            outcome = TickOutcome(action="no_op", command=command, note=f"stage '{command.stage.value}' is terminal")
+            outcome = TickOutcome(
+                action="no_op", command=command, note=f"stage '{command.stage.value}' is terminal"
+            )
 
         conn.commit()
         return outcome
@@ -2109,7 +2300,14 @@ def run_engine(
         outcomes.append(outcome)
         if outcome.command:
             last_command_id = outcome.command.id
-        if outcome.action in {"no_op", "blocked", "command_completed", "planning_failed", "review_failed", "dispatch_failed"}:
+        if outcome.action in {
+            "no_op",
+            "blocked",
+            "command_completed",
+            "planning_failed",
+            "review_failed",
+            "dispatch_failed",
+        }:
             break
         if outcome.command and outcome.command.stage in {CommandStage.DONE, CommandStage.FAILED}:
             break

@@ -116,7 +116,9 @@ def status() -> None:
 
 @app.command("init-db")
 def init_db(
-    db_path: Optional[Path] = typer.Option(None, help="Optional path to the SQLite runtime database."),
+    db_path: Optional[Path] = typer.Option(
+        None, help="Optional path to the SQLite runtime database."
+    ),
 ) -> None:
     """Initialize the runtime database."""
     target = resolve_db_path(db_path)
@@ -127,11 +129,19 @@ def init_db(
 @app.command("submit")
 def submit(
     goal: str = typer.Argument(..., help="Command goal to submit into the runtime."),
-    workflow_mode: WorkflowMode = typer.Option(WorkflowMode.AUTO, "--mode", help="Workflow mode: auto, implementation, research, review, or planning."),
+    workflow_mode: WorkflowMode = typer.Option(
+        WorkflowMode.AUTO,
+        "--mode",
+        help="Workflow mode: auto, implementation, research, review, or planning.",
+    ),
     priority: Priority = typer.Option(Priority.HIGH, help="Priority assigned to the command."),
-    backend: Optional[RuntimeBackend] = typer.Option(None, help="Optional backend override for this command."),
+    backend: Optional[RuntimeBackend] = typer.Option(
+        None, help="Optional backend override for this command."
+    ),
     workspace_root: Optional[Path] = typer.Option(None, help="Optional workspace root override."),
-    db_path: Optional[Path] = typer.Option(None, help="Optional path to the SQLite runtime database."),
+    db_path: Optional[Path] = typer.Option(
+        None, help="Optional path to the SQLite runtime database."
+    ),
 ) -> None:
     """Submit a new command."""
     config = settings()
@@ -150,12 +160,20 @@ def submit(
 
 @app.command("append")
 def append(
-    command_id: str = typer.Argument(..., help="Command identifier that should receive the additional instruction."),
-    instruction: str = typer.Argument(..., help="Additional instruction to append to the existing command."),
-    db_path: Optional[Path] = typer.Option(None, help="Optional path to the SQLite runtime database."),
+    command_id: str = typer.Argument(
+        ..., help="Command identifier that should receive the additional instruction."
+    ),
+    instruction: str = typer.Argument(
+        ..., help="Additional instruction to append to the existing command."
+    ),
+    db_path: Optional[Path] = typer.Option(
+        None, help="Optional path to the SQLite runtime database."
+    ),
 ) -> None:
     """Append a user instruction to an existing command and request replanning."""
-    appended, command = append_instruction(resolve_db_path(db_path), command_id=command_id, body=instruction)
+    appended, command = append_instruction(
+        resolve_db_path(db_path), command_id=command_id, body=instruction
+    )
     print_json(
         {
             "instruction": appended.model_dump(mode="json"),
@@ -167,7 +185,9 @@ def append(
 @app.command("show")
 def show(
     command_id: str = typer.Argument(..., help="Command identifier."),
-    db_path: Optional[Path] = typer.Option(None, help="Optional path to the SQLite runtime database."),
+    db_path: Optional[Path] = typer.Option(
+        None, help="Optional path to the SQLite runtime database."
+    ),
 ) -> None:
     """Show the current state of a command."""
     command = get_command(resolve_db_path(db_path), command_id)
@@ -178,7 +198,9 @@ def show(
 
 @app.command("list")
 def list_command_records(
-    db_path: Optional[Path] = typer.Option(None, help="Optional path to the SQLite runtime database."),
+    db_path: Optional[Path] = typer.Option(
+        None, help="Optional path to the SQLite runtime database."
+    ),
 ) -> None:
     """List commands in execution order."""
     commands = list_commands(resolve_db_path(db_path))
@@ -187,25 +209,42 @@ def list_command_records(
 
 @app.command("tasks")
 def tasks(
-    command_id: Optional[str] = typer.Option(None, help="Optional command identifier to filter by."),
-    db_path: Optional[Path] = typer.Option(None, help="Optional path to the SQLite runtime database."),
+    command_id: Optional[str] = typer.Option(
+        None, help="Optional command identifier to filter by."
+    ),
+    db_path: Optional[Path] = typer.Option(
+        None, help="Optional path to the SQLite runtime database."
+    ),
 ) -> None:
     """List task records."""
-    print_json({"tasks": [task.model_dump(mode="json") for task in list_tasks(resolve_db_path(db_path), command_id=command_id)]})
+    print_json(
+        {
+            "tasks": [
+                task.model_dump(mode="json")
+                for task in list_tasks(resolve_db_path(db_path), command_id=command_id)
+            ]
+        }
+    )
 
 
 @app.command("questions")
 def questions(
-    command_id: Optional[str] = typer.Option(None, help="Optional command identifier to filter by."),
+    command_id: Optional[str] = typer.Option(
+        None, help="Optional command identifier to filter by."
+    ),
     open_only: bool = typer.Option(False, help="Only show open questions."),
-    db_path: Optional[Path] = typer.Option(None, help="Optional path to the SQLite runtime database."),
+    db_path: Optional[Path] = typer.Option(
+        None, help="Optional path to the SQLite runtime database."
+    ),
 ) -> None:
     """List question records."""
     print_json(
         {
             "questions": [
                 question.model_dump(mode="json")
-                for question in list_questions(resolve_db_path(db_path), command_id=command_id, open_only=open_only)
+                for question in list_questions(
+                    resolve_db_path(db_path), command_id=command_id, open_only=open_only
+                )
             ]
         }
     )
@@ -215,38 +254,68 @@ def questions(
 def answer(
     question_id: str = typer.Argument(..., help="Question identifier."),
     answer_text: str = typer.Argument(..., help="Answer that should unblock the runtime."),
-    db_path: Optional[Path] = typer.Option(None, help="Optional path to the SQLite runtime database."),
+    db_path: Optional[Path] = typer.Option(
+        None, help="Optional path to the SQLite runtime database."
+    ),
 ) -> None:
     """Answer an open question."""
-    question = answer_question(resolve_db_path(db_path), question_id=question_id, answer=answer_text)
+    question = answer_question(
+        resolve_db_path(db_path), question_id=question_id, answer=answer_text
+    )
     print_json(question.model_dump(mode="json"))
 
 
 @app.command("reviews")
 def reviews(
-    command_id: Optional[str] = typer.Option(None, help="Optional command identifier to filter by."),
-    db_path: Optional[Path] = typer.Option(None, help="Optional path to the SQLite runtime database."),
+    command_id: Optional[str] = typer.Option(
+        None, help="Optional command identifier to filter by."
+    ),
+    db_path: Optional[Path] = typer.Option(
+        None, help="Optional path to the SQLite runtime database."
+    ),
 ) -> None:
     """List review records."""
-    print_json({"reviews": [review.model_dump(mode="json") for review in list_reviews(resolve_db_path(db_path), command_id=command_id)]})
+    print_json(
+        {
+            "reviews": [
+                review.model_dump(mode="json")
+                for review in list_reviews(resolve_db_path(db_path), command_id=command_id)
+            ]
+        }
+    )
 
 
 @app.command("events")
 def events(
-    command_id: Optional[str] = typer.Option(None, help="Optional command identifier to filter by."),
-    db_path: Optional[Path] = typer.Option(None, help="Optional path to the SQLite runtime database."),
+    command_id: Optional[str] = typer.Option(
+        None, help="Optional command identifier to filter by."
+    ),
+    db_path: Optional[Path] = typer.Option(
+        None, help="Optional path to the SQLite runtime database."
+    ),
 ) -> None:
     """List runtime events."""
-    print_json({"events": [event.model_dump(mode="json") for event in list_events(resolve_db_path(db_path), command_id=command_id)]})
+    print_json(
+        {
+            "events": [
+                event.model_dump(mode="json")
+                for event in list_events(resolve_db_path(db_path), command_id=command_id)
+            ]
+        }
+    )
 
 
 @app.command("tick")
 def tick(
     command_id: Optional[str] = typer.Option(None, help="Optional command identifier to target."),
-    db_path: Optional[Path] = typer.Option(None, help="Optional path to the SQLite runtime database."),
+    db_path: Optional[Path] = typer.Option(
+        None, help="Optional path to the SQLite runtime database."
+    ),
 ) -> None:
     """Advance the engine by one deterministic step."""
-    outcome = tick_once(resolve_db_path(db_path), command_id=command_id, settings=settings(), repo_root=repo_root())
+    outcome = tick_once(
+        resolve_db_path(db_path), command_id=command_id, settings=settings(), repo_root=repo_root()
+    )
     print_json(outcome.model_dump(mode="json"))
 
 
@@ -254,7 +323,9 @@ def tick(
 def run(
     command_id: Optional[str] = typer.Option(None, help="Optional command identifier to target."),
     max_steps: int = typer.Option(100, min=1, help="Maximum reducer steps to execute."),
-    db_path: Optional[Path] = typer.Option(None, help="Optional path to the SQLite runtime database."),
+    db_path: Optional[Path] = typer.Option(
+        None, help="Optional path to the SQLite runtime database."
+    ),
 ) -> None:
     """Run the engine until it blocks, finishes, or reaches the step limit."""
     print_json(

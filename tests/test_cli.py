@@ -51,7 +51,16 @@ def test_init_creates_config_and_db(tmp_path, monkeypatch):
     finally:
         conn.close()
     names = {row[0] for row in rows}
-    assert {"commands", "tasks", "task_dependencies", "questions", "reviews", "artifacts", "events", "instructions"} <= names
+    assert {
+        "commands",
+        "tasks",
+        "task_dependencies",
+        "questions",
+        "reviews",
+        "artifacts",
+        "events",
+        "instructions",
+    } <= names
 
 
 def test_run_happy_path_completes_command(tmp_path, monkeypatch):
@@ -85,7 +94,9 @@ def test_worker_question_can_be_answered_and_resumed(tmp_path, monkeypatch):
     blocked = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
     assert blocked["final_command"]["stage"] == "waiting_question"
 
-    questions = read_json(runner.invoke(app, ["questions", "--command-id", command_id, "--open-only"]))
+    questions = read_json(
+        runner.invoke(app, ["questions", "--command-id", command_id, "--open-only"])
+    )
     question_id = questions["questions"][0]["id"]
 
     answered = read_json(runner.invoke(app, ["answer", question_id, "Continue."]))
@@ -118,7 +129,9 @@ def test_research_mode_skips_final_review(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
 
-    submitted = read_json(runner.invoke(app, ["submit", "--mode", "research", "investigate the current architecture"]))
+    submitted = read_json(
+        runner.invoke(app, ["submit", "--mode", "research", "investigate the current architecture"])
+    )
     command_id = submitted["id"]
 
     completed = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
@@ -137,7 +150,9 @@ def test_review_mode_runs_review_without_tester_gate(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
 
-    submitted = read_json(runner.invoke(app, ["submit", "--mode", "review", "review the existing changes"]))
+    submitted = read_json(
+        runner.invoke(app, ["submit", "--mode", "review", "review the existing changes"])
+    )
     command_id = submitted["id"]
 
     completed = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
@@ -155,7 +170,9 @@ def test_planning_mode_stops_after_plan_output(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
 
-    submitted = read_json(runner.invoke(app, ["submit", "--mode", "planning", "design a rollout plan"]))
+    submitted = read_json(
+        runner.invoke(app, ["submit", "--mode", "planning", "design a rollout plan"])
+    )
     command_id = submitted["id"]
 
     completed = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
@@ -182,10 +199,14 @@ def test_append_instruction_replans_after_current_batch(tmp_path, monkeypatch):
     assert batch["command"]["stage"] == "running"
 
     before_append = read_json(runner.invoke(app, ["tasks", "--command-id", command_id]))
-    integration_before = next(task for task in before_append["tasks"] if task["task_key"] == "integration")
+    integration_before = next(
+        task for task in before_append["tasks"] if task["task_key"] == "integration"
+    )
     assert integration_before["state"] == "pending"
 
-    appended = read_json(runner.invoke(app, ["append", command_id, "[append_extra] add a final follow-up task"]))
+    appended = read_json(
+        runner.invoke(app, ["append", command_id, "[append_extra] add a final follow-up task"])
+    )
     assert appended["command"]["replan_requested"] is True
 
     replan = read_json(runner.invoke(app, ["tick", "--command-id", command_id]))
@@ -193,7 +214,9 @@ def test_append_instruction_replans_after_current_batch(tmp_path, monkeypatch):
     assert replan["command"]["stage"] == "replanning"
 
     still_pending = read_json(runner.invoke(app, ["tasks", "--command-id", command_id]))
-    integration_pending = next(task for task in still_pending["tasks"] if task["task_key"] == "integration")
+    integration_pending = next(
+        task for task in still_pending["tasks"] if task["task_key"] == "integration"
+    )
     assert integration_pending["state"] == "pending"
 
     replanned = read_json(runner.invoke(app, ["tick", "--command-id", command_id]))

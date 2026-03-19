@@ -21,7 +21,6 @@ from wevra.models import CommandStage, Priority, RuntimeBackend, WorkflowMode
 from wevra.service import (
     answer_question,
     append_instruction,
-    get_command,
     list_commands,
     list_events,
     list_instructions,
@@ -82,7 +81,9 @@ def build_snapshot(repo_root: Path, settings: Optional[AppConfig] = None) -> dic
     tasks = [task.model_dump(mode="json") for task in list_tasks(settings.db_path)]
     questions = [question.model_dump(mode="json") for question in list_questions(settings.db_path)]
     reviews = [review.model_dump(mode="json") for review in list_reviews(settings.db_path)]
-    instructions = [instruction.model_dump(mode="json") for instruction in list_instructions(settings.db_path)]
+    instructions = [
+        instruction.model_dump(mode="json") for instruction in list_instructions(settings.db_path)
+    ]
     events = [event.model_dump(mode="json") for event in list_events(settings.db_path)][-80:]
 
     command_counts: Dict[str, int] = {}
@@ -102,7 +103,9 @@ def build_snapshot(repo_root: Path, settings: Optional[AppConfig] = None) -> dic
         review_counts[review["decision"]] = review_counts.get(review["decision"], 0) + 1
 
     active_commands = [
-        command for command in commands if command["stage"] not in {CommandStage.DONE.value, CommandStage.FAILED.value}
+        command
+        for command in commands
+        if command["stage"] not in {CommandStage.DONE.value, CommandStage.FAILED.value}
     ]
 
     payload = {
@@ -207,7 +210,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if not goal:
                 self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "goal_required"})
                 return
-            workflow_mode = WorkflowMode(str(payload.get("workflow_mode", WorkflowMode.AUTO.value)).strip() or WorkflowMode.AUTO.value)
+            workflow_mode = WorkflowMode(
+                str(payload.get("workflow_mode", WorkflowMode.AUTO.value)).strip()
+                or WorkflowMode.AUTO.value
+            )
             priority = Priority(str(payload.get("priority", Priority.HIGH.value)))
             backend_raw = str(payload.get("backend", "")).strip().lower()
             backend = RuntimeBackend(backend_raw) if backend_raw else None
@@ -220,16 +226,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 settings=self.settings,
                 repo_root=self.repo_root,
             )
-            self.send_json(HTTPStatus.CREATED, {"ok": True, "command": command.model_dump(mode="json")})
+            self.send_json(
+                HTTPStatus.CREATED, {"ok": True, "command": command.model_dump(mode="json")}
+            )
             return
 
         if parsed.path == "/api/commands/append":
             command_id = str(payload.get("command_id", "")).strip()
             body = str(payload.get("body", "")).strip()
             if not command_id or not body:
-                self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "command_and_body_required"})
+                self.send_json(
+                    HTTPStatus.BAD_REQUEST, {"ok": False, "error": "command_and_body_required"}
+                )
                 return
-            instruction, command = append_instruction(self.settings.db_path, command_id=command_id, body=body)
+            instruction, command = append_instruction(
+                self.settings.db_path, command_id=command_id, body=body
+            )
             self.send_json(
                 HTTPStatus.OK,
                 {
@@ -257,9 +269,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
             question_id = str(payload.get("question_id", "")).strip()
             answer_text = str(payload.get("answer", "")).strip()
             if not question_id or not answer_text:
-                self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "question_and_answer_required"})
+                self.send_json(
+                    HTTPStatus.BAD_REQUEST, {"ok": False, "error": "question_and_answer_required"}
+                )
                 return
-            answered = answer_question(self.settings.db_path, question_id=question_id, answer=answer_text)
+            answered = answer_question(
+                self.settings.db_path, question_id=question_id, answer=answer_text
+            )
             resumed = run_engine(
                 self.settings.db_path,
                 command_id=answered.command_id,

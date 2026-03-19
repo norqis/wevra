@@ -1,5 +1,7 @@
 # Wevra
 
+Japanese README: [README.ja.md](README.ja.md)
+
 Wevra is a local workflow engine for structured AI execution.
 
 It turns a user command into explicit runtime state, lets AI backends return structured planning / task / review outputs, and keeps orchestration responsibility inside the engine instead of inside a long-lived AI chat session.

@@ -1,191 +1,177 @@
 # Wevra
 
-Wevra は、構造化された AI 実行のためのローカル workflow engine です。
+Wevra は、構造化された AI 作業をローカルで回す workflow engine です。
 
-ユーザーの指示を明示的な runtime state に変換し、AI backend には構造化された planning / task / review 出力だけを返させ、オーケストレーション責務は長寿命の AI チャットではなく engine 側に持たせます。
+依頼を受け取り、必要な作業に分解し、適切な mode で進め、ユーザー確認が必要なときは止まり、長寿命の AI チャットに依存せずに engine 側でフローを管理します。
 
-## 現在あるもの
+repo 直下には `artisan` のように使える `./wevra` ランチャーがあるので、毎回 virtualenv を activate しなくても実行できます。
 
-- Python 標準の `sqlite3` を使った SQLite ベースの runtime
-- `wevra.ini` と `agents.ini` による設定
-- `auto` / `implementation` / `research` / `review` / `planning` の workflow mode
-- role ごとの並列数を考慮した dependency-aware task scheduler
-- テストとローカル検証用の `mock` backend
-- planner / implementer / reviewer 向けの `codex` / `claude` backend
-- snapshot API、command submit、質問回答、append-driven replanning を備えた browser dashboard
-- `command`、`task`、`question`、`review`、`instruction`、`event` の永続レコード
+Wevra では、依頼を次の mode で回せます。
 
-## Runtime Model
+| Mode | どういうときに使うか |
+| --- | --- |
+| `auto` | 依頼に合わせて Wevra に進め方を選ばせたいとき |
+| `implementation` | 実装、修正、機能追加を進めたいとき |
+| `research` | 調査、比較、分析をして結論をまとめたいとき |
+| `review` | 現在の workspace や変更内容をレビューしたいとき |
+| `planning` | 実装前に進め方やタスク分解だけを固めたいとき |
 
-各 command は明示的な stage を通ります。
+![日本語ダッシュボードのスクリーンショット](docs/images/dashboard-ja.png)
 
-- `queued`
-- `planning`
-- `running`
-- `waiting_question`
-- `verifying`
-- `replanning`
-- `done`
-- `failed`
+## 初回セットアップ
 
-planner は `key`、`depends_on`、`write_files` を持つ task spec を返します。  
-engine はその DAG と `agents.ini` の role 設定を使って、どの task が ready か、どの task を安全に並列実行できるかを決めます。
-
-## Workflow Modes
-
-- `auto`
-  依頼内容に合わせて、Wevra が最適な進め方を選びます。
-- `implementation`
-  実装や修正を進めたいときの mode です。必要なら先に調査し、その後に実装を進め、既存テストと最終レビューまで含めて完了させます。最終結果は command の result として保存され、dashboard から確認できます。
-- `research`
-  調査、比較、分析、報告書作成をしたいときの mode です。情報を集めて整理し、結論や比較結果を command の result としてまとめます。
-- `review`
-  いまある差分や workspace の状態を見てほしいときの mode です。問題点、リスク、改善ポイントを command の result としてまとめます。
-- `planning`
-  実装の前に、設計、進め方、タスク分解だけを固めたいときの mode です。設計書や実行計画を command の result としてまとめ、実装までは進めません。
-
-## 実行フロー
-
-典型的な流れはこうです。
-
-1. CLI か dashboard から依頼を投入し、mode を選ぶ
-2. Wevra がその mode に必要な作業へ分解する
-3. 調査が必要なら、次の作業に進む前に先に調べる
-4. 実行できる作業から順に進め、安全なものは並列に進める
-5. 途中で確認が必要になったら、ユーザーに質問して止まる
-6. ユーザーが追加指示を入れたら、いま動いている作業だけ完了させてから計画を更新する
-7. `implementation` mode では、実装作業が終わったあとに既存の Feature / Unit テストを実行する
-8. テスト完了後に全体レビューを行う
-9. レビュアー全員が承認したときだけ完了し、1人でも修正を求めたら、修正してから全体レビューをやり直す
-
-## Install
+ローカル checkout 直後の初回セットアップ:
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate
-pip install -e '.[dev]'
+./.venv/bin/pip install -e '.[dev]'
+./wevra init
 ```
+
+`wevra init` を実行すると、`wevra.ini`、`agents.ini`、`.env` などのローカル設定ファイルが作られます。
 
 SQLite を別途インストールする必要はありません。
 
+## 設定を調整する
+
+`./wevra init` のあと、必要に応じて生成されたローカル設定ファイルを編集します。
+
+- `wevra.ini`: workspace、dashboard の host と port、通知、runtime の既定値
+- `agents.ini`: role ごとの backend と model
+- `.env`: `DISCORD_WEBHOOK_URL` のようなローカル secret
+
+既定値のままで問題なければ、この手順は飛ばしてそのまま起動できます。
+
 ## Quick Start
 
-repo ローカルの設定と DB を初期化します。
+初回セットアップ後は、通常これだけで始められます。
 
 ```bash
-wevra init
+./wevra start
 ```
 
-dashboard を含めて一括で起動するならこちらです。
+その後、`http://127.0.0.1:43861` を開いて dashboard から依頼を投入します。
+
+## Dashboard
+
+Wevra は dashboard を中心に使う想定です。
+
+dashboard では次の操作ができます。
+
+- 新しい依頼を投入する
+- 進行状況をリアルタイムで見る
+- 質問が来たときに回答する
+- タスク、レビュー、最終結果を確認する
+- 進行中の依頼に追加指示を送る
+
+CLI からも同じ操作ができるので、スクリプト化や自動化にも向いています。
+
+## CLI Examples
+
+実装依頼を流す例:
 
 ```bash
-wevra start
-wevra status
+./wevra submit --mode implementation "Implement a planner-backed workflow"
+./wevra run
 ```
 
-CLI から command を投入して実行する基本フローです。
+調査依頼を流す例:
 
 ```bash
-wevra submit --mode implementation "Implement a planner-backed workflow"
-wevra run
-wevra list
-wevra tasks
-wevra reviews
-wevra events
+./wevra submit --mode research "現在の構成を調べてトレードオフを整理する"
+./wevra run
 ```
 
-調査だけ回したい場合:
+質問に回答する例:
 
 ```bash
-wevra submit --mode research "現在の構成を調べてトレードオフを整理する"
-wevra run
+./wevra questions --open-only
+./wevra answer <question-id> "Proceed with the existing interface."
+./wevra run
 ```
 
-質問が出たときのフローです。
+進行中の依頼に追加指示を入れる例:
 
 ```bash
-wevra submit "[worker_question] clarify implementation details"
-wevra run
-wevra questions --open-only
-wevra answer <question-id> "Proceed with the existing interface."
-wevra run
+./wevra append <command-id> "Keep the current work, but also add a final follow-up pass."
+./wevra run --command-id <command-id>
 ```
 
-既存 command に追加指示を入れて再計画させるフローです。
+## 実行フロー
+
+1. CLI か dashboard から依頼を投入します。
+2. Wevra が mode に応じて必要な作業へ分解します。
+3. 実行できる作業から順に進め、安全なものは並列に進めます。
+4. 確認が必要になったら質問して止まります。
+5. `implementation` mode では、実装後に既存テストと最終レビューを行います。
+6. 最終レビューが通ったときだけ完了します。
+
+CLI から dashboard を操作する例:
 
 ```bash
-wevra append <command-id> "Keep the current work, but also add a final follow-up pass."
-wevra run --command-id <command-id>
+./wevra dashboard start
+./wevra dashboard status
+./wevra dashboard stop
 ```
 
-dashboard の起動と停止です。
+## 設定リファレンス
 
-```bash
-wevra dashboard start
-wevra dashboard status
-wevra dashboard stop
-```
-
-dashboard では command の履歴を見られます。各 command を選ぶと、その詳細、追加指示、完了後の result を確認できます。
-
-既定の dashboard URL:
-
-```text
-http://127.0.0.1:43861
-```
-
-## Config
-
-`wevra init` は次のファイルを作ります。
+`wevra init` を実行すると、次のローカル設定ファイルが作られます。
 
 - `wevra.ini`
 - `agents.ini`
 - `.env`
 
-`wevra.ini` には runtime 全体の設定を持たせます。たとえば:
+### `wevra.ini`
 
-- `runtime.working_dir`
-- `runtime.db_path`
-- `runtime.language`
-- `runtime.dangerously_bypass_approvals_and_sandbox`
-- `ui.host`
-- `ui.port`
-- `ui.auto_start`
-- `ui.open_browser`
+runtime、UI、通知まわりの挙動を設定します。
 
-`agents.ini` には role ごとの backend 設定や並列数を持たせます。たとえば:
+| キー | 既定値 | 内容 |
+| --- | --- | --- |
+| `runtime.working_dir` | `.` | 実行対象の workspace ルートです。 |
+| `runtime.db_path` | `.wevra/wevra.db` | SQLite DB の保存先です。 |
+| `runtime.language` | `en` | runtime の既定言語です。 |
+| `runtime.dangerously_bypass_approvals_and_sandbox` | `false` | 必要時に危険な bypass 挙動を許可します。 |
+| `ui.auto_start` | `true` | `wevra start` 実行時に dashboard を自動起動します。 |
+| `ui.host` | `127.0.0.1` | dashboard の bind host です。 |
+| `ui.port` | `43861` | dashboard の port です。 |
+| `ui.open_browser` | `true` | dashboard 起動時にブラウザを開きます。 |
+| `ui.language` | 空 | dashboard の言語を明示指定できます。 |
+| `notification.question_opened` | `false` | 新しい質問が開いたときの通知フックです。 |
+| `notification.workflow_completed` | `false` | workflow 完了時の通知フックです。 |
+| `discord.enable` | `false` | Discord 通知を有効化します。 |
+| `discord.webhook_url` | `DISCORD_WEBHOOK_URL` | `.env` または実行中の環境変数から読むキー名です。 |
 
-- `planner.runtime`
-- `planner.model`
-- `implementer.runtime`
-- `implementer.count`
-- `reviewer.runtime`
-- `reviewer.count`
+### `agents.ini`
 
-## Commands
+role ごとに、どの AI 実行先と model を使うかを設定します。
 
-- `wevra init`
-- `wevra start`
-- `wevra stop`
-- `wevra status`
-- `wevra init-db`
-- `wevra submit`
-- `wevra append`
-- `wevra show`
-- `wevra list`
-- `wevra tasks`
-- `wevra questions`
-- `wevra answer`
-- `wevra reviews`
-- `wevra events`
-- `wevra tick`
-- `wevra run`
-- `wevra dashboard start`
-- `wevra dashboard stop`
-- `wevra dashboard status`
+- `runtime`: その role をどの実行先で動かすか
+- `model`: その実行先に渡す model 名
+- `count`: その role を同時にいくつ動かすか
+
+| セクション | キー | 内容 |
+| --- | --- | --- |
+| `coordinator` | `runtime`, `model` | 依頼の受付や進行調整で使う実行先と model です。 |
+| `planner` | `runtime`, `model` | 依頼を作業に分けるときに使う実行先と model です。 |
+| `investigation` | `runtime`, `model` | 調査タスクで使う実行先と model です。 |
+| `analyst` | `runtime`, `model` | 分析や整理で使う実行先と model です。 |
+| `tester` | `runtime`, `model` | テスト工程で使う実行先と model です。 |
+| `implementer` | `runtime`, `model`, `count` | 実装工程で使う実行先、model、並列数です。 |
+| `reviewer` | `runtime`, `model`, `count` | 最終レビューで使う実行先、model、並列数です。 |
+
+`runtime` に指定できる値は `mock`、`codex`、`claude` です。
+
+### `.env`
+
+設定ファイルから参照されるローカル secret や env 値を置きます。
+
+| キー | 参照元 | 内容 |
+| --- | --- | --- |
+| `DISCORD_WEBHOOK_URL` | `wevra.ini` → `discord.webhook_url` | Discord 通知を有効にしたときに使う実際の webhook URL です。 |
 
 ## Development
 
 ```bash
-pytest -q
+./.venv/bin/pytest -q
 ```

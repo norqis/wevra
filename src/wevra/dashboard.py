@@ -111,7 +111,7 @@ def build_snapshot(repo_root: Path, settings: Optional[AppConfig] = None) -> dic
         "runtime": {
             "db_path": str(settings.db_path),
             "working_dir": str(settings.working_dir),
-            "language": settings.language,
+            "language": settings.ui_language or settings.language,
             "dashboard_url": dashboard_url(settings),
             "roles": summarize_roles(settings),
         },

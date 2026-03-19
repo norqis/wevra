@@ -7,41 +7,69 @@
   <link rel="icon" href="data:,">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #f1efe7;
-      --ink: #0d1724;
-      --muted: #6d7785;
-      --panel: rgba(255, 252, 245, 0.88);
-      --line: rgba(13, 23, 36, 0.12);
-      --accent: #d45b21;
-      --accent-2: #0f766e;
-      --good: #16803c;
-      --warn: #c27b08;
-      --bad: #be123c;
+      --bg: #05070b;
+      --bg-2: #0a111b;
+      --ink: #f3f7ff;
+      --muted: #8c99ad;
+      --panel: rgba(10, 16, 27, 0.82);
+      --panel-strong: rgba(15, 22, 36, 0.95);
+      --panel-soft: rgba(255, 255, 255, 0.03);
+      --line: rgba(151, 176, 214, 0.18);
+      --accent: #7c9cff;
+      --accent-2: #28d7b8;
+      --accent-3: #ff8d57;
+      --good: #55e38e;
+      --warn: #ffbf5f;
+      --bad: #ff6f91;
       --font-ui: "IBM Plex Sans", sans-serif;
       --font-display: "Space Grotesk", sans-serif;
-      --radius: 22px;
-      --shadow: 0 20px 60px rgba(13, 23, 36, 0.12);
+      --radius: 24px;
+      --shadow: 0 22px 80px rgba(0, 0, 0, 0.42);
     }
 
     * { box-sizing: border-box; }
-    html, body { margin: 0; min-height: 100%; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: #05070b;
+    }
     body {
       font-family: var(--font-ui);
       color: var(--ink);
       background:
-        radial-gradient(circle at top left, rgba(212, 91, 33, 0.14), transparent 28%),
-        radial-gradient(circle at bottom right, rgba(15, 118, 110, 0.12), transparent 24%),
-        linear-gradient(135deg, #f6f1e7, #f0ece3 40%, #ebe6dc);
+        radial-gradient(circle at top left, rgba(124, 156, 255, 0.20), transparent 28%),
+        radial-gradient(circle at top right, rgba(40, 215, 184, 0.12), transparent 22%),
+        radial-gradient(circle at bottom right, rgba(255, 141, 87, 0.10), transparent 24%),
+        linear-gradient(180deg, #06090f, #09111d 52%, #05070b);
+      background-attachment: fixed;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+      background-size: 56px 56px;
+      mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 0.75), transparent 90%);
+      opacity: 0.22;
+    }
+
+    body.locale-ja {
+      --font-ui: "Noto Sans JP", "IBM Plex Sans", sans-serif;
+      --font-display: "Noto Sans JP", "Space Grotesk", sans-serif;
     }
 
     .shell {
-      width: min(1500px, calc(100% - 28px));
-      margin: 18px auto 28px;
+      width: min(1560px, calc(100% - 32px));
+      margin: 14px auto 22px;
       display: grid;
-      gap: 16px;
+      gap: 14px;
     }
 
     .hero, .panel {
@@ -50,69 +78,146 @@
       background: var(--panel);
       backdrop-filter: blur(12px);
       box-shadow: var(--shadow);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before,
+    .panel::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(145deg, rgba(255, 255, 255, 0.08), transparent 34%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 45%);
     }
 
     .hero {
       padding: 18px 20px;
       display: grid;
-      grid-template-columns: 1.4fr 1fr;
-      gap: 18px;
+      gap: 8px;
       align-items: start;
+    }
+
+    .hero-topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+    }
+
+    .hero-controls {
+      display: grid;
+      justify-items: end;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .hero-control-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .hero-control-row select {
+      width: auto;
+      min-width: 126px;
+    }
+
+    .hero-control-label {
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .hero-status {
+      text-align: right;
+      color: var(--muted);
+      font-size: 12px;
+      max-width: 420px;
+    }
+
+    .live-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 40px;
+      padding: 0 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(40, 215, 184, 0.24);
+      background: rgba(40, 215, 184, 0.08);
+      color: #b8ffef;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .live-indicator::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--accent-2);
+      box-shadow: 0 0 0 5px rgba(40, 215, 184, 0.12);
     }
 
     .eyebrow {
       color: var(--accent);
       font-family: var(--font-display);
       font-size: 11px;
-      letter-spacing: 0.12em;
+      letter-spacing: 0.14em;
       text-transform: uppercase;
       font-weight: 700;
     }
 
     h1 {
-      margin: 8px 0 8px;
+      margin: 6px 0 8px;
       font-family: var(--font-display);
-      font-size: clamp(28px, 4vw, 48px);
-      line-height: 0.95;
+      font-size: clamp(24px, 3vw, 38px);
+      line-height: 1.02;
     }
 
-    .hero p {
-      margin: 0;
-      color: var(--muted);
-      max-width: 760px;
-    }
-
-    .metrics {
+    .toolbar {
+      padding: 12px 14px;
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
-      margin-top: 18px;
+      gap: 12px;
     }
 
-    .metric {
-      border-radius: 16px;
-      background: rgba(255, 255, 255, 0.75);
-      border: 1px solid rgba(13, 23, 36, 0.08);
-      padding: 12px;
+    .field-stack {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
     }
 
-    .metric .label {
+    .field-label {
       color: var(--muted);
       font-size: 11px;
-      text-transform: uppercase;
       letter-spacing: 0.08em;
-    }
-
-    .metric .value {
-      margin-top: 8px;
-      font-family: var(--font-display);
-      font-size: 26px;
+      text-transform: uppercase;
       font-weight: 700;
     }
 
-    .composer {
+    .toolbar-input {
+      width: 100%;
+      min-height: 120px;
+      resize: vertical;
+    }
+
+    .toolbar-controls {
       display: grid;
-      gap: 10px;
+      grid-template-columns: minmax(120px, max-content) minmax(92px, max-content) minmax(148px, max-content) auto;
+      gap: 8px;
+      align-items: end;
+      justify-content: end;
+    }
+
+    .toolbar-controls select {
+      min-width: 0;
     }
 
     textarea, select, input, button {
@@ -121,34 +226,34 @@
 
     textarea, select, input {
       width: 100%;
-      border: 1px solid rgba(13, 23, 36, 0.12);
+      border: 1px solid rgba(151, 176, 214, 0.18);
       border-radius: 14px;
-      background: rgba(255, 255, 255, 0.82);
-      padding: 12px 14px;
+      background: rgba(7, 12, 20, 0.86);
+      padding: 10px 12px;
       color: var(--ink);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
     }
 
-    textarea {
-      min-height: 116px;
-      resize: vertical;
+    select, input {
+      min-height: 44px;
     }
 
-    .row {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 10px;
+    textarea::placeholder,
+    input::placeholder {
+      color: rgba(193, 203, 220, 0.42);
     }
 
     .actions {
       display: flex;
       flex-wrap: wrap;
-      gap: 10px;
+      gap: 8px;
     }
 
     button {
       border: 0;
       border-radius: 999px;
-      padding: 12px 18px;
+      min-height: 40px;
+      padding: 0 16px;
       cursor: pointer;
       font-weight: 700;
       transition: transform 0.18s ease, box-shadow 0.18s ease;
@@ -156,68 +261,235 @@
 
     button:hover { transform: translateY(-1px); }
     .primary {
-      background: linear-gradient(135deg, var(--accent), #f08a33);
-      color: #fff;
-      box-shadow: 0 10px 24px rgba(212, 91, 33, 0.22);
+      background: linear-gradient(135deg, var(--accent), #5de2cf);
+      color: #071019;
+      box-shadow: 0 14px 32px rgba(86, 180, 255, 0.26);
     }
     .secondary {
-      background: rgba(13, 23, 36, 0.08);
+      background: rgba(255, 255, 255, 0.08);
       color: var(--ink);
+      border: 1px solid rgba(151, 176, 214, 0.14);
+    }
+
+    .toolbar-controls .primary {
+      height: 44px;
+      border-radius: 14px;
+      padding: 0 18px;
+      align-self: end;
     }
 
     .status-line {
       color: var(--muted);
-      font-size: 13px;
+      font-size: 12px;
     }
 
     .grid {
       display: grid;
-      grid-template-columns: 1.2fr 1fr;
-      gap: 16px;
+      grid-template-columns: 320px minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
     }
 
-    .column {
+    .queue-column {
+      padding: 14px;
       display: grid;
-      gap: 16px;
+      gap: 12px;
       align-content: start;
+      min-width: 0;
+      position: sticky;
+      top: 14px;
+    }
+
+    .workspace-shell {
+      padding: 14px;
+      display: grid;
+      gap: 14px;
+      align-content: start;
+      min-width: 0;
+    }
+
+    .workspace-panel {
+      border: 1px solid rgba(151, 176, 214, 0.14);
+      border-radius: 20px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
+      padding: 14px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .workspace-panel::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(145deg, rgba(255, 255, 255, 0.05), transparent 38%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 52%);
     }
 
     .panel {
-      padding: 16px;
+      padding: 14px;
     }
 
     .panel h2 {
       margin: 0 0 12px;
-      font-size: 18px;
+      font-size: 16px;
       font-family: var(--font-display);
+      position: relative;
+      z-index: 1;
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .panel-head h2 {
+      margin: 0;
+    }
+
+    .panel-badge {
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(151, 176, 214, 0.14);
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
     }
 
     .list {
       display: grid;
-      gap: 10px;
-      max-height: 58vh;
+      gap: 8px;
+      max-height: 50vh;
       overflow: auto;
+      padding-right: 4px;
     }
 
     .card {
-      border: 1px solid rgba(13, 23, 36, 0.09);
+      border: 1px solid rgba(151, 176, 214, 0.12);
       border-radius: 16px;
-      background: rgba(255, 255, 255, 0.78);
-      padding: 12px 14px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.02));
+      padding: 11px 12px;
+      display: grid;
+      gap: 5px;
+      transition: border-color 0.18s ease, transform 0.18s ease, background 0.18s ease;
+      position: relative;
+    }
+
+    .command-item {
+      border: 1px solid rgba(151, 176, 214, 0.10);
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.015));
+      padding: 12px 13px;
       display: grid;
       gap: 6px;
+      position: relative;
+      cursor: pointer;
+      transition: border-color 0.18s ease, transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.015);
+    }
+
+    .command-item::before {
+      content: "";
+      position: absolute;
+      inset: 10px auto 10px 0;
+      width: 3px;
+      border-radius: 999px;
+      background: transparent;
+      transition: background 0.18s ease;
+    }
+
+    .command-item .title {
+      font-size: 13px;
+      line-height: 1.25;
+    }
+
+    .command-item .summary {
+      color: rgba(239, 244, 255, 0.88);
+      font-size: 12px;
+      line-height: 1.45;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .command-item[data-command-id] {
+      cursor: pointer;
+    }
+
+    .command-item[data-command-id]:hover {
+      transform: translateY(-1px);
+      border-color: rgba(124, 156, 255, 0.34);
+    }
+
+    .command-item.selected {
+      border-color: rgba(124, 156, 255, 0.48);
+      background: linear-gradient(180deg, rgba(124, 156, 255, 0.14), rgba(255, 255, 255, 0.03));
+      box-shadow: inset 0 0 0 1px rgba(124, 156, 255, 0.08);
+    }
+
+    .command-item.selected::before {
+      background: var(--accent);
+    }
+
+    .command-item.attention {
+      border-color: rgba(255, 191, 95, 0.38);
+      background: linear-gradient(180deg, rgba(255, 191, 95, 0.12), rgba(255, 255, 255, 0.02));
+      box-shadow: inset 0 0 0 1px rgba(255, 191, 95, 0.08);
+    }
+
+    .command-item.attention::before {
+      background: rgba(255, 191, 95, 0.82);
+    }
+
+    .command-item.selected.attention {
+      border-color: rgba(255, 191, 95, 0.58);
+      box-shadow: inset 0 0 0 1px rgba(255, 191, 95, 0.14);
+    }
+
+    .command-item.queued-state {
+      border-color: rgba(151, 176, 214, 0.14);
+      background: linear-gradient(180deg, rgba(210, 220, 235, 0.06), rgba(255, 255, 255, 0.02));
+    }
+
+    .command-item.queued-state::before {
+      background: rgba(151, 176, 214, 0.40);
+    }
+
+    .command-item.planning-state,
+    .command-item.running-state,
+    .command-item.replanning-state,
+    .command-item.verifying-state {
+      border-color: rgba(85, 227, 142, 0.34);
+      background: linear-gradient(180deg, rgba(85, 227, 142, 0.10), rgba(255, 255, 255, 0.02));
+      box-shadow: inset 0 0 0 1px rgba(85, 227, 142, 0.08);
+    }
+
+    .command-item.planning-state::before,
+    .command-item.running-state::before,
+    .command-item.replanning-state::before,
+    .command-item.verifying-state::before {
+      background: rgba(85, 227, 142, 0.86);
     }
 
     .title {
       font-weight: 700;
+      font-size: 14px;
     }
 
     .meta {
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11px;
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 6px;
     }
 
     .pill {
@@ -225,10 +497,11 @@
       align-items: center;
       gap: 6px;
       border-radius: 999px;
-      padding: 3px 9px;
-      font-size: 11px;
+      padding: 3px 8px;
+      font-size: 10px;
       font-weight: 700;
-      background: rgba(13, 23, 36, 0.08);
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(151, 176, 214, 0.1);
     }
 
     .pill.done, .pill.approve { color: var(--good); }
@@ -236,37 +509,167 @@
     .pill.failed, .pill.fail { color: var(--bad); }
     .pill.running, .pill.planning, .pill.replanning, .pill.verifying { color: var(--accent-2); }
 
-    .question-form {
-      display: grid;
-      gap: 10px;
-      margin-top: 8px;
+    .question-alert {
+      display: none;
+      padding: 16px 18px 18px;
+      border-color: rgba(255, 191, 95, 0.42);
+      background:
+        radial-gradient(circle at top right, rgba(255, 191, 95, 0.16), transparent 32%),
+        linear-gradient(180deg, rgba(255, 191, 95, 0.10), rgba(255, 255, 255, 0.02));
+      box-shadow:
+        0 18px 48px rgba(0, 0, 0, 0.36),
+        inset 0 0 0 1px rgba(255, 191, 95, 0.08);
     }
 
-    .detail-grid {
+    .question-alert.open {
       display: grid;
+    }
+
+    .question-alert-shell {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 380px;
+      gap: 20px;
+      align-items: start;
+    }
+
+    .question-alert-copy {
+      display: grid;
+      gap: 10px;
+    }
+
+    .question-alert-title {
+      font-family: var(--font-display);
+      font-size: 18px;
+      line-height: 1.15;
+      margin: 0;
+    }
+
+    .question-alert-text {
+      color: #fff6d6;
+      font-size: 13px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .question-alert-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .question-alert-form {
+      display: grid;
+      align-self: stretch;
+      gap: 10px;
+      justify-items: stretch;
+    }
+
+    .question-alert textarea {
+      min-height: 104px;
+      border-color: rgba(255, 191, 95, 0.22);
+      background: rgba(12, 10, 4, 0.58);
+      width: 100%;
+    }
+
+    .question-alert .primary {
+      width: 100%;
+      background: linear-gradient(135deg, #ffd36f, #ffbf5f);
+      color: #231808;
+      box-shadow: 0 14px 32px rgba(255, 191, 95, 0.20);
+    }
+
+    .workspace-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
       gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .workspace-heading {
+      display: grid;
+      gap: 8px;
+      padding: 14px;
+      border-radius: 18px;
+      border: 1px solid rgba(124, 156, 255, 0.2);
+      background:
+        radial-gradient(circle at top right, rgba(124, 156, 255, 0.16), transparent 32%),
+        linear-gradient(180deg, rgba(124, 156, 255, 0.08), rgba(255, 255, 255, 0.02));
+    }
+
+    .workspace-goal {
+      font-size: 17px;
+      line-height: 1.28;
+      font-weight: 700;
+    }
+
+    .workspace-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .workspace-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .workspace-action {
+      min-height: 38px;
+      border-radius: 14px;
+      padding: 0 14px;
+      font-size: 12px;
+    }
+
+    .workspace-action.result-ready {
+      background: linear-gradient(135deg, var(--accent), #5de2cf);
+      color: #071019;
+      box-shadow: 0 14px 32px rgba(86, 180, 255, 0.22);
+    }
+
+    .workspace-action.append-action {
+      background: linear-gradient(135deg, #ff9a62, #ff5f7a);
+      color: #1b0a0e;
+      border-color: rgba(255, 138, 111, 0.34);
+      box-shadow: 0 14px 34px rgba(255, 95, 122, 0.22);
+    }
+
+    .workspace-action:disabled {
+      opacity: 0.42;
+      cursor: not-allowed;
+      box-shadow: none;
+      transform: none;
     }
 
     .detail-card {
-      border: 1px solid rgba(13, 23, 36, 0.09);
+      border: 1px solid rgba(151, 176, 214, 0.12);
       border-radius: 16px;
-      background: rgba(255, 255, 255, 0.72);
-      padding: 12px 14px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.02));
+      padding: 11px 12px;
       display: grid;
-      gap: 8px;
+      gap: 6px;
     }
 
     .detail-card h3 {
       margin: 0;
-      font-size: 14px;
+      font-size: 12px;
       font-family: var(--font-display);
+    }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1fr);
+      gap: 12px;
     }
 
     .detail-keyvals {
       display: grid;
-      gap: 6px;
+      gap: 5px;
       color: var(--muted);
-      font-size: 13px;
+      font-size: 11px;
     }
 
     .detail-keyvals strong {
@@ -274,24 +677,87 @@
       font-weight: 700;
     }
 
-    .result-preview {
-      min-height: 112px;
-      max-height: 220px;
-      overflow: auto;
+    .workspace-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 0;
+    }
+
+    .workspace-tab {
+      min-height: 36px;
+      padding: 0 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(151, 176, 214, 0.14);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+
+    .workspace-tab.active {
+      background: linear-gradient(135deg, rgba(124, 156, 255, 0.20), rgba(93, 226, 207, 0.16));
+      color: var(--ink);
+      border-color: rgba(124, 156, 255, 0.32);
+      box-shadow: inset 0 0 0 1px rgba(124, 156, 255, 0.08);
+    }
+
+    .tab-panel {
+      display: none;
+      margin-top: 8px;
+    }
+
+    .tab-panel.active {
+      display: block;
+    }
+
+    .activity-stack {
+      display: grid;
+      gap: 14px;
+    }
+
+    .activity-section {
+      display: grid;
+      gap: 10px;
+    }
+
+    .activity-section h3 {
+      margin: 0;
+      font-size: 12px;
+      font-family: var(--font-display);
+    }
+
+    .history-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .history-item {
+      border: 1px solid rgba(151, 176, 214, 0.12);
+      border-radius: 14px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
+      padding: 10px 12px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .history-item .title {
+      font-size: 12px;
+    }
+
+    .history-item .body {
+      color: rgba(239, 244, 255, 0.88);
       white-space: pre-wrap;
       word-break: break-word;
-      border-radius: 14px;
-      background: rgba(13, 23, 36, 0.92);
-      color: #f4f8ff;
-      padding: 14px;
       font-size: 12px;
-      line-height: 1.5;
+      line-height: 1.55;
     }
 
     .modal-backdrop {
       position: fixed;
       inset: 0;
-      background: rgba(13, 23, 36, 0.42);
+      background: rgba(5, 9, 15, 0.72);
       display: none;
       align-items: center;
       justify-content: center;
@@ -307,7 +773,7 @@
       width: min(960px, 100%);
       max-height: min(82vh, 920px);
       border-radius: 24px;
-      background: rgba(255, 252, 245, 0.98);
+      background: rgba(8, 13, 22, 0.98);
       border: 1px solid var(--line);
       box-shadow: var(--shadow);
       display: grid;
@@ -321,7 +787,7 @@
       align-items: center;
       gap: 12px;
       padding: 16px 18px;
-      border-bottom: 1px solid rgba(13, 23, 36, 0.1);
+      border-bottom: 1px solid rgba(151, 176, 214, 0.12);
     }
 
     .modal-body {
@@ -338,17 +804,63 @@
       margin: 0;
       padding: 14px;
       border-radius: 14px;
-      background: rgba(13, 23, 36, 0.92);
+      background: rgba(4, 8, 14, 0.96);
       color: #f4f8ff;
       overflow: auto;
       font-size: 12px;
       line-height: 1.45;
+      border: 1px solid rgba(151, 176, 214, 0.14);
+    }
+
+    ::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgba(151, 176, 214, 0.24);
+      border-radius: 999px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
     }
 
     @media (max-width: 1100px) {
       .hero, .grid { grid-template-columns: 1fr; }
-      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .row { grid-template-columns: 1fr; }
+      .toolbar-controls { grid-template-columns: 1fr; }
+      .detail-grid { grid-template-columns: 1fr; }
+      .list { max-height: none; }
+      .question-alert-shell {
+        grid-template-columns: 1fr;
+      }
+      .hero-topbar {
+        display: grid;
+      }
+      .hero-controls {
+        justify-items: start;
+      }
+      .hero-status {
+        text-align: left;
+      }
+      .queue-column {
+        position: static;
+      }
+      .workspace-actions {
+        justify-content: stretch;
+      }
+      .workspace-actions button {
+        width: 100%;
+      }
+      .toolbar-input {
+        min-height: 92px;
+      }
+      .question-alert textarea {
+        min-height: 96px;
+      }
+      .workspace-topbar {
+        display: grid;
+      }
     }
   </style>
 </head>
@@ -356,18 +868,35 @@
   <main class="shell">
     <section class="hero">
       <div>
-        <div class="eyebrow">Wevra Runtime</div>
-        <h1>Web Control For Structured AI Work</h1>
-        <p>
-          Submit commands, inspect dependency-aware task graphs, answer blocked questions,
-          and resume execution from the browser. The runtime state is sourced from SQLite,
-          not from terminal session scraping.
-        </p>
-        <div class="metrics" id="metrics"></div>
+        <div class="hero-topbar">
+          <div>
+            <div class="eyebrow" id="heroEyebrow">Wevra Runtime</div>
+            <h1 id="heroTitle">Web Control For Structured AI Work</h1>
+          </div>
+          <div class="hero-controls">
+            <div class="hero-control-row">
+              <span class="hero-control-label" id="languageLabel">Language</span>
+              <select id="languageSelect">
+                <option value="en">English</option>
+                <option value="ja">Japanese</option>
+              </select>
+              <div class="live-indicator" id="liveIndicator">Live</div>
+              <button class="secondary" id="refreshBtn">Refresh</button>
+            </div>
+            <div class="hero-status" id="statusLine">Loading snapshot…</div>
+          </div>
+        </div>
       </div>
-      <div class="composer">
-        <textarea id="goal" placeholder="Describe the command you want Wevra to run."></textarea>
-        <div class="row">
+    </section>
+
+    <section class="panel toolbar">
+      <div class="field-stack">
+        <label class="field-label" id="goalLabel" for="goal">Request</label>
+        <textarea id="goal" class="toolbar-input" placeholder="Describe the command you want Wevra to run."></textarea>
+      </div>
+      <div class="toolbar-controls">
+        <div class="field-stack">
+          <label class="field-label" id="workflowLabel" for="workflowMode">Workflow</label>
           <select id="workflowMode">
             <option value="auto">auto</option>
             <option value="implementation">implementation</option>
@@ -375,63 +904,82 @@
             <option value="review">review</option>
             <option value="planning">planning</option>
           </select>
+        </div>
+        <div class="field-stack">
+          <label class="field-label" id="priorityLabelText" for="priority">Priority</label>
           <select id="priority">
             <option value="high">high</option>
             <option value="medium">medium</option>
             <option value="low">low</option>
           </select>
+        </div>
+        <div class="field-stack">
+          <label class="field-label" id="backendLabelText" for="backend">Backend</label>
           <select id="backend">
             <option value="">config default</option>
             <option value="mock">mock</option>
             <option value="codex">codex</option>
             <option value="claude">claude</option>
           </select>
-          <input id="runCommandId" placeholder="Optional command id for run">
         </div>
-        <div class="actions">
-          <button class="primary" id="submitBtn">Submit Command</button>
-          <button class="secondary" id="runBtn">Run Engine</button>
-          <button class="secondary" id="refreshBtn">Refresh</button>
-        </div>
-        <div class="status-line" id="statusLine">Loading snapshot…</div>
+        <button class="primary" id="submitBtn">Submit Request</button>
       </div>
     </section>
 
     <section class="grid">
-      <div class="column">
-        <section class="panel">
-          <h2>Commands</h2>
-          <div class="list" id="commandsList"></div>
+      <aside class="panel queue-column">
+        <div class="panel-head">
+          <h2 id="commandsHeading">Commands</h2>
+          <span class="panel-badge" id="commandsBadge">Queue</span>
+        </div>
+        <div class="list" id="commandsList"></div>
+      </aside>
+      <section class="panel workspace-shell">
+        <section class="question-alert" id="questionAlert">
+          <div class="question-alert-shell" id="questionAlertBody"></div>
         </section>
-        <section class="panel">
-          <h2>Tasks</h2>
-          <div class="list" id="tasksList"></div>
-        </section>
-      </div>
-      <div class="column">
-        <section class="panel">
-          <h2>Open Questions</h2>
-          <div class="list" id="questionsList"></div>
-        </section>
-        <section class="panel">
-          <h2>Reviews</h2>
-          <div class="list" id="reviewsList"></div>
-        </section>
-        <section class="panel">
-          <h2>Latest Events</h2>
-          <div class="list" id="eventsList"></div>
-        </section>
-        <section class="panel">
-          <h2>Selected Command</h2>
-          <div class="detail-grid" id="commandDetail">
-            <div class="meta">Select a command from the list.</div>
+        <section class="workspace-panel">
+          <div class="workspace-topbar">
+            <div class="workspace-tabs" id="workspaceTabs">
+              <button class="workspace-tab active" data-tab="overview" id="overviewTab">Overview</button>
+              <button class="workspace-tab" data-tab="tasks" id="tasksTab">Tasks</button>
+              <button class="workspace-tab" data-tab="reviews" id="reviewsTab">Reviews</button>
+              <button class="workspace-tab" data-tab="activity" id="activityTab">Activity</button>
+            </div>
+            <div class="workspace-actions" id="workspaceActions">
+              <button class="secondary workspace-action" id="viewResultBtn">No Result Yet</button>
+              <button class="secondary workspace-action append-action" id="openAppendBtn">Append Instruction</button>
+            </div>
           </div>
-          <div class="question-form">
-            <textarea id="appendInstruction" placeholder="Append a new instruction to the selected command."></textarea>
-            <button class="secondary" id="appendBtn">Append And Replan</button>
-          </div>
+          <section class="tab-panel active" data-tab-panel="overview">
+            <div class="detail-grid" id="commandDetail">
+              <div class="meta">Select a command from the list.</div>
+            </div>
+          </section>
+          <section class="tab-panel" data-tab-panel="tasks">
+            <div class="list" id="tasksList"></div>
+          </section>
+          <section class="tab-panel" data-tab-panel="reviews">
+            <div class="list" id="reviewsList"></div>
+          </section>
+          <section class="tab-panel" data-tab-panel="activity">
+            <div class="activity-stack">
+              <section class="activity-section">
+                <h3 id="instructionsHeading">Instructions</h3>
+                <div class="history-list" id="instructionsList"></div>
+              </section>
+              <section class="activity-section">
+                <h3 id="questionHistoryHeading">Question History</h3>
+                <div class="history-list" id="questionHistoryList"></div>
+              </section>
+              <section class="activity-section">
+                <h3 id="eventsHeading">Latest Events</h3>
+                <div class="list" id="eventsList"></div>
+              </section>
+            </div>
+          </section>
         </section>
-      </div>
+      </section>
     </section>
   </main>
 
@@ -439,7 +987,7 @@
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="resultModalTitle">
       <div class="modal-header">
         <div>
-          <div class="eyebrow">Command Result</div>
+          <div class="eyebrow" id="resultModalEyebrow">Command Result</div>
           <h2 id="resultModalTitle" style="margin: 6px 0 0; font-size: 24px;">Result</h2>
         </div>
         <button class="secondary" id="closeResultBtn">Close</button>
@@ -448,25 +996,383 @@
     </div>
   </div>
 
+  <div class="modal-backdrop" id="appendModal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="appendModalTitle">
+      <div class="modal-header">
+        <div>
+          <div class="eyebrow" id="appendModalEyebrow">Append Instruction</div>
+          <h2 id="appendModalTitle" style="margin: 6px 0 0; font-size: 24px;">Append Instruction</h2>
+        </div>
+        <button class="secondary" id="closeAppendBtn">Close</button>
+      </div>
+      <div class="modal-body" style="display:grid; gap: 12px;">
+        <textarea id="appendModalInput" style="min-height: 180px;" placeholder="Append a new instruction to the selected request."></textarea>
+        <div class="actions" style="justify-content: flex-end;">
+          <button class="primary" id="appendModalSubmit">Append And Replan</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     const state = {
       snapshot: null,
       selectedCommandId: null,
-      modalCommandId: null
+      modalCommandId: null,
+      currentTab: 'overview',
+      localeOverride: new URLSearchParams(window.location.search).get('lang'),
+      lastChecksum: null,
+      refreshInFlight: false,
+      submitting: false,
+      appending: false,
+      answeringQuestionId: null,
+      visibleQuestionId: null,
+      questionDrafts: {}
     };
 
-    const metricsEl = document.getElementById('metrics');
     const commandsListEl = document.getElementById('commandsList');
     const tasksListEl = document.getElementById('tasksList');
-    const questionsListEl = document.getElementById('questionsList');
     const reviewsListEl = document.getElementById('reviewsList');
     const eventsListEl = document.getElementById('eventsList');
+    const instructionsListEl = document.getElementById('instructionsList');
+    const questionHistoryListEl = document.getElementById('questionHistoryList');
     const commandDetailEl = document.getElementById('commandDetail');
     const statusLineEl = document.getElementById('statusLine');
-    const appendInstructionEl = document.getElementById('appendInstruction');
+    const questionAlertEl = document.getElementById('questionAlert');
+    const questionAlertBodyEl = document.getElementById('questionAlertBody');
     const resultModalEl = document.getElementById('resultModal');
     const resultModalTitleEl = document.getElementById('resultModalTitle');
     const resultModalBodyEl = document.getElementById('resultModalBody');
+    const appendModalEl = document.getElementById('appendModal');
+    const appendModalInputEl = document.getElementById('appendModalInput');
+    const workspaceTabsEl = document.getElementById('workspaceTabs');
+    const submitBtnEl = document.getElementById('submitBtn');
+    const refreshBtnEl = document.getElementById('refreshBtn');
+    const openAppendBtnEl = document.getElementById('openAppendBtn');
+    const viewResultBtnEl = document.getElementById('viewResultBtn');
+    const appendModalSubmitEl = document.getElementById('appendModalSubmit');
+
+    const I18N = {
+      en: {
+        heroEyebrow: 'Wevra Runtime',
+        heroTitle: 'Web Control For Structured AI Work',
+        commandsHeading: 'Requests',
+        tasksHeading: 'Tasks',
+        reviewsHeading: 'Reviews',
+        eventsHeading: 'Activity Feed',
+        selectedHeading: 'Selected Request',
+        commandsBadge: 'Work Queue',
+        questionAlertTitle: 'Waiting For Your Answer',
+        questionAlertLead: 'This request is paused until you answer the question below.',
+        answerLabel: 'Answer',
+        questionHistory: 'Question History',
+        instructionsHeading: 'Instructions',
+        noQuestionHistory: 'No question history.',
+        submitBtn: 'Submit Request',
+        refreshBtn: 'Refresh',
+        appendAction: 'Append Instruction',
+        appendBtn: 'Append And Replan',
+        closeResultBtn: 'Close',
+        closeAppendBtn: 'Close',
+        languageLabel: 'Language',
+        liveIndicator: 'LIVE',
+        goalLabel: 'Request',
+        workflowLabel: 'Workflow',
+        priorityLabelText: 'Priority',
+        backendLabelText: 'Execution',
+        resultModalEyebrow: 'Command Result',
+        resultModalTitle: 'Result',
+        appendModalEyebrow: 'Append Instruction',
+        appendModalTitle: 'Append Instruction',
+        goalPlaceholder: 'Describe the command you want Wevra to run.',
+        appendPlaceholder: 'Add a new instruction for the selected request.',
+        executionDefaultLabel: 'Per-role defaults',
+        loading: 'Loading snapshot…',
+        noCommands: 'No commands yet.',
+        noTasks: 'No tasks for the current selection.',
+        noOpenQuestions: 'No open questions.',
+        noReviews: 'No reviews yet.',
+        noEvents: 'No events yet.',
+        noCommandSelected: 'No command selected.',
+        answerPlaceholder: 'Type the answer to resume the workflow.',
+        answerButton: 'Answer And Resume',
+        overview: 'Overview',
+        result: 'Result',
+        activity: 'Activity',
+        viewResult: 'View Result',
+        noResult: 'No final result yet.',
+        noResultAvailable: 'No final result available yet.',
+        noInstructions: 'No appended instructions.',
+        id: 'ID',
+        mode: 'Mode',
+        stage: 'Stage',
+        priority: 'Priority',
+        goal: 'Goal',
+        key: 'key',
+        dependsOn: 'depends_on',
+        writeFiles: 'write_files',
+        updated: 'Updated',
+        submitting: 'Starting request…',
+        appending: 'Appending instruction to',
+        answering: 'Answering',
+        reviewerLabel: 'reviewer',
+        resultReady: 'Result Ready',
+        resultUnavailable: 'No Result Yet',
+      },
+      ja: {
+        heroEyebrow: 'Wevra Runtime',
+        heroTitle: '構造化 AI ワークフローのダッシュボード',
+        commandsHeading: '依頼一覧',
+        tasksHeading: 'タスク',
+        reviewsHeading: 'レビュー',
+        eventsHeading: 'アクティビティ',
+        selectedHeading: '選択中の依頼',
+        commandsBadge: '進行キュー',
+        questionAlertTitle: '回答待ちの依頼',
+        questionAlertLead: 'この依頼は、下の質問に回答するまで停止しています。',
+        answerLabel: '回答',
+        questionHistory: '質問履歴',
+        instructionsHeading: '追加指示',
+        noQuestionHistory: '質問履歴はありません。',
+        submitBtn: '依頼を投入',
+        refreshBtn: '更新',
+        appendAction: '追加指示',
+        appendBtn: '追加指示を送って再計画',
+        closeResultBtn: '閉じる',
+        closeAppendBtn: '閉じる',
+        languageLabel: '言語',
+        liveIndicator: 'LIVE',
+        goalLabel: '依頼内容',
+        workflowLabel: '進め方',
+        priorityLabelText: '優先度',
+        backendLabelText: '実行先',
+        resultModalEyebrow: 'コマンド結果',
+        resultModalTitle: '結果',
+        appendModalEyebrow: '追加指示',
+        appendModalTitle: '追加指示',
+        goalPlaceholder: 'Wevra に実行させたい依頼を書いてください。',
+        appendPlaceholder: 'この依頼に追加したい指示を書いてください。',
+        executionDefaultLabel: '役割ごとの既定値',
+        loading: 'スナップショットを読み込み中…',
+        noCommands: 'コマンドはまだありません。',
+        noTasks: '選択中のコマンドにタスクはありません。',
+        noOpenQuestions: '未回答の質問はありません。',
+        noReviews: 'レビューはまだありません。',
+        noEvents: 'イベントはまだありません。',
+        noCommandSelected: 'コマンドが選択されていません。',
+        answerPlaceholder: '再開のための回答を書いてください。',
+        answerButton: '回答して再開',
+        overview: '概要',
+        result: '結果',
+        activity: 'アクティビティ',
+        viewResult: '結果を見る',
+        noResult: 'まだ最終結果はありません。',
+        noResultAvailable: '表示できる最終結果はまだありません。',
+        noInstructions: '追加指示はありません。',
+        id: 'ID',
+        mode: 'モード',
+        stage: '状態',
+        priority: '優先度',
+        goal: '依頼内容',
+        key: 'キー',
+        dependsOn: '依存',
+        writeFiles: '書き込み対象',
+        updated: '更新日時',
+        submitting: '依頼を投入中…',
+        appending: '追加指示を送信中',
+        answering: '回答中',
+        reviewerLabel: 'レビュアー',
+        resultReady: '結果あり',
+        resultUnavailable: '結果なし',
+      }
+    };
+
+    const MODE_LABELS = {
+      en: {
+        auto: '✦ Auto',
+        implementation: '⚙ Implementation',
+        research: '⌕ Research',
+        review: '✓ Review',
+        planning: '✎ Planning'
+      },
+      ja: {
+        auto: '✦ 自動',
+        implementation: '⚙ 実装',
+        research: '⌕ 調査',
+        review: '✓ レビュー',
+        planning: '✎ 計画'
+      }
+    };
+
+    const STAGE_LABELS = {
+      ja: {
+        queued: '待機',
+        planning: '計画中',
+        running: '実行中',
+        waiting_question: '質問待ち',
+        verifying: 'レビュー中',
+        replanning: '再計画',
+        done: '完了',
+        failed: '失敗'
+      }
+    };
+
+    const TASK_STATE_LABELS = {
+      ja: {
+        pending: '待機',
+        running: '実行中',
+        blocked: '停止中',
+        done: '完了',
+        failed: '失敗',
+        canceled: '取り下げ'
+      }
+    };
+
+    const PRIORITY_LABELS = {
+      en: {
+        high: 'High',
+        medium: 'Medium',
+        low: 'Low'
+      },
+      ja: {
+        high: '高',
+        medium: '中',
+        low: '低'
+      }
+    };
+
+    const QUESTION_STATE_LABELS = {
+      ja: {
+        open: '未回答',
+        answered: '回答済み',
+        resolved: '解決済み'
+      }
+    };
+
+    const RESOLUTION_LABELS = {
+      ja: {
+        resume_task: 'そのまま再開',
+        replan_command: '再計画'
+      }
+    };
+
+    const REVIEW_DECISION_LABELS = {
+      ja: {
+        approve: '承認',
+        request_changes: '差し戻し',
+        fail: '失敗'
+      }
+    };
+
+    const CAPABILITY_LABELS = {
+      ja: {
+        implementer: '実装',
+        tester: 'テスト',
+        reviewer: 'レビュー',
+        analyst: '分析',
+        investigation: '調査'
+      }
+    };
+
+    const EVENT_LABELS = {
+      ja: {
+        command_submitted: 'コマンド投入',
+        planning_started: '計画開始',
+        tasks_planned: 'タスク分解',
+        task_created: 'タスク作成',
+        task_started: 'タスク開始',
+        task_completed: 'タスク完了',
+        task_failed: 'タスク失敗',
+        task_blocked_on_question: '質問で停止',
+        task_batch_completed: 'タスク群完了',
+        task_replanned: 'タスク再計画',
+        task_superseded: '旧タスク置換',
+        question_created: '質問作成',
+        question_answered: '質問回答',
+        question_resolved: '質問解決',
+        verification_started: '全体レビュー開始',
+        review_recorded: 'レビュー記録',
+        review_rework: 'レビュー差し戻し',
+        review_failed: 'レビュー失敗',
+        instruction_append: '追加指示',
+        instruction_appended: '追加指示',
+        replanning_requested: '再計画要求',
+        replanning_started: '再計画開始',
+        command_completed: 'コマンド完了'
+      }
+    };
+
+    const STREAM_TYPE_LABELS = {
+      en: {
+        command: 'command',
+        task: 'task',
+        question: 'question',
+        review: 'review',
+        instruction: 'instruction'
+      },
+      ja: {
+        command: 'コマンド',
+        task: 'タスク',
+        question: '質問',
+        review: 'レビュー',
+        instruction: '追加指示'
+      }
+    };
+
+    function currentLocale() {
+      const language = state.localeOverride || state.snapshot?.runtime?.language || 'en';
+      return String(language).toLowerCase().startsWith('ja') ? 'ja' : 'en';
+    }
+
+    function t(key) {
+      const locale = currentLocale();
+      return I18N[locale]?.[key] || I18N.en[key] || key;
+    }
+
+    function localizeValue(labels, value) {
+      const locale = currentLocale();
+      return labels[locale]?.[value] || value;
+    }
+
+    function modeLabel(value) {
+      return localizeValue(MODE_LABELS, value);
+    }
+
+    function stageLabel(value) {
+      return localizeValue(STAGE_LABELS, value);
+    }
+
+    function taskStateLabel(value) {
+      return localizeValue(TASK_STATE_LABELS, value);
+    }
+
+    function priorityLabel(value) {
+      return localizeValue(PRIORITY_LABELS, value);
+    }
+
+    function questionStateLabel(value) {
+      return localizeValue(QUESTION_STATE_LABELS, value);
+    }
+
+    function resolutionLabel(value) {
+      return localizeValue(RESOLUTION_LABELS, value);
+    }
+
+    function reviewDecisionLabel(value) {
+      return localizeValue(REVIEW_DECISION_LABELS, value);
+    }
+
+    function capabilityLabel(value) {
+      return localizeValue(CAPABILITY_LABELS, value);
+    }
+
+    function eventLabel(value) {
+      return localizeValue(EVENT_LABELS, value);
+    }
+
+    function streamTypeLabel(value) {
+      return localizeValue(STREAM_TYPE_LABELS, value);
+    }
 
     function escapeHtml(value) {
       return String(value ?? '')
@@ -475,6 +1381,11 @@
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#39;');
+    }
+
+    function displayGoal(goal) {
+      const value = String(goal || '');
+      return value.replace(/^(?:\[[^\]]+\]\s*)+/, '') || value;
     }
 
     async function api(url, options = {}) {
@@ -489,42 +1400,157 @@
       return response.json();
     }
 
-    function metric(label, value) {
-      return `
-        <div class="metric">
-          <div class="label">${label}</div>
-          <div class="value">${value}</div>
-        </div>
-      `;
+    function applyLocale() {
+      const locale = currentLocale();
+      document.documentElement.lang = locale;
+      document.body.classList.toggle('locale-ja', locale === 'ja');
+      document.getElementById('heroEyebrow').textContent = t('heroEyebrow');
+      document.getElementById('heroTitle').textContent = t('heroTitle');
+      document.getElementById('commandsHeading').textContent = t('commandsHeading');
+      document.getElementById('tasksTab').textContent = t('tasksHeading');
+      document.getElementById('reviewsTab').textContent = t('reviewsHeading');
+      document.getElementById('activityTab').textContent = t('activity');
+      document.getElementById('overviewTab').textContent = t('overview');
+      document.getElementById('eventsHeading').textContent = t('eventsHeading');
+      document.getElementById('commandsBadge').textContent = t('commandsBadge');
+      document.getElementById('submitBtn').textContent = t('submitBtn');
+      document.getElementById('refreshBtn').textContent = t('refreshBtn');
+      document.getElementById('closeResultBtn').textContent = t('closeResultBtn');
+      document.getElementById('closeAppendBtn').textContent = t('closeAppendBtn');
+      document.getElementById('appendModalEyebrow').textContent = t('appendModalEyebrow');
+      document.getElementById('appendModalTitle').textContent = t('appendModalTitle');
+      document.getElementById('appendModalSubmit').textContent = t('appendBtn');
+      document.getElementById('languageLabel').textContent = t('languageLabel');
+      document.getElementById('liveIndicator').textContent = t('liveIndicator');
+      document.getElementById('goalLabel').textContent = t('goalLabel');
+      document.getElementById('workflowLabel').textContent = t('workflowLabel');
+      document.getElementById('priorityLabelText').textContent = t('priorityLabelText');
+      document.getElementById('backendLabelText').textContent = t('backendLabelText');
+      document.getElementById('resultModalEyebrow').textContent = t('resultModalEyebrow');
+      document.getElementById('resultModalTitle').textContent = t('resultModalTitle');
+      document.getElementById('goal').placeholder = t('goalPlaceholder');
+      appendModalInputEl.placeholder = t('appendPlaceholder');
+      document.getElementById('instructionsHeading').textContent = t('instructionsHeading');
+      document.getElementById('questionHistoryHeading').textContent = t('questionHistory');
+      document.getElementById('languageSelect').value = locale;
+      document.querySelector('#languageSelect option[value="en"]').textContent = locale === 'ja' ? '英語' : 'English';
+      document.querySelector('#languageSelect option[value="ja"]').textContent = locale === 'ja' ? '日本語' : 'Japanese';
+      document.querySelector('#workflowMode option[value="auto"]').textContent = modeLabel('auto');
+      document.querySelector('#workflowMode option[value="implementation"]').textContent = modeLabel('implementation');
+      document.querySelector('#workflowMode option[value="research"]').textContent = modeLabel('research');
+      document.querySelector('#workflowMode option[value="review"]').textContent = modeLabel('review');
+      document.querySelector('#workflowMode option[value="planning"]').textContent = modeLabel('planning');
+      document.querySelector('#priority option[value="high"]').textContent = priorityLabel('high');
+      document.querySelector('#priority option[value="medium"]').textContent = priorityLabel('medium');
+      document.querySelector('#priority option[value="low"]').textContent = priorityLabel('low');
+      document.querySelector('#backend option[value=""]').textContent = t('executionDefaultLabel');
+      if (!state.snapshot) {
+        statusLineEl.textContent = t('loading');
+      }
     }
 
-    function pill(value) {
+    function pill(value, formatter = (item) => item) {
       const klass = String(value || '').replace(/\s+/g, '_');
-      return `<span class="pill ${klass}">${value || '-'}</span>`;
+      return `<span class="pill ${klass}">${escapeHtml(formatter(value || '-'))}</span>`;
+    }
+
+    function setWorkspaceTab(tabName) {
+      state.currentTab = tabName;
+      document.querySelectorAll('.workspace-tab').forEach((button) => {
+        button.classList.toggle('active', button.dataset.tab === tabName);
+      });
+      document.querySelectorAll('.tab-panel').forEach((panel) => {
+        panel.classList.toggle('active', panel.dataset.tabPanel === tabName);
+      });
+    }
+
+    function captureScrollPositions() {
+      return {
+        commands: commandsListEl.scrollTop,
+        tasks: tasksListEl.scrollTop,
+        reviews: reviewsListEl.scrollTop,
+        instructions: instructionsListEl.scrollTop,
+        questionHistory: questionHistoryListEl.scrollTop,
+        events: eventsListEl.scrollTop,
+      };
+    }
+
+    function restoreScrollPositions(positions) {
+      if (!positions) return;
+      commandsListEl.scrollTop = positions.commands || 0;
+      tasksListEl.scrollTop = positions.tasks || 0;
+      reviewsListEl.scrollTop = positions.reviews || 0;
+      instructionsListEl.scrollTop = positions.instructions || 0;
+      questionHistoryListEl.scrollTop = positions.questionHistory || 0;
+      eventsListEl.scrollTop = positions.events || 0;
+    }
+
+    function syncAppendSubmitState() {
+      appendModalSubmitEl.disabled = state.appending || !appendModalInputEl.value.trim();
+    }
+
+    function syncQuestionSubmitState(questionId) {
+      const answerInput = document.getElementById('questionAlertAnswer');
+      const submitButton = document.getElementById('questionAlertSubmit');
+      if (!answerInput || !submitButton) return;
+      submitButton.disabled = state.answeringQuestionId === questionId || !answerInput.value.trim();
+    }
+
+    function updateBusyState() {
+      submitBtnEl.disabled = state.submitting;
+      refreshBtnEl.disabled = state.refreshInFlight;
+      syncAppendSubmitState();
+      if (state.answeringQuestionId) {
+        syncQuestionSubmitState(state.answeringQuestionId);
+      } else {
+        const submitButton = document.getElementById('questionAlertSubmit');
+        if (submitButton) {
+          const answerInput = document.getElementById('questionAlertAnswer');
+          submitButton.disabled = !answerInput || !answerInput.value.trim();
+        }
+      }
+    }
+
+    async function submitAnswer(questionId, answer) {
+      if (state.answeringQuestionId) return;
+      state.answeringQuestionId = questionId;
+      updateBusyState();
+      statusLineEl.textContent = `${t('answering')} ${questionId}…`;
+      try {
+        await api('/api/questions/answer', {
+          method: 'POST',
+          body: JSON.stringify({ question_id: questionId, answer }),
+        });
+        delete state.questionDrafts[questionId];
+        await refreshSnapshot();
+      } finally {
+        state.answeringQuestionId = null;
+        updateBusyState();
+      }
     }
 
     function renderCommands(snapshot) {
       const commands = snapshot.commands.items;
+      const openQuestionCommands = new Set(snapshot.questions.open.map((question) => question.command_id));
       commandsListEl.innerHTML = commands.map((command) => `
-        <article class="card" data-command-id="${command.id}">
-          <div class="title">${command.id}</div>
-          <div>${command.goal}</div>
+        <article class="command-item ${state.selectedCommandId === command.id ? 'selected' : ''} ${openQuestionCommands.has(command.id) ? 'attention' : ''} ${escapeHtml(command.stage)}-state" data-command-id="${command.id}">
+          <div class="title">${escapeHtml(displayGoal(command.goal))}</div>
           <div class="meta">
-            ${pill(command.stage)}
-            ${pill(command.workflow_mode)}
-            ${command.effective_mode ? pill(`resolved:${command.effective_mode}`) : ''}
-            ${pill(command.priority)}
-            <span>runs: ${command.run_count}</span>
+            ${pill(command.stage, stageLabel)}
+            ${pill(command.effective_mode || command.workflow_mode, modeLabel)}
           </div>
         </article>
-      `).join('') || '<div class="meta">No commands yet.</div>';
+      `).join('') || `<div class="meta">${escapeHtml(t('noCommands'))}</div>`;
 
       commandsListEl.querySelectorAll('[data-command-id]').forEach((node) => {
         node.addEventListener('click', () => {
           state.selectedCommandId = node.getAttribute('data-command-id');
           renderDetail(snapshot);
           renderTasks(snapshot);
+          renderQuestionAlert(snapshot);
           renderReviews(snapshot);
+          renderInstructions(snapshot);
+          renderQuestionHistory(snapshot);
           renderEvents(snapshot);
         });
       });
@@ -535,54 +1561,75 @@
       const tasks = snapshot.tasks.items.filter((task) => !selected || task.command_id === selected);
       tasksListEl.innerHTML = tasks.map((task) => `
         <article class="card">
-          <div class="title">${task.title}</div>
-          <div>${task.description}</div>
+          <div class="title">${escapeHtml(task.title)}</div>
+          <div>${escapeHtml(task.description)}</div>
           <div class="meta">
-            ${pill(task.state)}
-            <span>${task.capability}</span>
-            <span>key: ${task.task_key}</span>
+            ${pill(task.state, taskStateLabel)}
+            <span>${escapeHtml(capabilityLabel(task.capability))}</span>
+            <span>${escapeHtml(t('key'))}: ${escapeHtml(task.task_key)}</span>
           </div>
           <div class="meta">
-            <span>depends_on: ${(task.depends_on || []).join(', ') || '-'}</span>
-            <span>write_files: ${(task.input_payload.write_files || []).join(', ') || '-'}</span>
+            <span>${escapeHtml(t('dependsOn'))}: ${escapeHtml((task.depends_on || []).join(', ') || '-')}</span>
+            <span>${escapeHtml(t('writeFiles'))}: ${escapeHtml((task.input_payload.write_files || []).join(', ') || '-')}</span>
           </div>
         </article>
-      `).join('') || '<div class="meta">No tasks for the current selection.</div>';
+      `).join('') || `<div class="meta">${escapeHtml(t('noTasks'))}</div>`;
     }
 
-    function renderQuestions(snapshot) {
-      const questions = snapshot.questions.open;
-      questionsListEl.innerHTML = questions.map((question) => `
-        <article class="card">
-          <div class="title">${question.id}</div>
-          <div>${question.question}</div>
-          <div class="meta">
-            ${pill(question.state)}
-            <span>${question.resolution_mode}</span>
-            <span>${question.command_id}</span>
-          </div>
-          <div class="question-form">
-            <textarea data-answer-id="${question.id}" placeholder="Type the answer to resume the workflow."></textarea>
-            <button class="primary" data-submit-answer="${question.id}">Answer And Resume</button>
-          </div>
-        </article>
-      `).join('') || '<div class="meta">No open questions.</div>';
+    function renderQuestionAlert(snapshot) {
+      const openQuestions = snapshot.questions.open;
+      const selected = state.selectedCommandId;
+      const question = selected ? openQuestions.find((item) => item.command_id === selected) : null;
+      const questionCommand = snapshot.commands.items.find((item) => item.id === question?.command_id);
+      if (!question) {
+        questionAlertEl.classList.remove('open');
+        questionAlertBodyEl.innerHTML = '';
+        state.answeringQuestionId = null;
+        state.visibleQuestionId = null;
+        return;
+      }
 
-      questionsListEl.querySelectorAll('[data-submit-answer]').forEach((button) => {
-        button.addEventListener('click', async () => {
-          const questionId = button.getAttribute('data-submit-answer');
-          const textarea = questionsListEl.querySelector(`[data-answer-id="${questionId}"]`);
-          const answer = textarea.value.trim();
-          if (!answer) return;
-          statusLineEl.textContent = `Answering ${questionId}…`;
-          await api('/api/questions/answer', {
-            method: 'POST',
-            body: JSON.stringify({ question_id: questionId, answer }),
-          });
-          textarea.value = '';
-          await refreshSnapshot();
-        });
+      const currentInput = document.getElementById('questionAlertAnswer');
+      const hadFocus = document.activeElement === currentInput;
+      const selectionStart = currentInput?.selectionStart ?? null;
+      const selectionEnd = currentInput?.selectionEnd ?? null;
+      if (currentInput && state.visibleQuestionId) {
+        state.questionDrafts[state.visibleQuestionId] = currentInput.value;
+      }
+      state.visibleQuestionId = question.id;
+
+      questionAlertEl.classList.add('open');
+      questionAlertBodyEl.innerHTML = `
+        <div class="question-alert-copy">
+          <div class="eyebrow">${escapeHtml(t('questionAlertTitle'))}</div>
+          <h2 class="question-alert-title">${escapeHtml(displayGoal(questionCommand?.goal || question.command_id))}</h2>
+          <div class="question-alert-text">${escapeHtml(question.question)}</div>
+        </div>
+        <div class="question-alert-form">
+          <textarea id="questionAlertAnswer" placeholder="${escapeHtml(t('answerPlaceholder'))}"></textarea>
+          <button class="primary" id="questionAlertSubmit">${escapeHtml(t('answerButton'))}</button>
+        </div>
+      `;
+
+      const submitButton = document.getElementById('questionAlertSubmit');
+      const answerInput = document.getElementById('questionAlertAnswer');
+      answerInput.value = state.questionDrafts[question.id] || '';
+      answerInput.addEventListener('input', () => {
+        state.questionDrafts[question.id] = answerInput.value;
+        syncQuestionSubmitState(question.id);
       });
+      if (hadFocus) {
+        answerInput.focus();
+        if (selectionStart !== null && selectionEnd !== null) {
+          answerInput.setSelectionRange(selectionStart, selectionEnd);
+        }
+      }
+      submitButton.addEventListener('click', async () => {
+        const answer = answerInput.value.trim();
+        if (!answer) return;
+        await submitAnswer(question.id, answer);
+      });
+      syncQuestionSubmitState(question.id);
     }
 
     function renderReviews(snapshot) {
@@ -590,14 +1637,43 @@
       const reviews = snapshot.reviews.items.filter((review) => !selected || review.command_id === selected);
       reviewsListEl.innerHTML = reviews.map((review) => `
         <article class="card">
-          <div class="title">reviewer ${review.reviewer_slot}</div>
-          <div>${review.summary}</div>
+          <div class="title">${escapeHtml(t('reviewerLabel'))} ${review.reviewer_slot}</div>
+          <div>${escapeHtml(review.summary)}</div>
           <div class="meta">
-            ${pill(review.decision)}
-            <span>${review.command_id}</span>
+            ${pill(review.decision, reviewDecisionLabel)}
           </div>
         </article>
-      `).join('') || '<div class="meta">No reviews yet.</div>';
+      `).join('') || `<div class="meta">${escapeHtml(t('noReviews'))}</div>`;
+    }
+
+    function renderQuestionHistory(snapshot) {
+      const selected = state.selectedCommandId;
+      const questionHistory = snapshot.questions.items
+        .filter((item) => !selected || item.command_id === selected)
+        .slice()
+        .reverse()
+        .slice(0, 8);
+      questionHistoryListEl.innerHTML = questionHistory.map((item) => `
+        <article class="history-item">
+          <div class="title">${pill(item.state, questionStateLabel)} ${pill(item.resolution_mode, resolutionLabel)}</div>
+          <div class="body">${escapeHtml(item.question)}</div>
+          ${item.answer ? `<div class="meta"><strong>${escapeHtml(t('answerLabel'))}:</strong> ${escapeHtml(item.answer)}</div>` : ''}
+        </article>
+      `).join('') || `<div class="meta">${escapeHtml(t('noQuestionHistory'))}</div>`;
+    }
+
+    function renderInstructions(snapshot) {
+      const selected = state.selectedCommandId;
+      const instructions = snapshot.instructions.items
+        .filter((item) => !selected || item.command_id === selected)
+        .slice()
+        .reverse()
+        .slice(0, 8);
+      instructionsListEl.innerHTML = instructions.map((item) => `
+        <article class="history-item">
+          <div class="body">${escapeHtml(item.body)}</div>
+        </article>
+      `).join('') || `<div class="meta">${escapeHtml(t('noInstructions'))}</div>`;
     }
 
     function renderEvents(snapshot) {
@@ -605,62 +1681,70 @@
       const events = snapshot.events.filter((event) => !selected || event.payload.command_id === selected || event.stream_id === selected).slice().reverse().slice(0, 18);
       eventsListEl.innerHTML = events.map((event) => `
         <article class="card">
-          <div class="title">${event.event_type}</div>
+          <div class="title">${escapeHtml(eventLabel(event.event_type))}</div>
           <div class="meta">
-            <span>${event.stream_type}:${event.stream_id}</span>
-            <span>${event.created_at}</span>
+            <span>${escapeHtml(event.created_at)}</span>
           </div>
         </article>
-      `).join('') || '<div class="meta">No events yet.</div>';
+      `).join('') || `<div class="meta">${escapeHtml(t('noEvents'))}</div>`;
     }
 
     function renderDetail(snapshot) {
       const selected = state.selectedCommandId || snapshot.commands.active[0]?.id || snapshot.commands.items[0]?.id;
       if (!selected) {
-        commandDetailEl.innerHTML = '<div class="meta">No command selected.</div>';
-        appendInstructionEl.disabled = true;
+        viewResultBtnEl.textContent = t('resultUnavailable');
+        viewResultBtnEl.disabled = true;
+        viewResultBtnEl.classList.remove('result-ready');
+        openAppendBtnEl.textContent = t('appendAction');
+        openAppendBtnEl.disabled = true;
+        commandDetailEl.innerHTML = `<div class="meta">${escapeHtml(t('noCommandSelected'))}</div>`;
         return;
       }
       state.selectedCommandId = selected;
       const command = snapshot.commands.items.find((item) => item.id === selected);
-      const instructions = snapshot.instructions.items.filter((item) => item.command_id === selected);
-      const resultPreview = command?.final_response ? escapeHtml(command.final_response) : 'No final result yet.';
+      const appendLocked = Boolean(command?.final_response) || ['done', 'failed'].includes(command.stage);
+      viewResultBtnEl.textContent = command?.final_response ? t('viewResult') : t('resultUnavailable');
+      viewResultBtnEl.disabled = !command?.final_response;
+      viewResultBtnEl.classList.toggle('result-ready', Boolean(command?.final_response));
+      openAppendBtnEl.textContent = t('appendAction');
+      openAppendBtnEl.disabled = appendLocked || state.appending;
+
       commandDetailEl.innerHTML = `
+        <div class="workspace-heading" style="grid-column: 1 / -1;">
+          <div style="display:grid; gap:8px;">
+            <h2 style="margin:0; font-size:15px;">${escapeHtml(t('selectedHeading'))}</h2>
+            <div class="workspace-goal">${escapeHtml(displayGoal(command.goal))}</div>
+          </div>
+          <div class="workspace-meta">
+            ${pill(command.effective_mode || command.workflow_mode, modeLabel)}
+            ${pill(command.stage, stageLabel)}
+          </div>
+        </div>
         <div class="detail-card">
-          <h3>Overview</h3>
+          <h3>${escapeHtml(t('overview'))}</h3>
           <div class="detail-keyvals">
-            <div><strong>ID:</strong> ${escapeHtml(command.id)}</div>
-            <div><strong>Mode:</strong> ${escapeHtml(command.effective_mode || command.workflow_mode)}</div>
-            <div><strong>Stage:</strong> ${escapeHtml(command.stage)}</div>
-            <div><strong>Priority:</strong> ${escapeHtml(command.priority)}</div>
-            <div><strong>Goal:</strong> ${escapeHtml(command.goal)}</div>
+            <div><strong>${escapeHtml(t('id'))}:</strong> ${escapeHtml(command.id)}</div>
+            <div><strong>${escapeHtml(t('mode'))}:</strong> ${escapeHtml(modeLabel(command.effective_mode || command.workflow_mode))}</div>
+            <div><strong>${escapeHtml(t('stage'))}:</strong> ${escapeHtml(stageLabel(command.stage))}</div>
           </div>
         </div>
-        <div class="detail-card">
-          <h3>Result</h3>
-          <div class="result-preview">${resultPreview}</div>
-          <div class="actions">
-            <button class="secondary" id="viewResultBtn" ${command?.final_response ? '' : 'disabled'}>View Result</button>
+        ${command?.final_response ? `
+          <div class="detail-card">
+            <h3>${escapeHtml(t('result'))}</h3>
+            <div class="detail-keyvals">
+              <div>${escapeHtml(t('resultReady'))}</div>
+            </div>
           </div>
-        </div>
-        <div class="detail-card">
-          <h3>Instructions</h3>
-          <div class="detail-keyvals">
-            ${instructions.length ? instructions.map((item) => `<div>${escapeHtml(item.body)}</div>`).join('') : '<div>No appended instructions.</div>'}
-          </div>
-        </div>
+        ` : ''}
       `;
-      const viewResultBtn = document.getElementById('viewResultBtn');
-      if (viewResultBtn && command?.final_response) {
-        viewResultBtn.addEventListener('click', () => openResultModal(command));
-      }
-      appendInstructionEl.disabled = false;
+      viewResultBtnEl.onclick = command?.final_response ? () => openResultModal(command) : null;
+      openAppendBtnEl.onclick = appendLocked ? null : openAppendModal;
     }
 
     function openResultModal(command) {
       state.modalCommandId = command.id;
-      resultModalTitleEl.textContent = `Result · ${command.id}`;
-      resultModalBodyEl.textContent = command.final_response || 'No final result available yet.';
+      resultModalTitleEl.textContent = `${t('result')} · ${command.id}`;
+      resultModalBodyEl.textContent = command.final_response || t('noResultAvailable');
       resultModalEl.classList.add('open');
     }
 
@@ -669,73 +1753,138 @@
       resultModalEl.classList.remove('open');
     }
 
-    function renderMetrics(snapshot) {
-      metricsEl.innerHTML = [
-        metric('Commands', snapshot.commands.items.length),
-        metric('Active', snapshot.commands.active.length),
-        metric('Open Questions', snapshot.questions.open.length),
-        metric('Tasks', snapshot.tasks.items.length),
-      ].join('');
+    function openAppendModal() {
+      if (!state.selectedCommandId) return;
+      appendModalInputEl.value = '';
+      appendModalEl.classList.add('open');
+      syncAppendSubmitState();
+      appendModalInputEl.focus();
+    }
+
+    function closeAppendModal() {
+      appendModalEl.classList.remove('open');
+      syncAppendSubmitState();
     }
 
     function render(snapshot) {
+      const scrollPositions = captureScrollPositions();
       state.snapshot = snapshot;
-      renderMetrics(snapshot);
+      state.lastChecksum = snapshot.checksum;
+      applyLocale();
+      if (!snapshot.commands.items.some((item) => item.id === state.selectedCommandId)) {
+        state.selectedCommandId = snapshot.commands.active[0]?.id || snapshot.commands.items[0]?.id || null;
+      }
       renderCommands(snapshot);
-      renderTasks(snapshot);
-      renderQuestions(snapshot);
-      renderReviews(snapshot);
-      renderEvents(snapshot);
       renderDetail(snapshot);
-      statusLineEl.textContent = `Updated ${snapshot.generated_at} · ${snapshot.runtime.dashboard_url}`;
+      renderTasks(snapshot);
+      renderQuestionAlert(snapshot);
+      renderReviews(snapshot);
+      renderInstructions(snapshot);
+      renderQuestionHistory(snapshot);
+      renderEvents(snapshot);
+      setWorkspaceTab(state.currentTab);
+      restoreScrollPositions(scrollPositions);
+      updateBusyState();
+      statusLineEl.textContent = `${t('updated')} ${snapshot.generated_at}`;
     }
 
     async function refreshSnapshot() {
-      const snapshot = await api('/api/snapshot');
-      render(snapshot);
+      if (state.refreshInFlight) return;
+      state.refreshInFlight = true;
+      updateBusyState();
+      try {
+        const snapshot = await api('/api/snapshot');
+        if (snapshot.checksum === state.lastChecksum && state.snapshot) {
+          state.snapshot = snapshot;
+          statusLineEl.textContent = `${t('updated')} ${snapshot.generated_at}`;
+          return;
+        }
+        render(snapshot);
+      } finally {
+        state.refreshInFlight = false;
+        updateBusyState();
+      }
     }
 
     document.getElementById('refreshBtn').addEventListener('click', refreshSnapshot);
-    document.getElementById('runBtn').addEventListener('click', async () => {
-      const commandId = document.getElementById('runCommandId').value.trim();
-      statusLineEl.textContent = commandId ? `Running ${commandId}…` : 'Running engine…';
-      await api('/api/commands/run', {
-        method: 'POST',
-        body: JSON.stringify({ command_id: commandId || null }),
-      });
-      await refreshSnapshot();
+    document.getElementById('languageSelect').addEventListener('change', (event) => {
+      const nextLocale = event.target.value;
+      state.localeOverride = nextLocale;
+      const url = new URL(window.location.href);
+      url.searchParams.set('lang', nextLocale);
+      window.history.replaceState({}, '', url);
+      if (state.snapshot) {
+        render(state.snapshot);
+      } else {
+        applyLocale();
+      }
     });
     document.getElementById('submitBtn').addEventListener('click', async () => {
+      if (state.submitting) return;
       const goal = document.getElementById('goal').value.trim();
       if (!goal) return;
       const workflowMode = document.getElementById('workflowMode').value;
       const priority = document.getElementById('priority').value;
       const backend = document.getElementById('backend').value;
-      statusLineEl.textContent = 'Submitting command…';
-      await api('/api/commands', {
-        method: 'POST',
-        body: JSON.stringify({ goal, workflow_mode: workflowMode, priority, backend }),
-      });
-      document.getElementById('goal').value = '';
-      await refreshSnapshot();
+      state.submitting = true;
+      updateBusyState();
+      statusLineEl.textContent = t('submitting');
+      try {
+        const created = await api('/api/commands', {
+          method: 'POST',
+          body: JSON.stringify({ goal, workflow_mode: workflowMode, priority, backend }),
+        });
+        await api('/api/commands/run', {
+          method: 'POST',
+          body: JSON.stringify({ command_id: created.command.id }),
+        });
+        document.getElementById('goal').value = '';
+        await refreshSnapshot();
+      } finally {
+        state.submitting = false;
+        updateBusyState();
+      }
     });
-    document.getElementById('appendBtn').addEventListener('click', async () => {
+    appendModalInputEl.addEventListener('input', syncAppendSubmitState);
+    document.getElementById('appendModalSubmit').addEventListener('click', async () => {
+      if (state.appending) return;
       const commandId = state.selectedCommandId;
-      const body = appendInstructionEl.value.trim();
+      const body = appendModalInputEl.value.trim();
       if (!commandId || !body) return;
-      statusLineEl.textContent = `Appending instruction to ${commandId}…`;
-      await api('/api/commands/append', {
-        method: 'POST',
-        body: JSON.stringify({ command_id: commandId, body }),
-      });
-      appendInstructionEl.value = '';
-      await refreshSnapshot();
+      state.appending = true;
+      updateBusyState();
+      statusLineEl.textContent = `${t('appending')} ${commandId}…`;
+      try {
+        await api('/api/commands/append', {
+          method: 'POST',
+          body: JSON.stringify({ command_id: commandId, body }),
+        });
+        await api('/api/commands/run', {
+          method: 'POST',
+          body: JSON.stringify({ command_id: commandId }),
+        });
+        appendModalInputEl.value = '';
+        closeAppendModal();
+        await refreshSnapshot();
+      } finally {
+        state.appending = false;
+        updateBusyState();
+      }
     });
     document.getElementById('closeResultBtn').addEventListener('click', closeResultModal);
+    document.getElementById('closeAppendBtn').addEventListener('click', closeAppendModal);
     resultModalEl.addEventListener('click', (event) => {
       if (event.target === resultModalEl) closeResultModal();
     });
+    appendModalEl.addEventListener('click', (event) => {
+      if (event.target === appendModalEl) closeAppendModal();
+    });
+    workspaceTabsEl.querySelectorAll('[data-tab]').forEach((button) => {
+      button.addEventListener('click', () => setWorkspaceTab(button.dataset.tab));
+    });
 
+    applyLocale();
+    updateBusyState();
     refreshSnapshot();
     setInterval(refreshSnapshot, 2500);
   </script>

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
+
+if [[ ! -x "$PYTHON_BIN" ]]; then
+  cat >&2 <<'EOF'
+Local virtualenv not found at .venv.
+
+Run this once from the repo root:
+  python3 -m venv .venv
+  ./.venv/bin/pip install -e '.[dev]'
+EOF
+  exit 1
+fi
+
+cd "$ROOT_DIR"
+export PYTHONPATH="$ROOT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
+exec "$PYTHON_BIN" -m wevra.cli "$@"

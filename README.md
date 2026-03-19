@@ -5,8 +5,7 @@
 Wevra is a local workflow engine for structured AI work.
 
 It takes a request, breaks it into tracked steps, runs the work through the right mode, pauses when user input is needed, and keeps the flow inside the engine instead of inside a long-lived AI chat.
-
-The repo root includes a local `./wevra` launcher, similar to `artisan`, so you can run the project without activating the virtualenv each time.
+With a single request, Wevra can carry work from planning and implementation through tests and final review.
 
 Wevra can run a request in these modes:
 

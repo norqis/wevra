@@ -7,6 +7,8 @@ from typer.testing import CliRunner
 
 from wevra.cli import app
 from wevra.dashboard import create_server
+from wevra.models import RuntimeBackend
+from wevra.service import StructuredCliBackend
 
 
 runner = CliRunner()
@@ -61,6 +63,25 @@ def test_init_creates_config_and_db(tmp_path, monkeypatch):
         "events",
         "instructions",
     } <= names
+
+
+def test_runtime_home_overrides_are_applied_to_external_clis(tmp_path, monkeypatch):
+    runtime_home = tmp_path / "runtime-home"
+    monkeypatch.setenv("HOME", "/tmp/original-home")
+
+    backend = StructuredCliBackend(
+        RuntimeBackend.CODEX,
+        model="",
+        danger=False,
+        runtime_home=runtime_home,
+    )
+
+    codex_env = backend._build_runtime_env()
+    assert codex_env["HOME"] == str(runtime_home)
+    assert runtime_home.is_dir()
+
+    claude_env = backend._build_runtime_env()
+    assert claude_env["HOME"] == str(runtime_home)
 
 
 def test_run_happy_path_completes_command(tmp_path, monkeypatch):

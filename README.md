@@ -38,6 +38,7 @@ No separate SQLite install is required.
 After `./wevra init`, adjust the generated local config files as needed:
 
 - `wevra.ini`: working directory, dashboard host and port, notifications, and runtime defaults
+- `wevra.ini`: working directory, dashboard host and port, notifications, runtime defaults, and an optional CLI home override
 - `agents.ini`: which backend and model each role should use
 - `.env`: local secrets such as `DISCORD_WEBHOOK_URL`
 
@@ -133,6 +134,7 @@ Controls runtime, UI, and notification behavior.
 | `runtime.db_path` | `.wevra/wevra.db` | SQLite database path. |
 | `runtime.language` | `en` | Default language for the runtime. |
 | `runtime.dangerously_bypass_approvals_and_sandbox` | `false` | Enables unsafe bypass behavior when explicitly needed. |
+| `runtime.home` | empty | Optional `HOME` override used when launching external CLIs such as Codex or Claude. |
 | `ui.auto_start` | `true` | Starts the dashboard when `wevra start` runs. |
 | `ui.host` | `127.0.0.1` | Dashboard bind host. |
 | `ui.port` | `43861` | Dashboard port. |

@@ -35,7 +35,7 @@ SQLite を別途インストールする必要はありません。
 
 `./wevra init` のあと、必要に応じて生成されたローカル設定ファイルを編集します。
 
-- `wevra.ini`: workspace、dashboard の host と port、通知、runtime の既定値
+- `wevra.ini`: workspace、dashboard の host と port、通知、runtime の既定値、CLI 用の home 上書き
 - `agents.ini`: role ごとの backend と model
 - `.env`: `DISCORD_WEBHOOK_URL` のようなローカル secret
 
@@ -131,6 +131,7 @@ runtime、UI、通知まわりの挙動を設定します。
 | `runtime.db_path` | `.wevra/wevra.db` | SQLite DB の保存先です。 |
 | `runtime.language` | `en` | runtime の既定言語です。 |
 | `runtime.dangerously_bypass_approvals_and_sandbox` | `false` | 必要時に危険な bypass 挙動を許可します。 |
+| `runtime.home` | 空 | Codex や Claude など外部 CLI を起動するときに使う `HOME` の上書きです。 |
 | `ui.auto_start` | `true` | `wevra start` 実行時に dashboard を自動起動します。 |
 | `ui.host` | `127.0.0.1` | dashboard の bind host です。 |
 | `ui.port` | `43861` | dashboard の port です。 |

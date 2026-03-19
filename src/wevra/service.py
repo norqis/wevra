@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import tempfile
 import uuid
@@ -692,10 +693,17 @@ class MockBackend(BackendInterface):
 
 
 class StructuredCliBackend(BackendInterface):
-    def __init__(self, backend: RuntimeBackend, model: str, danger: bool):
+    def __init__(
+        self,
+        backend: RuntimeBackend,
+        model: str,
+        danger: bool,
+        runtime_home: Path | None = None,
+    ):
         self.backend = backend
         self.model = model
         self.danger = danger
+        self.runtime_home = runtime_home
 
     def plan(
         self,
@@ -799,10 +807,12 @@ class StructuredCliBackend(BackendInterface):
             else:
                 command.append("--full-auto")
             command.append(prompt)
+            env = self._build_runtime_env()
 
             result = subprocess.run(
                 command,
                 cwd=str(workspace_root),
+                env=env,
                 text=True,
                 capture_output=True,
                 check=False,
@@ -830,10 +840,12 @@ class StructuredCliBackend(BackendInterface):
         else:
             command.extend(["--permission-mode", "acceptEdits"])
         command.append(prompt)
+        env = self._build_runtime_env()
 
         result = subprocess.run(
             command,
             cwd=str(workspace_root),
+            env=env,
             text=True,
             capture_output=True,
             check=False,
@@ -844,13 +856,25 @@ class StructuredCliBackend(BackendInterface):
             )
         return json.loads(result.stdout)
 
+    def _build_runtime_env(self) -> dict[str, str]:
+        env = dict(os.environ)
+        if self.runtime_home is not None:
+            self.runtime_home.mkdir(parents=True, exist_ok=True)
+            env["HOME"] = str(self.runtime_home)
+        return env
+
 
 def backend_for(command: CommandRecord, settings: AppConfig, capability: str) -> BackendInterface:
     role = settings.role_for(capability)
     runtime = role.runtime if command.backend == RuntimeBackend.INHERIT else command.backend
     if runtime == RuntimeBackend.MOCK:
         return MockBackend()
-    return StructuredCliBackend(runtime, role.model, settings.danger)
+    return StructuredCliBackend(
+        runtime,
+        role.model,
+        settings.danger,
+        runtime_home=settings.runtime_home,
+    )
 
 
 def build_final_response(

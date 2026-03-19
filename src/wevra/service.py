@@ -979,6 +979,9 @@ def create_task_records(
                 },
             )
         else:
+            rerun_completed_gate = (
+                command.stage == CommandStage.REPLANNING and existing_task.capability == "tester"
+            )
             update_fields = {
                 "kind": spec.kind,
                 "capability": spec.capability,
@@ -988,7 +991,7 @@ def create_task_records(
                 "input_payload": json.dumps(payload, sort_keys=True),
                 "assigned_run_id": None,
             }
-            if existing_task.state != TaskState.DONE:
+            if existing_task.state != TaskState.DONE or rerun_completed_gate:
                 update_fields.update(
                     {
                         "state": TaskState.PENDING.value,

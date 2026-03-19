@@ -17,7 +17,7 @@ from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
 from wevra.config import AppConfig, load_config
-from wevra.models import CommandStage, Priority, RuntimeBackend
+from wevra.models import CommandStage, Priority, RuntimeBackend, WorkflowMode
 from wevra.service import (
     answer_question,
     append_instruction,
@@ -207,12 +207,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if not goal:
                 self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "goal_required"})
                 return
+            workflow_mode = WorkflowMode(str(payload.get("workflow_mode", WorkflowMode.AUTO.value)).strip() or WorkflowMode.AUTO.value)
             priority = Priority(str(payload.get("priority", Priority.HIGH.value)))
             backend_raw = str(payload.get("backend", "")).strip().lower()
             backend = RuntimeBackend(backend_raw) if backend_raw else None
             command = submit_command(
                 self.settings.db_path,
                 goal=goal,
+                workflow_mode=workflow_mode,
                 priority=priority,
                 backend=backend,
                 settings=self.settings,

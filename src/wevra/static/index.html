@@ -276,6 +276,13 @@
       <div class="composer">
         <textarea id="goal" placeholder="Describe the command you want Wevra to run."></textarea>
         <div class="row">
+          <select id="workflowMode">
+            <option value="auto">auto</option>
+            <option value="implementation">implementation</option>
+            <option value="research">research</option>
+            <option value="review">review</option>
+            <option value="planning">planning</option>
+          </select>
           <select id="priority">
             <option value="high">high</option>
             <option value="medium">medium</option>
@@ -384,6 +391,8 @@
           <div>${command.goal}</div>
           <div class="meta">
             ${pill(command.stage)}
+            ${pill(command.workflow_mode)}
+            ${command.effective_mode ? pill(`resolved:${command.effective_mode}`) : ''}
             ${pill(command.priority)}
             <span>runs: ${command.run_count}</span>
           </div>
@@ -538,12 +547,13 @@
     document.getElementById('submitBtn').addEventListener('click', async () => {
       const goal = document.getElementById('goal').value.trim();
       if (!goal) return;
+      const workflowMode = document.getElementById('workflowMode').value;
       const priority = document.getElementById('priority').value;
       const backend = document.getElementById('backend').value;
       statusLineEl.textContent = 'Submitting command…';
       await api('/api/commands', {
         method: 'POST',
-        body: JSON.stringify({ goal, priority, backend }),
+        body: JSON.stringify({ goal, workflow_mode: workflowMode, priority, backend }),
       });
       document.getElementById('goal').value = '';
       await refreshSnapshot();

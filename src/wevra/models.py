@@ -19,6 +19,14 @@ class RuntimeBackend(str, Enum):
     CLAUDE = "claude"
 
 
+class WorkflowMode(str, Enum):
+    AUTO = "auto"
+    IMPLEMENTATION = "implementation"
+    RESEARCH = "research"
+    REVIEW = "review"
+    PLANNING = "planning"
+
+
 class CommandStage(str, Enum):
     QUEUED = "queued"
     PLANNING = "planning"
@@ -73,6 +81,8 @@ class CommandRecord(BaseModel):
     id: str
     goal: str
     stage: CommandStage
+    workflow_mode: WorkflowMode = WorkflowMode.AUTO
+    effective_mode: Optional[WorkflowMode] = None
     priority: Priority
     backend: RuntimeBackend
     workspace_root: str
@@ -163,6 +173,7 @@ class PlannerTaskSpec(BaseModel):
 
 class PlannerOutput(BaseModel):
     decision: PlannerDecision
+    workflow_mode: Optional[WorkflowMode] = None
     tasks: List[PlannerTaskSpec] = Field(default_factory=list)
     question: Optional[str] = None
     final_response: Optional[str] = None

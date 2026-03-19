@@ -32,6 +32,7 @@ from wevra.models import (
     TickOutcome,
     WorkerDecision,
     WorkerOutput,
+    WorkflowMode,
 )
 
 
@@ -52,6 +53,12 @@ STAGE_RANK = {
     CommandStage.FAILED.value: 7,
 }
 
+MODE_KEYWORDS = {
+    WorkflowMode.RESEARCH: ("research", "investigate", "analysis", "report", "調査", "分析", "報告"),
+    WorkflowMode.REVIEW: ("review", "audit", "inspect", "pr", "diff", "レビュー", "確認"),
+    WorkflowMode.PLANNING: ("plan", "design", "spec", "task breakdown", "設計", "計画", "分解"),
+}
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -65,6 +72,107 @@ def resolve_settings(settings: Optional[AppConfig] = None, repo_root: Optional[P
     if settings is not None:
         return settings
     return load_config((repo_root or Path.cwd()).resolve())
+
+
+def requested_mode(command: CommandRecord) -> WorkflowMode:
+    return command.workflow_mode
+
+
+def effective_mode(command: CommandRecord) -> WorkflowMode:
+    if command.effective_mode:
+        return command.effective_mode
+    if command.workflow_mode == WorkflowMode.AUTO:
+        return WorkflowMode.IMPLEMENTATION
+    return command.workflow_mode
+
+
+def mode_requires_review(mode: WorkflowMode) -> bool:
+    return mode in {WorkflowMode.IMPLEMENTATION, WorkflowMode.REVIEW}
+
+
+def mode_requires_test(mode: WorkflowMode) -> bool:
+    return mode == WorkflowMode.IMPLEMENTATION
+
+
+def infer_mode_from_goal(goal: str) -> WorkflowMode:
+    lowered = goal.lower()
+    for mode, keywords in MODE_KEYWORDS.items():
+        if any(keyword in lowered for keyword in keywords):
+            return mode
+    return WorkflowMode.IMPLEMENTATION
+
+
+def infer_mode_from_specs(specs: Sequence[PlannerTaskSpec], goal: str) -> WorkflowMode:
+    capabilities = {spec.capability for spec in specs}
+    if "implementer" in capabilities or "implementation" in capabilities or "rework" in capabilities:
+        return WorkflowMode.IMPLEMENTATION
+    if "tester" in capabilities:
+        return WorkflowMode.IMPLEMENTATION
+    if capabilities & {"investigation", "analyst"}:
+        return infer_mode_from_goal(goal)
+    return infer_mode_from_goal(goal)
+
+
+def resolve_command_mode(command: CommandRecord, output: PlannerOutput) -> WorkflowMode:
+    if command.workflow_mode != WorkflowMode.AUTO:
+        return command.workflow_mode
+    if output.workflow_mode and output.workflow_mode != WorkflowMode.AUTO:
+        return output.workflow_mode
+    return infer_mode_from_specs(output.tasks, command.goal)
+
+
+def mode_prompt_guidance(mode: WorkflowMode) -> str:
+    if mode == WorkflowMode.IMPLEMENTATION:
+        return (
+            "This is implementation mode. You may schedule investigation and analyst tasks before implementation, "
+            "but do not schedule final tester or reviewer tasks yourself. The engine owns the final test gate and final review gate."
+        )
+    if mode == WorkflowMode.RESEARCH:
+        return (
+            "This is research mode. Focus on investigation and analyst tasks that produce a report or conclusion. "
+            "Do not assume implementation, testing, or final review are required."
+        )
+    if mode == WorkflowMode.REVIEW:
+        return (
+            "This is review mode. Focus on tasks that gather context for review. "
+            "The engine owns the final reviewer pass."
+        )
+    if mode == WorkflowMode.PLANNING:
+        return (
+            "This is planning mode. Focus on design, decomposition, or spec work. "
+            "Do not assume implementation, testing, or final review are required."
+        )
+    return (
+        "This is auto mode. Infer whether the request is best handled as implementation, research, review, or planning, "
+        "and set workflow_mode in the JSON response."
+    )
+
+
+def add_mode_control_tasks(mode: WorkflowMode, specs: Sequence[PlannerTaskSpec]) -> List[PlannerTaskSpec]:
+    planned = list(specs)
+    if not mode_requires_test(mode):
+        return planned
+    if any(spec.capability == "tester" for spec in planned):
+        return planned
+
+    dependency_keys = [spec.key for spec in planned]
+    planned.append(
+        build_final_test_spec(dependency_keys)
+    )
+    return planned
+
+
+def build_final_test_spec(dependency_keys: Sequence[str]) -> PlannerTaskSpec:
+    return PlannerTaskSpec(
+        key="__system_test_gate__",
+        kind="test",
+        capability="tester",
+        title="Run existing feature and unit tests",
+        description="Execute the existing test suite against the completed implementation before the final review pass.",
+        depends_on=list(dependency_keys),
+        write_files=[],
+        input_payload={"system_generated": True, "gate": "final_test"},
+    )
 
 
 def append_event(conn, stream_type: str, stream_id: str, event_type: str, payload: dict) -> None:
@@ -290,10 +398,15 @@ class MockBackend(BackendInterface):
         instructions: List[InstructionRecord],
     ) -> PlannerOutput:
         goal = " ".join([command.goal, *[instruction.body for instruction in instructions]]).lower()
+        current_mode = (
+            command.effective_mode
+            or (command.workflow_mode if command.workflow_mode != WorkflowMode.AUTO else infer_mode_from_goal(goal))
+        )
         planner_questions = [question for question in questions if question.source == "planner"]
         if "[planner_question]" in goal and not any(question.answer for question in planner_questions):
             return PlannerOutput(
                 decision=PlannerDecision.ASK_QUESTION,
+                workflow_mode=current_mode,
                 question="Planner needs clarification before scheduling work.",
             )
 
@@ -302,6 +415,7 @@ class MockBackend(BackendInterface):
             if not any(task.input_payload.get("review_id") == latest_review.id for task in tasks):
                 return PlannerOutput(
                     decision=PlannerDecision.CREATE_TASKS,
+                    workflow_mode=current_mode,
                     tasks=[
                         PlannerTaskSpec(
                             key="review_rework",
@@ -321,6 +435,7 @@ class MockBackend(BackendInterface):
             if not any(task.input_payload.get("retry_of") == latest_failed.id for task in tasks):
                 return PlannerOutput(
                     decision=PlannerDecision.CREATE_TASKS,
+                    workflow_mode=current_mode,
                     tasks=[
                         PlannerTaskSpec(
                             key=f"retry_{latest_failed.task_key or latest_failed.id}",
@@ -340,7 +455,7 @@ class MockBackend(BackendInterface):
             if task.state in {TaskState.PENDING, TaskState.RUNNING, TaskState.BLOCKED, TaskState.DONE}
         ]
         default_specs: List[PlannerTaskSpec]
-        if "[parallel]" in goal:
+        if current_mode == WorkflowMode.IMPLEMENTATION and "[parallel]" in goal:
             default_specs = [
                 PlannerTaskSpec(
                     key="part_a",
@@ -368,7 +483,7 @@ class MockBackend(BackendInterface):
                     write_files=["src/integration.txt"],
                 ),
             ]
-        else:
+        elif current_mode == WorkflowMode.IMPLEMENTATION:
             default_specs = [
                 PlannerTaskSpec(
                     key="implementation_main",
@@ -379,37 +494,82 @@ class MockBackend(BackendInterface):
                     write_files=["src/implementation.txt"],
                 )
             ]
+        elif current_mode == WorkflowMode.RESEARCH:
+            default_specs = [
+                PlannerTaskSpec(
+                    key="research_collect",
+                    kind="investigation",
+                    capability="investigation",
+                    title="Investigate the request",
+                    description=command.goal,
+                    write_files=[],
+                ),
+                PlannerTaskSpec(
+                    key="research_report",
+                    kind="analysis",
+                    capability="analyst",
+                    title="Summarize findings into a report",
+                    description="Turn the investigation results into a clear report for the user.",
+                    depends_on=["research_collect"],
+                    write_files=[],
+                ),
+            ]
+        elif current_mode == WorkflowMode.REVIEW:
+            default_specs = [
+                PlannerTaskSpec(
+                    key="review_context",
+                    kind="analysis",
+                    capability="analyst",
+                    title="Collect review context",
+                    description="Inspect the current workspace and gather the context needed for a final review pass.",
+                    write_files=[],
+                )
+            ]
+        else:
+            default_specs = [
+                PlannerTaskSpec(
+                    key="planning_brief",
+                    kind="analysis",
+                    capability="analyst",
+                    title="Produce a structured execution plan",
+                    description=command.goal,
+                    write_files=[],
+                )
+            ]
 
         if "[append_extra]" in goal:
             dependency_key = default_specs[-1].key
             default_specs.append(
                 PlannerTaskSpec(
                     key="append_followup",
-                    kind="implementation",
-                    capability="implementer",
+                    kind="followup",
+                    capability=default_specs[-1].capability,
                     title="Apply appended instruction",
                     description="Incorporate the latest user-appended instruction into the result.",
                     depends_on=[dependency_key],
-                    write_files=["src/append_followup.txt"],
+                    write_files=[] if current_mode != WorkflowMode.IMPLEMENTATION else ["src/append_followup.txt"],
                 )
             )
 
         if command.stage == CommandStage.REPLANNING and instructions:
             return PlannerOutput(
                 decision=PlannerDecision.CREATE_TASKS,
+                workflow_mode=current_mode,
                 tasks=default_specs,
             )
 
         if not active_or_done:
-            if "[parallel]" in goal:
-                return PlannerOutput(decision=PlannerDecision.CREATE_TASKS, tasks=default_specs)
+            if current_mode == WorkflowMode.IMPLEMENTATION and "[parallel]" in goal:
+                return PlannerOutput(decision=PlannerDecision.CREATE_TASKS, workflow_mode=current_mode, tasks=default_specs)
             return PlannerOutput(
                 decision=PlannerDecision.CREATE_TASKS,
+                workflow_mode=current_mode,
                 tasks=default_specs,
             )
 
         return PlannerOutput(
             decision=PlannerDecision.COMPLETE,
+            workflow_mode=current_mode,
             final_response="Planner determined that no further task generation is required.",
         )
 
@@ -424,21 +584,22 @@ class MockBackend(BackendInterface):
     ) -> WorkerOutput:
         goal = " ".join([command.goal, *[instruction.body for instruction in instructions]]).lower()
         task_questions = [question for question in questions if question.task_id == task.id]
-        if "[worker_question]" in goal and not any(question.answer for question in task_questions):
+        is_primary_worker = task.capability == "implementer"
+        if "[worker_question]" in goal and is_primary_worker and not any(question.answer for question in task_questions):
             return WorkerOutput(
                 decision=WorkerDecision.ASK_QUESTION,
                 question=f"Need clarification before continuing task '{task.title}'.",
                 resolution_mode=QuestionResolutionMode.RESUME_TASK,
             )
 
-        if "[worker_replan]" in goal and not any(question.answer for question in task_questions):
+        if "[worker_replan]" in goal and is_primary_worker and not any(question.answer for question in task_questions):
             return WorkerOutput(
                 decision=WorkerDecision.ASK_QUESTION,
                 question=f"Clarification will change the plan for '{task.title}'.",
                 resolution_mode=QuestionResolutionMode.REPLAN_COMMAND,
             )
 
-        if "[worker_fail]" in goal and task.input_payload.get("retry_of") is None and task.attempt_count <= 1:
+        if "[worker_fail]" in goal and is_primary_worker and task.input_payload.get("retry_of") is None and task.attempt_count <= 1:
             return WorkerOutput(
                 decision=WorkerDecision.FAIL,
                 failure_reason=f"Mock worker failed '{task.title}' and requested replanning.",
@@ -502,12 +663,17 @@ class StructuredCliBackend(BackendInterface):
     ) -> PlannerOutput:
         context = build_context_payload(command, tasks, questions, reviews, instructions)
         planning_mode = "replanning" if command.stage == CommandStage.REPLANNING else "initial_plan"
+        requested = requested_mode(command)
+        active_mode = effective_mode(command)
         prompt = (
             "You are the Wevra planner.\n"
             "The engine owns all state transitions.\n"
             "Return only JSON that matches the provided schema.\n"
             "Every task must include a stable key, explicit depends_on references, and intended write_files.\n"
             f"Planning mode: {planning_mode}.\n"
+            f"Requested workflow mode: {requested.value}.\n"
+            f"Current effective workflow mode: {active_mode.value if active_mode else 'unresolved'}.\n"
+            f"{mode_prompt_guidance(active_mode if requested != WorkflowMode.AUTO else WorkflowMode.AUTO)}\n"
             "If this is replanning, preserve completed work as fact, reuse still-valid task keys, and only omit tasks that should be superseded.\n\n"
             f"Context:\n{json.dumps(context, indent=2, sort_keys=True)}"
         )
@@ -634,17 +800,19 @@ def backend_for(command: CommandRecord, settings: AppConfig, capability: str) ->
 
 
 def build_final_response(command: CommandRecord, tasks: List[TaskRecord], reviews: List[ReviewRecord]) -> str:
-    lines = [f"Goal: {command.goal}", "", "Completed tasks:"]
+    mode = effective_mode(command).value
+    lines = [f"Goal: {command.goal}", f"Mode: {mode}", "", "Completed tasks:"]
     completed_tasks = [task for task in tasks if task.state == TaskState.DONE]
     for task in completed_tasks:
         summary = "completed"
         if task.output_payload and task.output_payload.get("summary"):
             summary = task.output_payload["summary"]
         lines.append(f"- {task.title}: {summary}")
-    lines.append("")
-    lines.append("Final reviews:")
-    for review in reviews:
-        lines.append(f"- reviewer {review.reviewer_slot}: {review.summary}")
+    if reviews:
+        lines.append("")
+        lines.append("Final reviews:")
+        for review in reviews:
+            lines.append(f"- reviewer {review.reviewer_slot}: {review.summary}")
     return "\n".join(lines)
 
 
@@ -918,6 +1086,7 @@ def create_review_record(
 def submit_command(
     db_path: Path,
     goal: str,
+    workflow_mode: WorkflowMode,
     priority: Priority,
     backend: Optional[RuntimeBackend] = None,
     workspace_root: Optional[Path] = None,
@@ -936,15 +1105,17 @@ def submit_command(
         conn.execute(
             """
             INSERT INTO commands (
-                id, goal, stage, priority, backend, workspace_root, final_response, failure_reason, question_state,
-                planning_attempts, run_count, version, created_at, updated_at
+                id, goal, stage, workflow_mode, effective_mode, priority, backend, workspace_root, final_response, failure_reason,
+                question_state, planning_attempts, run_count, version, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 command_id,
                 goal,
                 CommandStage.QUEUED.value,
+                workflow_mode.value,
+                None if workflow_mode == WorkflowMode.AUTO else workflow_mode.value,
                 priority.value,
                 selected_backend.value,
                 resolved_root,
@@ -965,6 +1136,7 @@ def submit_command(
             "command_submitted",
             {
                 "goal": goal,
+                "workflow_mode": workflow_mode.value,
                 "priority": priority.value,
                 "backend": selected_backend.value,
                 "workspace_root": resolved_root,
@@ -1238,10 +1410,12 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
 
     next_run_count = command.run_count + 1
     next_planning_attempts = command.planning_attempts + 1
+    resolved_mode = resolve_command_mode(command, output)
 
     if output.decision == PlannerDecision.CREATE_TASKS:
+        planned_specs = add_mode_control_tasks(resolved_mode, output.tasks)
         try:
-            created_tasks = create_task_records(conn, command, output.tasks)
+            created_tasks = create_task_records(conn, command, planned_specs)
         except Exception as exc:
             update_command(
                 conn,
@@ -1251,6 +1425,7 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
                 run_count=next_run_count,
                 planning_attempts=next_planning_attempts,
                 replan_requested=0,
+                effective_mode=resolved_mode.value,
             )
             append_event(conn, "command", command.id, "planning_failed", {"error": str(exc)})
             row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
@@ -1265,13 +1440,18 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
             planning_attempts=next_planning_attempts,
             failure_reason=None,
             replan_requested=0,
+            effective_mode=resolved_mode.value,
         )
         append_event(
             conn,
             "command",
             command.id,
             "tasks_planned",
-            {"task_ids": [task.id for task in created_tasks], "count": len(created_tasks)},
+            {
+                "task_ids": [task.id for task in created_tasks],
+                "count": len(created_tasks),
+                "effective_mode": resolved_mode.value,
+            },
         )
         row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
         return TickOutcome(
@@ -1298,25 +1478,103 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
             run_count=next_run_count,
             planning_attempts=next_planning_attempts,
             replan_requested=0,
+            effective_mode=resolved_mode.value,
         )
-        append_event(conn, "command", command.id, "planning_blocked_on_question", {"question_id": question.id})
+        append_event(
+            conn,
+            "command",
+            command.id,
+            "planning_blocked_on_question",
+            {"question_id": question.id, "effective_mode": resolved_mode.value},
+        )
         row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
         return TickOutcome(action="question_created", command=command_from_row(row), question=question)
 
     if output.decision == PlannerDecision.COMPLETE:
+        existing_tester = any(task.capability == "tester" for task in tasks)
+        if mode_requires_test(resolved_mode) and not existing_tester:
+            created_tasks = create_task_records(
+                conn,
+                command,
+                [build_final_test_spec([task.task_key for task in tasks if task.task_key])],
+            )
+            update_command(
+                conn,
+                command.id,
+                stage=CommandStage.RUNNING.value,
+                question_state="none",
+                run_count=next_run_count,
+                planning_attempts=next_planning_attempts,
+                failure_reason=None,
+                replan_requested=0,
+                effective_mode=resolved_mode.value,
+            )
+            append_event(
+                conn,
+                "command",
+                command.id,
+                "tasks_planned",
+                {
+                    "task_ids": [task.id for task in created_tasks],
+                    "count": len(created_tasks),
+                    "effective_mode": resolved_mode.value,
+                    "source": "implicit_test_gate",
+                },
+            )
+            row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
+            return TickOutcome(
+                action="tasks_planned",
+                command=command_from_row(row),
+                tasks=created_tasks,
+                note="inserted final test gate",
+            )
+
+        if mode_requires_review(resolved_mode):
+            update_command(
+                conn,
+                command.id,
+                stage=CommandStage.VERIFYING.value,
+                run_count=next_run_count,
+                planning_attempts=next_planning_attempts,
+                failure_reason=None,
+                replan_requested=0,
+                effective_mode=resolved_mode.value,
+            )
+            append_event(
+                conn,
+                "command",
+                command.id,
+                "verification_started",
+                {"source": "planner_complete", "effective_mode": resolved_mode.value},
+            )
+            row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
+            return TickOutcome(action="verification_started", command=command_from_row(row), note=output.final_response)
+
+        final_response = output.final_response or build_final_response(
+            command.model_copy(update={"effective_mode": resolved_mode}),
+            tasks,
+            [],
+        )
         update_command(
             conn,
             command.id,
             stage=CommandStage.DONE.value,
-            final_response=output.final_response,
+            final_response=final_response,
             run_count=next_run_count,
             planning_attempts=next_planning_attempts,
             failure_reason=None,
             replan_requested=0,
+            effective_mode=resolved_mode.value,
         )
-        append_event(conn, "command", command.id, "command_completed", {"source": "planner"})
+        append_event(
+            conn,
+            "command",
+            command.id,
+            "command_completed",
+            {"source": "planner", "effective_mode": resolved_mode.value},
+        )
         row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
-        return TickOutcome(action="command_completed", command=command_from_row(row))
+        return TickOutcome(action="command_completed", command=command_from_row(row), note=final_response)
 
     update_command(
         conn,
@@ -1326,6 +1584,7 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
         run_count=next_run_count,
         planning_attempts=next_planning_attempts,
         replan_requested=0,
+        effective_mode=resolved_mode.value,
     )
     append_event(
         conn,
@@ -1471,6 +1730,7 @@ def execute_task_batch(
 
 
 def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOutcome:
+    resolved_mode = effective_mode(command)
     if command.replan_requested:
         update_command(
             conn,
@@ -1508,10 +1768,22 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
             row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
             return TickOutcome(action="dispatch_failed", command=command_from_row(row))
 
-        update_command(conn, command.id, stage=CommandStage.VERIFYING.value)
-        append_event(conn, "command", command.id, "verification_started", {})
+        if mode_requires_review(resolved_mode):
+            update_command(conn, command.id, stage=CommandStage.VERIFYING.value)
+            append_event(conn, "command", command.id, "verification_started", {"effective_mode": resolved_mode.value})
+            row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
+            return TickOutcome(action="verification_started", command=command_from_row(row))
+
+        final_response = build_final_response(command, tasks, [])
+        update_command(
+            conn,
+            command.id,
+            stage=CommandStage.DONE.value,
+            final_response=final_response,
+        )
+        append_event(conn, "command", command.id, "command_completed", {"source": "tasks", "effective_mode": resolved_mode.value})
         row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
-        return TickOutcome(action="verification_started", command=command_from_row(row))
+        return TickOutcome(action="command_completed", command=command_from_row(row), note="all tasks completed")
 
     for task in batch:
         update_task(conn, task.id, state=TaskState.RUNNING.value, attempt_count=task.attempt_count + 1)
@@ -1616,7 +1888,7 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
         if any(task.state == TaskState.PENDING for task in refreshed_tasks):
             next_stage = CommandStage.RUNNING
         else:
-            next_stage = CommandStage.VERIFYING
+            next_stage = CommandStage.VERIFYING if mode_requires_review(resolved_mode) else CommandStage.DONE
 
     update_command(
         conn,
@@ -1625,6 +1897,7 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
         question_state=question_state,
         run_count=command.run_count + len(active_batch),
         failure_reason=None,
+        final_response=build_final_response(command, list_tasks_for_command(conn, command.id), []) if next_stage == CommandStage.DONE else None,
     )
     if next_stage == CommandStage.REPLANNING:
         append_event(conn, "command", command.id, "replanning_requested", {"task_ids": [task.id for task in updated_tasks]})
@@ -1632,8 +1905,11 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
     elif next_stage == CommandStage.WAITING_QUESTION:
         action = "question_created"
     elif next_stage == CommandStage.VERIFYING:
-        append_event(conn, "command", command.id, "verification_started", {})
+        append_event(conn, "command", command.id, "verification_started", {"effective_mode": resolved_mode.value})
         action = "verification_started"
+    elif next_stage == CommandStage.DONE:
+        append_event(conn, "command", command.id, "command_completed", {"source": "tasks", "effective_mode": resolved_mode.value})
+        action = "command_completed"
     else:
         action = "task_batch_completed"
 

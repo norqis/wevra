@@ -10,6 +10,7 @@ It turns a user command into explicit runtime state, lets AI backends return str
 
 - SQLite-backed runtime using Python's standard `sqlite3`
 - `wevra.ini` and `agents.ini` driven configuration
+- workflow modes: `auto`, `implementation`, `research`, `review`, and `planning`
 - dependency-aware task scheduler with per-role concurrency limits
 - built-in `mock` backend for deterministic tests and local dogfooding
 - optional `codex` and `claude` backends for planner / implementer / reviewer work
@@ -32,20 +33,32 @@ Each command moves through explicit stages:
 The planner emits task specs with explicit `key`, `depends_on`, and `write_files`.  
 The engine uses that DAG plus role concurrency settings from `agents.ini` to decide which tasks are ready and which can run in parallel without colliding on write targets.
 
+## Workflow Modes
+
+- `auto`
+  Wevra picks the most suitable mode from the request.
+- `implementation`
+  Build or change something. Research can happen first, but the run only finishes after the existing tests pass and every reviewer approves.
+- `research`
+  Investigate a topic and return a report or conclusion. No final test gate is required.
+- `review`
+  Review the current workspace state and return review findings. No implementation phase is required.
+- `planning`
+  Produce a plan, design, or task breakdown without carrying the request all the way into implementation.
+
 ## Workflow
 
-Typical command execution looks like this:
+Typical execution looks like this:
 
-1. A user submits a command from the CLI or dashboard.
-2. The engine moves the command into `planning`.
-3. The planner inspects the command, current workspace state, prior questions, prior reviews, and appended instructions.
-4. The planner either asks a question, completes immediately, or emits a task DAG.
-5. That DAG can include investigation or analysis tasks before implementation tasks when the command needs research first.
-6. The engine runs dependency-safe tasks in `running`, respecting `depends_on`, `write_files`, and per-role concurrency limits.
-7. If a worker or planner asks a question, the command moves to `waiting_question` until the user answers.
-8. If the user appends a new instruction, the current active batch is allowed to finish, then the command moves to `replanning` and the planner updates the task graph.
-9. Once all tasks are complete, the engine moves the command into `verifying` for final review.
-10. If review requests changes, the command goes back to `replanning`; otherwise it completes in `done`.
+1. Submit a request from the CLI or dashboard and choose a mode.
+2. Wevra breaks the request into the steps needed for that mode.
+3. If the work needs research first, it does that before moving on.
+4. Ready steps run in order, with independent work running in parallel when it is safe.
+5. If clarification is needed, Wevra pauses and asks the user.
+6. If the user adds new instructions, the current in-flight work is allowed to finish, then the plan is updated.
+7. In `implementation` mode, once the implementation tasks are finished, Wevra runs the existing feature and unit tests.
+8. After tests pass, Wevra runs the final review pass.
+9. The work is only marked complete when every reviewer approves. If any reviewer requests changes, the work goes through another pass and the full review is repeated.
 
 ## Install
 
@@ -75,12 +88,19 @@ wevra status
 Submit and run from the CLI:
 
 ```bash
-wevra submit "Implement a planner-backed workflow"
+wevra submit --mode implementation "Implement a planner-backed workflow"
 wevra run
 wevra list
 wevra tasks
 wevra reviews
 wevra events
+```
+
+Research-only flow:
+
+```bash
+wevra submit --mode research "Investigate the current architecture and summarize the tradeoffs"
+wevra run
 ```
 
 Question flow:

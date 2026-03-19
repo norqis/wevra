@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS commands (
     id TEXT PRIMARY KEY,
     goal TEXT NOT NULL,
     stage TEXT NOT NULL,
+    workflow_mode TEXT NOT NULL DEFAULT 'auto',
+    effective_mode TEXT,
     priority TEXT NOT NULL,
     backend TEXT NOT NULL DEFAULT 'inherit',
     workspace_root TEXT NOT NULL DEFAULT '.',
@@ -132,6 +134,8 @@ def ensure_column(conn: sqlite3.Connection, table: str, column: str, definition:
 def initialize_database(db_path: Path) -> Path:
     with connect(db_path) as conn:
         conn.executescript(SCHEMA)
+        ensure_column(conn, "commands", "workflow_mode", "TEXT NOT NULL DEFAULT 'auto'")
+        ensure_column(conn, "commands", "effective_mode", "TEXT")
         ensure_column(conn, "commands", "backend", "TEXT NOT NULL DEFAULT 'inherit'")
         ensure_column(conn, "commands", "workspace_root", "TEXT NOT NULL DEFAULT '.'")
         ensure_column(conn, "commands", "failure_reason", "TEXT")

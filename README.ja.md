@@ -8,6 +8,7 @@ Wevra は、構造化された AI 実行のためのローカル workflow engine
 
 - Python 標準の `sqlite3` を使った SQLite ベースの runtime
 - `wevra.ini` と `agents.ini` による設定
+- `auto` / `implementation` / `research` / `review` / `planning` の workflow mode
 - role ごとの並列数を考慮した dependency-aware task scheduler
 - テストとローカル検証用の `mock` backend
 - planner / implementer / reviewer 向けの `codex` / `claude` backend
@@ -30,20 +31,32 @@ Wevra は、構造化された AI 実行のためのローカル workflow engine
 planner は `key`、`depends_on`、`write_files` を持つ task spec を返します。  
 engine はその DAG と `agents.ini` の role 設定を使って、どの task が ready か、どの task を安全に並列実行できるかを決めます。
 
+## Workflow Modes
+
+- `auto`
+  依頼内容を見て、もっとも合う mode を Wevra が選びます。
+- `implementation`
+  実装や変更を進める mode です。必要なら先に調査しますが、既存テストが通り、レビュアー全員が承認するまで完了しません。
+- `research`
+  調査して報告や結論を返す mode です。最終テスト gate は不要です。
+- `review`
+  いまの workspace をレビューして、所見を返す mode です。実装フェーズは必須ではありません。
+- `planning`
+  設計、方針決め、タスク分解だけを行う mode です。実装完了までは持っていきません。
+
 ## 実行フロー
 
-典型的な command の流れはこうです。
+典型的な流れはこうです。
 
-1. ユーザーが CLI か dashboard から command を投入する
-2. engine が command を `planning` に進める
-3. planner が command、workspace 状態、過去の質問、過去の review、append された追加指示を見て判断する
-4. planner は「質問する」「即完了する」「task DAG を返す」のどれかを返す
-5. command に調査が必要なら、implementation の前に investigation / analysis 系の task を切れる
-6. engine は `depends_on`、`write_files`、role ごとの並列数を見ながら `running` で task を実行する
-7. planner や worker から質問が出たら `waiting_question` に入り、ユーザー回答を待つ
-8. ユーザーが追加指示を append したら、いま走っている active batch だけ完走させてから `replanning` に入り、planner が task graph を更新する
-9. task が全部終わると `verifying` に進み、最後の全体 review を回す
-10. review で差し戻しがあれば `replanning` に戻り、問題なければ `done` で完了する
+1. CLI か dashboard から依頼を投入し、mode を選ぶ
+2. Wevra がその mode に必要な作業へ分解する
+3. 調査が必要なら、次の作業に進む前に先に調べる
+4. 実行できる作業から順に進め、安全なものは並列に進める
+5. 途中で確認が必要になったら、ユーザーに質問して止まる
+6. ユーザーが追加指示を入れたら、いま動いている作業だけ完了させてから計画を更新する
+7. `implementation` mode では、実装作業が終わったあとに既存の Feature / Unit テストを実行する
+8. テスト完了後に全体レビューを行う
+9. レビュアー全員が承認したときだけ完了し、1人でも修正を求めたら、修正してから全体レビューをやり直す
 
 ## Install
 
@@ -73,12 +86,19 @@ wevra status
 CLI から command を投入して実行する基本フローです。
 
 ```bash
-wevra submit "Implement a planner-backed workflow"
+wevra submit --mode implementation "Implement a planner-backed workflow"
 wevra run
 wevra list
 wevra tasks
 wevra reviews
 wevra events
+```
+
+調査だけ回したい場合:
+
+```bash
+wevra submit --mode research "現在の構成を調べてトレードオフを整理する"
+wevra run
 ```
 
 質問が出たときのフローです。

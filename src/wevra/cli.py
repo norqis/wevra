@@ -10,7 +10,7 @@ from wevra import __version__
 from wevra.config import init_repo_config, load_config
 from wevra.dashboard import build_snapshot, dashboard_status, start_dashboard, stop_dashboard
 from wevra.db import initialize_database
-from wevra.models import Priority, RuntimeBackend
+from wevra.models import Priority, RuntimeBackend, WorkflowMode
 from wevra.service import (
     answer_question,
     append_instruction,
@@ -127,6 +127,7 @@ def init_db(
 @app.command("submit")
 def submit(
     goal: str = typer.Argument(..., help="Command goal to submit into the runtime."),
+    workflow_mode: WorkflowMode = typer.Option(WorkflowMode.AUTO, "--mode", help="Workflow mode: auto, implementation, research, review, or planning."),
     priority: Priority = typer.Option(Priority.HIGH, help="Priority assigned to the command."),
     backend: Optional[RuntimeBackend] = typer.Option(None, help="Optional backend override for this command."),
     workspace_root: Optional[Path] = typer.Option(None, help="Optional workspace root override."),
@@ -137,6 +138,7 @@ def submit(
     command = submit_command(
         resolve_db_path(db_path),
         goal=goal,
+        workflow_mode=workflow_mode,
         priority=priority,
         backend=backend,
         workspace_root=workspace_root,

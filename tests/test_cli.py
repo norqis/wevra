@@ -63,10 +63,15 @@ def test_run_happy_path_completes_command(tmp_path, monkeypatch):
 
     run_result = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
     assert run_result["final_command"]["stage"] == "done"
+    assert run_result["final_command"]["effective_mode"] == "implementation"
     assert any(step["action"] == "command_completed" for step in run_result["steps"])
 
     tasks = read_json(runner.invoke(app, ["tasks", "--command-id", command_id]))
-    assert [task["state"] for task in tasks["tasks"]] == ["done"]
+    assert all(task["state"] == "done" for task in tasks["tasks"])
+    assert any(task["capability"] == "tester" for task in tasks["tasks"])
+
+    reviews = read_json(runner.invoke(app, ["reviews", "--command-id", command_id]))
+    assert len(reviews["reviews"]) == 2
 
 
 def test_worker_question_can_be_answered_and_resumed(tmp_path, monkeypatch):
@@ -100,10 +105,66 @@ def test_parallel_plan_creates_dependency_graph(tmp_path, monkeypatch):
     assert completed["final_command"]["stage"] == "done"
 
     tasks = read_json(runner.invoke(app, ["tasks", "--command-id", command_id]))
-    assert len(tasks["tasks"]) == 3
+    assert len(tasks["tasks"]) == 4
     integration = next(task for task in tasks["tasks"] if task["task_key"] == "integration")
     assert len(integration["depends_on"]) == 2
+    tester = next(task for task in tasks["tasks"] if task["task_key"] == "__system_test_gate__")
+    assert len(tester["depends_on"]) == 3
     assert all(task["state"] == "done" for task in tasks["tasks"])
+
+
+def test_research_mode_skips_final_review(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    submitted = read_json(runner.invoke(app, ["submit", "--mode", "research", "investigate the current architecture"]))
+    command_id = submitted["id"]
+
+    completed = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
+    assert completed["final_command"]["stage"] == "done"
+    assert completed["final_command"]["effective_mode"] == "research"
+
+    tasks = read_json(runner.invoke(app, ["tasks", "--command-id", command_id]))
+    assert [task["capability"] for task in tasks["tasks"]] == ["investigation", "analyst"]
+
+    reviews = read_json(runner.invoke(app, ["reviews", "--command-id", command_id]))
+    assert reviews["reviews"] == []
+
+
+def test_review_mode_runs_review_without_tester_gate(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    submitted = read_json(runner.invoke(app, ["submit", "--mode", "review", "review the existing changes"]))
+    command_id = submitted["id"]
+
+    completed = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
+    assert completed["final_command"]["stage"] == "done"
+    assert completed["final_command"]["effective_mode"] == "review"
+
+    tasks = read_json(runner.invoke(app, ["tasks", "--command-id", command_id]))
+    assert all(task["capability"] != "tester" for task in tasks["tasks"])
+
+    reviews = read_json(runner.invoke(app, ["reviews", "--command-id", command_id]))
+    assert len(reviews["reviews"]) == 2
+
+
+def test_planning_mode_stops_after_plan_output(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    submitted = read_json(runner.invoke(app, ["submit", "--mode", "planning", "design a rollout plan"]))
+    command_id = submitted["id"]
+
+    completed = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
+    assert completed["final_command"]["stage"] == "done"
+    assert completed["final_command"]["effective_mode"] == "planning"
+
+    tasks = read_json(runner.invoke(app, ["tasks", "--command-id", command_id]))
+    assert [task["capability"] for task in tasks["tasks"]] == ["analyst"]
+
+    reviews = read_json(runner.invoke(app, ["reviews", "--command-id", command_id]))
+    assert reviews["reviews"] == []
 
 
 def test_append_instruction_replans_after_current_batch(tmp_path, monkeypatch):

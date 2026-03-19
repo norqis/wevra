@@ -187,6 +187,31 @@ def test_review_mode_runs_review_without_tester_gate(tmp_path, monkeypatch):
     assert len(reviews["reviews"]) == 2
 
 
+def test_auto_mode_infers_non_implementation_flows(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    cases = [
+        ("investigate the current architecture", "research", ["investigation", "analyst"], 0),
+        ("review the existing changes", "review", ["analyst"], 2),
+        ("design a rollout plan", "planning", ["analyst"], 0),
+    ]
+
+    for goal, expected_mode, expected_capabilities, expected_review_count in cases:
+        submitted = read_json(runner.invoke(app, ["submit", goal]))
+        command_id = submitted["id"]
+
+        completed = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
+        assert completed["final_command"]["stage"] == "done"
+        assert completed["final_command"]["effective_mode"] == expected_mode
+
+        tasks = read_json(runner.invoke(app, ["tasks", "--command-id", command_id]))
+        assert [task["capability"] for task in tasks["tasks"]] == expected_capabilities
+
+        reviews = read_json(runner.invoke(app, ["reviews", "--command-id", command_id]))
+        assert len(reviews["reviews"]) == expected_review_count
+
+
 def test_planning_mode_stops_after_plan_output(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
@@ -205,6 +230,60 @@ def test_planning_mode_stops_after_plan_output(tmp_path, monkeypatch):
 
     reviews = read_json(runner.invoke(app, ["reviews", "--command-id", command_id]))
     assert reviews["reviews"] == []
+
+
+def test_planner_question_can_be_answered_and_resumed(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    submitted = read_json(
+        runner.invoke(app, ["submit", "[planner_question] clarify before planning"])
+    )
+    command_id = submitted["id"]
+
+    blocked = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
+    assert blocked["final_command"]["stage"] == "waiting_question"
+
+    questions = read_json(
+        runner.invoke(app, ["questions", "--command-id", command_id, "--open-only"])
+    )
+    question = questions["questions"][0]
+    assert question["source"] == "planner"
+    assert question["resolution_mode"] == "replan_command"
+
+    read_json(runner.invoke(app, ["answer", question["id"], "Proceed with the default plan."]))
+
+    completed = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
+    assert completed["final_command"]["stage"] == "done"
+
+
+def test_worker_replan_question_cancels_current_task_before_replanning(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    submitted = read_json(
+        runner.invoke(
+            app,
+            ["submit", "--mode", "implementation", "[worker_replan] replan during execution"],
+        )
+    )
+    command_id = submitted["id"]
+
+    blocked = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
+    assert blocked["final_command"]["stage"] == "waiting_question"
+
+    questions = read_json(
+        runner.invoke(app, ["questions", "--command-id", command_id, "--open-only"])
+    )
+    question = questions["questions"][0]
+    assert question["resolution_mode"] == "replan_command"
+
+    tasks = read_json(runner.invoke(app, ["tasks", "--command-id", command_id]))
+    assert tasks["tasks"][0]["state"] == "canceled"
+
+    read_json(runner.invoke(app, ["answer", question["id"], "Change the plan and continue."]))
+    completed = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
+    assert completed["final_command"]["stage"] == "done"
 
 
 def test_append_instruction_replans_after_current_batch(tmp_path, monkeypatch):
@@ -250,6 +329,112 @@ def test_append_instruction_replans_after_current_batch(tmp_path, monkeypatch):
 
     completed = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
     assert completed["final_command"]["stage"] == "done"
+
+
+def test_append_instruction_while_waiting_question_resolves_old_question(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    submitted = read_json(runner.invoke(app, ["submit", "[worker_question] append while blocked"]))
+    command_id = submitted["id"]
+
+    blocked = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
+    assert blocked["final_command"]["stage"] == "waiting_question"
+
+    appended = read_json(
+        runner.invoke(app, ["append", command_id, "[append_extra] replace the blocked direction"])
+    )
+    assert appended["command"]["stage"] == "replanning"
+    assert appended["command"]["question_state"] == "none"
+
+    open_questions = read_json(
+        runner.invoke(app, ["questions", "--command-id", command_id, "--open-only"])
+    )
+    assert open_questions["questions"] == []
+
+    all_questions = read_json(runner.invoke(app, ["questions", "--command-id", command_id]))
+    assert all_questions["questions"][0]["state"] == "resolved"
+    assert all_questions["questions"][0]["answer"] == "[superseded by appended instruction]"
+
+    resumed = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
+    assert resumed["final_command"]["stage"] == "waiting_question"
+
+    new_questions = read_json(
+        runner.invoke(app, ["questions", "--command-id", command_id, "--open-only"])
+    )
+    read_json(runner.invoke(app, ["answer", new_questions["questions"][0]["id"], "Continue."]))
+
+    completed = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
+    assert completed["final_command"]["stage"] == "done"
+
+    tasks = read_json(runner.invoke(app, ["tasks", "--command-id", command_id]))
+    assert any(task["task_key"] == "append_followup" for task in tasks["tasks"])
+
+
+def test_worker_failure_creates_retry_task_and_recovers(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    submitted = read_json(runner.invoke(app, ["submit", "[worker_fail] recover after one failure"]))
+    command_id = submitted["id"]
+
+    completed = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
+    assert completed["final_command"]["stage"] == "done"
+
+    tasks = read_json(runner.invoke(app, ["tasks", "--command-id", command_id]))
+    retry_tasks = [task for task in tasks["tasks"] if task["task_key"].startswith("retry_")]
+    assert len(retry_tasks) == 1
+    assert retry_tasks[0]["state"] == "done"
+    assert retry_tasks[0]["input_payload"]["retry_of"]
+    assert any(task["state"] == "canceled" for task in tasks["tasks"])
+
+
+def test_review_changes_in_implementation_mode_reruns_tester_and_reviews(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    submitted = read_json(
+        runner.invoke(
+            app,
+            [
+                "submit",
+                "--mode",
+                "implementation",
+                "[review_changes] rerun tests after review rework",
+            ],
+        )
+    )
+    command_id = submitted["id"]
+
+    completed = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
+    assert completed["final_command"]["stage"] == "done"
+
+    tasks = read_json(runner.invoke(app, ["tasks", "--command-id", command_id]))
+    tester = next(task for task in tasks["tasks"] if task["capability"] == "tester")
+    assert tester["attempt_count"] == 2
+    assert any(task["task_key"] == "review_rework" for task in tasks["tasks"])
+
+    reviews = read_json(runner.invoke(app, ["reviews", "--command-id", command_id]))
+    assert len(reviews["reviews"]) == 4
+    assert any(review["decision"] == "request_changes" for review in reviews["reviews"])
+
+
+def test_review_fail_marks_command_failed(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    submitted = read_json(
+        runner.invoke(app, ["submit", "--mode", "implementation", "[review_fail] fail in review"])
+    )
+    command_id = submitted["id"]
+
+    failed = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
+    assert failed["final_command"]["stage"] == "failed"
+    assert "failed hard" in failed["final_command"]["failure_reason"]
+
+    reviews = read_json(runner.invoke(app, ["reviews", "--command-id", command_id]))
+    assert len(reviews["reviews"]) == 2
+    assert all(review["decision"] == "fail" for review in reviews["reviews"])
 
 
 def test_dashboard_api_answers_question_and_resumes(tmp_path, monkeypatch):

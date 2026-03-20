@@ -46,6 +46,7 @@ from wevra.models import (
 from wevra.service import (
     StructuredCliBackend,
     approve_agent_run,
+    approve_agent_runs_batch,
     BackendInterface,
     add_mode_control_tasks,
     answer_question,
@@ -138,7 +139,6 @@ auto_start = false
 port = 45000
 open_browser = false
 language = ja
-host = 0.0.0.0
 
 [notification]
 question_opened = yes
@@ -178,7 +178,6 @@ count = 0
     assert settings.db_path == (tmp_path / "runtime/app.db").resolve()
     assert settings.ui_auto_start is False
     assert settings.ui_open_browser is False
-    assert settings.ui_host == "0.0.0.0"
     assert settings.ui_port == 45000
     assert settings.ui_language == "ja"
     assert settings.notifications == {"question_opened": True, "workflow_completed": True}
@@ -307,7 +306,7 @@ def test_dashboard_http_handles_errors_and_serves_snapshot(tmp_path, monkeypatch
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
 
-    server = create_server(tmp_path, "127.0.0.1", 0)
+    server = create_server(tmp_path, 0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -447,21 +446,15 @@ def test_dashboard_process_helpers_cover_no_pid_and_main_entrypoint(tmp_path, mo
     monkeypatch.setattr(
         dashboard_module.argparse.ArgumentParser,
         "parse_args",
-        lambda self: SimpleNamespace(repo_root=str(tmp_path), host="127.0.0.1", port=43861),
+        lambda self: SimpleNamespace(repo_root=str(tmp_path), port=43861),
     )
     monkeypatch.setattr(dashboard_module, "create_server", lambda *args, **kwargs: FakeServer())
     dashboard_module.main()
     assert closed == ["served", "closed"]
 
 
-def test_dashboard_url_uses_localhost_when_binding_all_interfaces(tmp_path):
+def test_dashboard_url_stays_on_loopback(tmp_path):
     init_repo_config(tmp_path)
-    (tmp_path / "wevra.ini").write_text(
-        (tmp_path / "wevra.ini")
-        .read_text(encoding="utf-8")
-        .replace("host = 127.0.0.1", "host = 0.0.0.0"),
-        encoding="utf-8",
-    )
     settings = load_config(tmp_path)
     assert dashboard_module.dashboard_url(settings) == f"http://127.0.0.1:{settings.ui_port}"
 
@@ -505,7 +498,7 @@ def test_dashboard_snapshot_and_agent_approval_endpoints(tmp_path, monkeypatch):
 
     monkeypatch.setattr(service_module, "backend_for", lambda *args, **kwargs: CompletingPlanner())
 
-    server = create_server(tmp_path, "127.0.0.1", 0)
+    server = create_server(tmp_path, 0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -531,6 +524,7 @@ def test_dashboard_snapshot_and_agent_approval_endpoints(tmp_path, monkeypatch):
         pending_run = None
         while time.time() < deadline:
             snapshot = request_json(f"{base_url}/api/snapshot")[1]
+            assert snapshot["runtime"]["engine_state"]["status"] == "running"
             pending = [
                 run
                 for run in snapshot["agent_runs"]["pending"]
@@ -590,11 +584,41 @@ def test_build_summary_and_command_detail_split_selected_data(tmp_path, monkeypa
     detail = build_command_detail(tmp_path, command_id)
 
     assert summary["commands"]["items"][0]["id"] == command_id
+    assert summary["commands"]["items"][0]["detail_token"]
     assert summary["questions"]["open"][0]["command_id"] == command_id
     assert "tasks" not in summary
     assert detail["command"]["id"] == command_id
     assert detail["tasks"]["items"]
     assert detail["questions"]["items"][0]["command_id"] == command_id
+
+
+def test_engine_loop_reports_background_errors_in_summary_snapshot(tmp_path, monkeypatch):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    initialize_database(settings.db_path)
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("engine loop exploded")
+
+    monkeypatch.setattr(dashboard_module, "tick_once", explode)
+    server = create_server(tmp_path, 0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        payload = None
+        deadline = time.time() + 3
+        while time.time() < deadline:
+            payload = request_json(f"http://{host}:{port}/api/snapshot")[1]
+            if payload["runtime"]["engine_state"]["status"] == "error":
+                break
+            time.sleep(0.1)
+        assert payload is not None
+        assert payload["runtime"]["engine_state"]["status"] == "error"
+        assert "engine loop exploded" in payload["runtime"]["engine_state"]["last_error"]
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
 
 
 def test_structured_cli_backends_build_commands_and_handle_failures(tmp_path, monkeypatch):
@@ -1064,6 +1088,48 @@ def test_agent_run_approval_and_denial_flow(tmp_path, monkeypatch):
     failed = service_module.get_command(settings.db_path, denied_command.id)
     assert failed.stage == CommandStage.FAILED
     assert failed.failure_reason == "No external runs allowed."
+
+
+def test_parallel_implementation_surfaces_multiple_pending_agent_approvals(tmp_path):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    settings.roles["implementer"].runtime = RuntimeBackend.CODEX
+    settings.roles["implementer"].count = 2
+    settings.auto_approve_agent_actions = False
+    initialize_database(settings.db_path)
+
+    command = submit_command(
+        settings.db_path,
+        goal="[parallel] implement with multiple approvals",
+        workflow_mode=WorkflowMode.IMPLEMENTATION,
+        priority=Priority.HIGH,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+
+    tick_once(settings.db_path, command_id=command.id, settings=settings, repo_root=tmp_path)
+    planned = tick_once(
+        settings.db_path, command_id=command.id, settings=settings, repo_root=tmp_path
+    )
+    assert planned.action == "tasks_planned"
+
+    approval = tick_once(
+        settings.db_path, command_id=command.id, settings=settings, repo_root=tmp_path
+    )
+    assert approval.action == "approval_required"
+    assert approval.command.stage == CommandStage.WAITING_APPROVAL
+
+    pending_runs = [
+        run
+        for run in list_agent_runs(settings.db_path, command_id=command.id)
+        if run.state.value == "pending_approval"
+    ]
+    assert len(pending_runs) == 2
+    assert {run.title for run in pending_runs} == {"Implement part A", "Implement part B"}
+
+    approved = approve_agent_runs_batch(settings.db_path, command.id, role_name="implementer")
+    assert len(approved) == 2
+    assert all(run.state.value == "approved" for run in approved)
 
 
 def test_service_dispatch_failure_and_verification_bypass_paths(tmp_path):

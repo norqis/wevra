@@ -1,5 +1,7 @@
+import configparser
 import json
 import threading
+import time
 from contextlib import contextmanager
 from urllib import request
 
@@ -9,8 +11,9 @@ from typer.testing import CliRunner
 
 import wevra.service as service_module
 from wevra.cli import app
+from wevra.config import load_config
 from wevra.dashboard import create_server
-from wevra.models import PlannerDecision, PlannerOutput, WorkflowMode
+from wevra.service import list_agent_runs, list_commands, list_instructions, list_reviews
 
 
 runner = CliRunner()
@@ -32,6 +35,31 @@ def post_json(url: str, payload: dict):
         return json.loads(response.read().decode("utf-8"))
 
 
+def wait_for_refresh_condition(page, predicate, refresh_selector="#refreshBtn", attempts=12):
+    last_error = None
+    for _ in range(attempts):
+        try:
+            if predicate():
+                return
+        except AssertionError as exc:
+            last_error = exc
+        page.locator(refresh_selector).click()
+        page.wait_for_timeout(300)
+    if last_error:
+        raise last_error
+    raise AssertionError("Condition was not satisfied after refresh attempts.")
+
+
+def wait_for_python_condition(predicate, attempts=12, delay_seconds=0.3):
+    last_result = None
+    for _ in range(attempts):
+        last_result = predicate()
+        if last_result:
+            return last_result
+        time.sleep(delay_seconds)
+    raise AssertionError("Condition was not satisfied after polling.") from None
+
+
 @contextmanager
 def browser_page(viewport=None):
     with sync_playwright() as playwright:
@@ -46,7 +74,7 @@ def browser_page(viewport=None):
 
 @contextmanager
 def dashboard_server(tmp_path):
-    server = create_server(tmp_path, "127.0.0.1", 0)
+    server = create_server(tmp_path, 0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -108,6 +136,7 @@ def test_dashboard_browser_question_answer_survives_refresh_and_resumes(tmp_path
 def test_dashboard_browser_append_instruction_in_japanese_locale(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
+    settings = load_config(tmp_path)
     submitted = read_json(runner.invoke(app, ["submit", "[worker_question] dashboard append path"]))
     command_id = submitted["id"]
     read_json(runner.invoke(app, ["run", "--command-id", command_id]))
@@ -124,8 +153,12 @@ def test_dashboard_browser_append_instruction_in_japanese_locale(tmp_path, monke
         page.locator("#appendModalInput").fill("[append_extra] ブラウザから追記")
         page.locator("#appendModalSubmit").click()
 
-        page.locator("#tasksTab").click()
-        expect(page.locator("#tasksList")).to_contain_text("append_followup")
+        wait_for_python_condition(
+            lambda: any(
+                instruction.body == "[append_extra] ブラウザから追記"
+                for instruction in list_instructions(settings.db_path, command_id=command_id)
+            )
+        )
         page.locator("#overviewTab").click()
 
         page.locator("#questionAlertAnswer").fill("このまま進めてください。")
@@ -147,6 +180,7 @@ def test_dashboard_browser_workflow_modes_complete_from_ui(
 ):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
+    settings = load_config(tmp_path)
 
     with dashboard_server(tmp_path) as base_url, browser_page() as page:
         page.goto(base_url)
@@ -157,6 +191,9 @@ def test_dashboard_browser_workflow_modes_complete_from_ui(
 
         expect(page.locator("#viewResultBtn")).to_be_enabled()
         expect(page.locator("#openAppendBtn")).to_be_disabled()
+        if expect_reviews:
+            wait_for_python_condition(lambda: len(list_reviews(settings.db_path)) == 2)
+        page.locator("#refreshBtn").click()
         page.locator("#reviewsTab").click()
         if expect_reviews:
             expect(page.locator("#reviewsList .card")).to_have_count(2)
@@ -169,35 +206,41 @@ def test_dashboard_browser_agents_tab_handles_manual_approval(tmp_path, monkeypa
     read_json(runner.invoke(app, ["init"]))
 
     agents_path = tmp_path / "agents.ini"
-    agents_path.write_text(
-        agents_path.read_text(encoding="utf-8").replace(
-            "[planner]\nruntime = mock\n", "[planner]\nruntime = codex\n"
-        ),
-        encoding="utf-8",
+    parser = configparser.ConfigParser()
+    parser.read(agents_path, encoding="utf-8")
+    parser.set("implementer", "runtime", "codex")
+    parser.set("implementer", "model", "mock-implementer")
+    with agents_path.open("w", encoding="utf-8") as handle:
+        parser.write(handle)
+    settings = load_config(tmp_path)
+    monkeypatch.setattr(
+        service_module, "backend_for", lambda *args, **kwargs: service_module.MockBackend()
     )
-
-    class CompletingPlanner:
-        def plan(self, *args, **kwargs):
-            return PlannerOutput(
-                decision=PlannerDecision.COMPLETE,
-                workflow_mode=WorkflowMode.PLANNING,
-                final_response="Approved from agents tab",
-            )
-
-    monkeypatch.setattr(service_module, "backend_for", lambda *args, **kwargs: CompletingPlanner())
 
     with dashboard_server(tmp_path) as base_url, browser_page() as page:
         page.goto(base_url)
 
-        page.locator("#workflowMode").select_option("planning")
+        page.locator("#workflowMode").select_option("implementation")
         page.locator("#goal").fill("agent approval coverage")
         page.locator("#submitBtn").click()
 
+        wait_for_python_condition(
+            lambda: any(
+                agent_run.state.value == "pending_approval"
+                for agent_run in list_agent_runs(settings.db_path)
+            )
+        )
+        page.locator("#refreshBtn").click()
         page.locator("#agentsTab").click()
-        expect(page.locator("#agentRunsList")).to_contain_text("Pending Approval")
-        expect(page.locator("[data-agent-allow-batch]")).to_be_visible()
-        page.locator("[data-agent-allow-batch]").click()
+        expect(page.locator("[data-agent-allow]")).to_be_visible()
+        page.locator("[data-agent-allow]").click()
 
+        wait_for_python_condition(
+            lambda: any(command.final_response for command in list_commands(settings.db_path)),
+            attempts=40,
+            delay_seconds=0.25,
+        )
+        page.locator("#refreshBtn").click()
         page.locator("#overviewTab").click()
         expect(page.locator("#viewResultBtn")).to_be_enabled()
 

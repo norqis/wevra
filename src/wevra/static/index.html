@@ -1159,6 +1159,7 @@
       lastChecksum: null,
       lastSummaryChecksum: null,
       lastDetailChecksum: null,
+      selectedDetailToken: null,
       refreshInFlight: false,
       submitting: false,
       appending: false,
@@ -1257,7 +1258,7 @@
         writeFiles: 'write_files',
         updated: 'Updated',
         listeningLocal: 'Local only',
-        listeningNetwork: 'Network access enabled',
+        engineError: 'Engine error',
         submitting: 'Starting request…',
         appending: 'Appending instruction to',
         answering: 'Answering',
@@ -1344,7 +1345,7 @@
         writeFiles: '書き込み対象',
         updated: '更新日時',
         listeningLocal: 'ローカルのみ',
-        listeningNetwork: '外部アクセス可',
+        engineError: '進行エラー',
         submitting: '依頼を投入中…',
         appending: '追加指示を送信中',
         answering: '回答中',
@@ -1800,8 +1801,12 @@
     function composeStatusLine(summary) {
       if (!summary) return t('loading');
       const listen = summary.runtime?.listen || {};
-      const exposure = listen.access_mode === 'network' ? t('listeningNetwork') : t('listeningLocal');
-      return `${t('updated')} ${summary.generated_at} · ${exposure} · ${listen.host}:${listen.port}`;
+      const parts = [`${t('updated')} ${summary.generated_at}`, t('listeningLocal'), `${listen.host}:${listen.port}`];
+      const engineState = summary.runtime?.engine_state || {};
+      if (engineState.status === 'error' && engineState.last_error) {
+        parts.push(`${t('engineError')}: ${engineState.last_error}`);
+      }
+      return parts.join(' · ');
     }
 
     function updateBusyState() {
@@ -1985,16 +1990,10 @@
         ? `${t('allow')} ${roleName}…`
         : `${t('allow')} ${commandId}…`;
       try {
-        const pendingIds = (state.snapshot?.agent_runs?.pending || [])
-          .filter((item) => item.command_id === commandId)
-          .filter((item) => !roleName || item.role_name === roleName)
-          .map((item) => item.id);
-        for (const agentRunId of pendingIds) {
-          await api('/api/agent-runs/approve', {
-            method: 'POST',
-            body: JSON.stringify({ agent_run_id: agentRunId }),
-          });
-        }
+        await api('/api/agent-runs/approve-batch', {
+          method: 'POST',
+          body: JSON.stringify({ command_id: commandId, role_name: roleName || null }),
+        });
         await refreshSnapshot({ forceDetail: true });
       } finally {
         state.agentDecisionInFlight = null;
@@ -2239,7 +2238,10 @@
       restoreScrollPositions(scrollPositions);
       updateBusyState();
       engineOwnerBadgeEl.textContent = engineOwnerLabel(snapshot.runtime?.engine_owner);
-      engineOwnerBadgeEl.title = snapshot.runtime?.engine_owner || '';
+      const engineState = snapshot.runtime?.engine_state || {};
+      engineOwnerBadgeEl.title = engineState.status === 'error' && engineState.last_error
+        ? `${snapshot.runtime?.engine_owner || ''}\n${engineState.last_error}`
+        : (snapshot.runtime?.engine_owner || '');
       statusLineEl.textContent = composeStatusLine(state.summarySnapshot || snapshot);
     }
 
@@ -2253,10 +2255,12 @@
           : null;
         if (detail?.checksum === state.lastDetailChecksum && state.snapshot) {
           state.detailSnapshot = detail;
+          state.selectedDetailToken = state.summarySnapshot?.commands?.items?.find((item) => item.id === state.selectedCommandId)?.detail_token || null;
           statusLineEl.textContent = composeStatusLine(state.summarySnapshot);
           return;
         }
         state.detailSnapshot = detail;
+        state.selectedDetailToken = state.summarySnapshot?.commands?.items?.find((item) => item.id === state.selectedCommandId)?.detail_token || null;
         render(composeSnapshot(state.summarySnapshot, detail));
       } finally {
         state.refreshInFlight = false;
@@ -2276,9 +2280,15 @@
           : summary.commands.active[0]?.id || summary.commands.items[0]?.id || null;
         const selectedChanged = nextSelected !== state.selectedCommandId;
         state.selectedCommandId = nextSelected;
-        let detail = null;
-        if (nextSelected) {
+        const selectedSummaryItem = nextSelected
+          ? summary.commands.items.find((item) => item.id === nextSelected)
+          : null;
+        const nextDetailToken = selectedSummaryItem?.detail_token || null;
+        let detail = state.detailSnapshot;
+        if (nextSelected && (forceDetail || selectedChanged || nextDetailToken !== state.selectedDetailToken || !detail)) {
           detail = await api(`/api/commands/${encodeURIComponent(nextSelected)}/detail`);
+        } else if (!nextSelected) {
+          detail = null;
         }
 
         if (
@@ -2295,6 +2305,7 @@
 
         state.summarySnapshot = summary;
         state.detailSnapshot = detail;
+        state.selectedDetailToken = nextDetailToken;
         render(composeSnapshot(summary, detail));
       } finally {
         state.refreshInFlight = false;

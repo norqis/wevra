@@ -74,7 +74,7 @@ MODE_KEYWORDS = {
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
 def new_id(prefix: str) -> str:
@@ -195,13 +195,17 @@ def build_final_test_spec(dependency_keys: Sequence[str]) -> PlannerTaskSpec:
 
 
 def append_event(conn, stream_type: str, stream_id: str, event_type: str, payload: dict) -> None:
+    now = utc_now()
     conn.execute(
         """
         INSERT INTO events (stream_type, stream_id, event_type, payload_json, created_at)
         VALUES (?, ?, ?, ?, ?)
         """,
-        (stream_type, stream_id, event_type, json.dumps(payload, sort_keys=True), utc_now()),
+        (stream_type, stream_id, event_type, json.dumps(payload, sort_keys=True), now),
     )
+    command_id = stream_id if stream_type == "command" else payload.get("command_id")
+    if isinstance(command_id, str) and command_id:
+        conn.execute("UPDATE commands SET updated_at = ? WHERE id = ?", (now, command_id))
 
 
 def update_command(conn, command_id: str, **fields) -> None:
@@ -1554,6 +1558,20 @@ def append_instruction(
         instruction = create_instruction_record(conn, command.id, instruction_body)
 
         if command.stage == CommandStage.WAITING_QUESTION:
+            task_rows = conn.execute(
+                "SELECT * FROM tasks WHERE command_id = ? ORDER BY created_at ASC",
+                (command.id,),
+            ).fetchall()
+            for task_row in task_rows:
+                task = task_from_row(task_row)
+                if task.state == TaskState.DONE:
+                    continue
+                update_task(
+                    conn,
+                    task.id,
+                    state=TaskState.CANCELED.value,
+                    error="Superseded by appended instruction.",
+                )
             question_rows = conn.execute(
                 """
                 SELECT * FROM questions
@@ -1564,13 +1582,6 @@ def append_instruction(
             ).fetchall()
             for row in question_rows:
                 question = question_from_row(row)
-                if question.task_id:
-                    update_task(
-                        conn,
-                        question.task_id,
-                        state=TaskState.CANCELED.value,
-                        error="Superseded by appended instruction.",
-                    )
                 fields = {"state": QuestionState.RESOLVED.value}
                 if question.state == QuestionState.OPEN:
                     fields["answer"] = "[superseded by appended instruction]"
@@ -1824,6 +1835,17 @@ def request_agent_approval(
     agent_run: AgentRunRecord,
     note: str,
 ) -> TickOutcome:
+    return request_agent_approvals(conn, command, [agent_run], note)
+
+
+def request_agent_approvals(
+    conn,
+    command: CommandRecord,
+    agent_runs: Sequence[AgentRunRecord],
+    note: str,
+) -> TickOutcome:
+    if not agent_runs:
+        raise ValueError("At least one agent run is required.")
     update_command(conn, command.id, stage=CommandStage.WAITING_APPROVAL.value)
     append_event(
         conn,
@@ -1831,10 +1853,11 @@ def request_agent_approval(
         command.id,
         "agent_approval_requested",
         {
-            "agent_run_id": agent_run.id,
-            "run_kind": agent_run.run_kind.value,
-            "role_name": agent_run.role_name,
-            "title": agent_run.title,
+            "agent_run_ids": [agent_run.id for agent_run in agent_runs],
+            "count": len(agent_runs),
+            "run_kind": agent_runs[0].run_kind.value if len(agent_runs) == 1 else "mixed",
+            "role_names": sorted({agent_run.role_name for agent_run in agent_runs}),
+            "titles": [agent_run.title for agent_run in agent_runs],
         },
     )
     row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
@@ -1911,7 +1934,7 @@ def approve_agent_runs_batch(
     with connect(db_path) as conn:
         pending = _pending_agent_runs_for_command(conn, command_id, role_name=role_name)
         if not pending:
-            raise ValueError("No pending agent approvals matched the batch selection.")
+            return []
 
         approved = [_approve_agent_run_record(conn, agent_run) for agent_run in pending]
         update_command(conn, command_id, stage=_resume_stage_for_agent_runs(pending).value)
@@ -2456,43 +2479,41 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
         )
 
     precreated_runs: Dict[str, AgentRunRecord] = {}
-    approval_task = next(
-        (
-            task
-            for task in batch
-            if approval_required_for_runtime(
-                settings, execution_profile(command, settings, task.capability)[1]
-            )
-        ),
-        None,
-    )
-    if approval_task is not None:
-        role_name, runtime, model = execution_profile(command, settings, approval_task.capability)
+    approval_runs: List[AgentRunRecord] = []
+    for task in batch:
+        role_name, runtime, model = execution_profile(command, settings, task.capability)
+        if not approval_required_for_runtime(settings, runtime):
+            continue
         agent_run = ensure_agent_run(
             conn,
             command=command,
             role_name=role_name,
-            capability=approval_task.capability,
+            capability=task.capability,
             runtime=runtime,
             model=model,
             run_kind=AgentRunKind.TASK,
-            title=approval_task.title,
+            title=task.title,
             resume_stage=CommandStage.RUNNING,
             approval_required=True,
-            task_id=approval_task.id,
-            prompt_excerpt=prompt_excerpt(approval_task.description),
+            task_id=task.id,
+            prompt_excerpt=prompt_excerpt(task.description),
         )
-        if agent_run.state == AgentRunState.PENDING_APPROVAL:
-            return request_agent_approval(
-                conn,
-                command,
-                agent_run,
-                note=f"waiting for approval to run '{approval_task.title}'",
-            )
+        approval_runs.append(agent_run)
         if agent_run.state == AgentRunState.APPROVED:
             agent_run = mark_agent_run_running(conn, agent_run.id)
-        batch = [approval_task]
-        precreated_runs[approval_task.id] = agent_run
+        precreated_runs[task.id] = agent_run
+    pending_approval_runs = [
+        agent_run
+        for agent_run in approval_runs
+        if agent_run.state == AgentRunState.PENDING_APPROVAL
+    ]
+    if pending_approval_runs:
+        return request_agent_approvals(
+            conn,
+            command,
+            pending_approval_runs,
+            note=f"waiting for approval to run {len(pending_approval_runs)} agent action(s)",
+        )
 
     agent_run_map: Dict[str, AgentRunRecord] = {}
     for task in batch:
@@ -2800,11 +2821,11 @@ def reduce_verifying(conn, command: CommandRecord, settings: AppConfig) -> TickO
         run for run in slot_run_map.values() if run.state == AgentRunState.PENDING_APPROVAL
     ]
     if pending_runs:
-        return request_agent_approval(
+        return request_agent_approvals(
             conn,
             command,
-            pending_runs[0],
-            note=f"waiting for approval to run reviewer #{pending_runs[0].reviewer_slot}",
+            pending_runs,
+            note=f"waiting for approval to run {len(pending_runs)} reviewer action(s)",
         )
 
     if any(run.state == AgentRunState.APPROVED for run in slot_run_map.values()):

@@ -62,7 +62,8 @@ From the dashboard you can:
 - submit a new request
 - watch progress in real time
 - answer questions when the flow pauses
-- inspect tasks, reviews, and final results
+- inspect tasks, reviews, agent runs, and final results
+- approve or deny individual agent actions when external runtimes need operator approval
 - append follow-up instructions to active work
 
 Everything in the dashboard can also be driven from the CLI when you want to script or automate it.
@@ -98,14 +99,23 @@ Append an instruction to an active request:
 ./wevra run --command-id <command-id>
 ```
 
+Inspect or resolve pending agent approvals from the CLI:
+
+```bash
+./wevra agent-runs --command-id <command-id>
+./wevra approve-agent-run <agent-run-id>
+./wevra deny-agent-run <agent-run-id> "Do not run external tools for this request."
+```
+
 ## How It Works
 
 1. Submit a request from the CLI or the dashboard.
 2. Wevra breaks the request into the work needed for the selected mode.
 3. Work runs in order, with safe parallel execution where possible.
 4. If clarification is needed, Wevra pauses and asks the user.
-5. In `implementation` mode, Wevra runs the existing test suite and then the final review pass.
-6. Work is only complete when the final review passes.
+5. If agent actions require operator approval, Wevra pauses and waits in the `Agents` tab until each run is allowed or denied.
+6. In `implementation` mode, Wevra runs the existing test suite and then the final review pass.
+7. Work is only complete when the final review passes.
 
 You can also manage the dashboard from the CLI:
 
@@ -132,7 +142,8 @@ Controls runtime, UI, and notification behavior.
 | `runtime.working_dir` | `.` | Workspace root used for execution. |
 | `runtime.db_path` | `.wevra/wevra.db` | SQLite database path. |
 | `runtime.language` | `en` | Default language for the runtime. |
-| `runtime.dangerously_bypass_approvals_and_sandbox` | `false` | Enables unsafe bypass behavior when explicitly needed. |
+| `runtime.auto_approve_agent_actions` | `false` | When `true`, external agent runs execute without asking for approval in the dashboard. When `false`, Wevra surfaces per-agent allow/deny controls in the `Agents` tab. |
+| `runtime.agent_timeout_seconds` | `1800` | Maximum time to wait for a Codex or Claude structured response before failing the run. |
 | `runtime.home` | empty | Optional `HOME` override used when launching external CLIs such as Codex or Claude. |
 | `ui.auto_start` | `true` | Starts the dashboard when `wevra start` runs. |
 | `ui.host` | `127.0.0.1` | Dashboard bind host. |
@@ -165,6 +176,8 @@ Controls which runtime and model each role uses.
 Supported `runtime` values are `mock`, `codex`, and `claude`.
 
 `mock` is for demos, local development, CI, and flow verification. It does not perform real implementation or review work through Codex or Claude. Before using Wevra for real work, switch roles such as `planner`, `implementer`, and `reviewer` to `codex` or `claude`.
+
+When a role uses `codex` or `claude` and `runtime.auto_approve_agent_actions = false`, Wevra does not leave the inner CLI prompt on screen. Instead, it pauses the workflow and asks for an explicit allow/deny decision in the dashboard `Agents` tab.
 
 ### `.env`
 

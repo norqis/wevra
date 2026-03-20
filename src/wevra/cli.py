@@ -12,9 +12,12 @@ from wevra.dashboard import build_snapshot, dashboard_status, start_dashboard, s
 from wevra.db import initialize_database
 from wevra.models import Priority, RuntimeBackend, WorkflowMode
 from wevra.service import (
+    approve_agent_run,
     answer_question,
     append_instruction,
+    deny_agent_run,
     get_command,
+    list_agent_runs,
     list_commands,
     list_events,
     list_questions,
@@ -282,6 +285,53 @@ def reviews(
                 for review in list_reviews(resolve_db_path(db_path), command_id=command_id)
             ]
         }
+    )
+
+
+@app.command("agent-runs")
+def agent_runs(
+    command_id: Optional[str] = typer.Option(
+        None, help="Optional command identifier to filter by."
+    ),
+    db_path: Optional[Path] = typer.Option(
+        None, help="Optional path to the SQLite runtime database."
+    ),
+) -> None:
+    """List agent run records."""
+    print_json(
+        {
+            "agent_runs": [
+                agent_run.model_dump(mode="json")
+                for agent_run in list_agent_runs(resolve_db_path(db_path), command_id=command_id)
+            ]
+        }
+    )
+
+
+@app.command("approve-agent-run")
+def approve_agent_run_command(
+    agent_run_id: str = typer.Argument(..., help="Agent run identifier."),
+    db_path: Optional[Path] = typer.Option(
+        None, help="Optional path to the SQLite runtime database."
+    ),
+) -> None:
+    """Approve a pending agent action."""
+    print_json(approve_agent_run(resolve_db_path(db_path), agent_run_id).model_dump(mode="json"))
+
+
+@app.command("deny-agent-run")
+def deny_agent_run_command(
+    agent_run_id: str = typer.Argument(..., help="Agent run identifier."),
+    reason: Optional[str] = typer.Argument(None, help="Optional denial reason."),
+    db_path: Optional[Path] = typer.Option(
+        None, help="Optional path to the SQLite runtime database."
+    ),
+) -> None:
+    """Deny a pending agent action."""
+    print_json(
+        deny_agent_run(resolve_db_path(db_path), agent_run_id, reason=reason).model_dump(
+            mode="json"
+        )
     )
 
 

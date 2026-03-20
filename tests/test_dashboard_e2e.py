@@ -7,8 +7,10 @@ import pytest
 from playwright.sync_api import expect, sync_playwright
 from typer.testing import CliRunner
 
+import wevra.service as service_module
 from wevra.cli import app
 from wevra.dashboard import create_server
+from wevra.models import PlannerDecision, PlannerOutput, WorkflowMode
 
 
 runner = CliRunner()
@@ -105,12 +107,9 @@ def test_dashboard_browser_question_answer_survives_refresh_and_resumes(tmp_path
 def test_dashboard_browser_append_instruction_in_japanese_locale(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
-    submitted = read_json(runner.invoke(app, ["submit", "[parallel] dashboard append path"]))
+    submitted = read_json(runner.invoke(app, ["submit", "[worker_question] dashboard append path"]))
     command_id = submitted["id"]
-
-    read_json(runner.invoke(app, ["tick", "--command-id", command_id]))
-    read_json(runner.invoke(app, ["tick", "--command-id", command_id]))
-    read_json(runner.invoke(app, ["tick", "--command-id", command_id]))
+    read_json(runner.invoke(app, ["run", "--command-id", command_id]))
 
     with dashboard_server(tmp_path) as base_url, browser_page() as page:
         page.goto(f"{base_url}/?lang=ja")
@@ -124,9 +123,14 @@ def test_dashboard_browser_append_instruction_in_japanese_locale(tmp_path, monke
         page.locator("#appendModalInput").fill("[append_extra] ブラウザから追記")
         page.locator("#appendModalSubmit").click()
 
-        expect(page.locator("#viewResultBtn")).to_be_enabled()
         page.locator("#tasksTab").click()
         expect(page.locator("#tasksList")).to_contain_text("append_followup")
+        page.locator("#overviewTab").click()
+
+        page.locator("#questionAlertAnswer").fill("このまま進めてください。")
+        page.locator("#questionAlertSubmit").click()
+
+        expect(page.locator("#viewResultBtn")).to_be_enabled()
 
 
 @pytest.mark.parametrize(
@@ -157,6 +161,43 @@ def test_dashboard_browser_workflow_modes_complete_from_ui(
             expect(page.locator("#reviewsList .card")).to_have_count(2)
         else:
             expect(page.locator("#reviewsList")).to_contain_text("No reviews yet.")
+
+
+def test_dashboard_browser_agents_tab_handles_manual_approval(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    agents_path = tmp_path / "agents.ini"
+    agents_path.write_text(
+        agents_path.read_text(encoding="utf-8").replace(
+            "[planner]\nruntime = mock\n", "[planner]\nruntime = codex\n"
+        ),
+        encoding="utf-8",
+    )
+
+    class CompletingPlanner:
+        def plan(self, *args, **kwargs):
+            return PlannerOutput(
+                decision=PlannerDecision.COMPLETE,
+                workflow_mode=WorkflowMode.PLANNING,
+                final_response="Approved from agents tab",
+            )
+
+    monkeypatch.setattr(service_module, "backend_for", lambda *args, **kwargs: CompletingPlanner())
+
+    with dashboard_server(tmp_path) as base_url, browser_page() as page:
+        page.goto(base_url)
+
+        page.locator("#workflowMode").select_option("planning")
+        page.locator("#goal").fill("agent approval coverage")
+        page.locator("#submitBtn").click()
+
+        page.locator("#agentsTab").click()
+        expect(page.locator("#agentRunsList")).to_contain_text("Pending Approval")
+        page.locator("[data-agent-allow]").first.click()
+
+        page.locator("#overviewTab").click()
+        expect(page.locator("#viewResultBtn")).to_be_enabled()
 
 
 def test_dashboard_browser_selection_language_switch_and_working_directory(tmp_path, monkeypatch):
@@ -215,29 +256,22 @@ def test_dashboard_browser_state_classes_and_result_modal_close(tmp_path, monkey
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
 
-    queued = read_json(runner.invoke(app, ["submit", "queued request"]))
-    running = read_json(runner.invoke(app, ["submit", "[parallel] running request"]))
+    completed = read_json(runner.invoke(app, ["submit", "completed request"]))
     waiting = read_json(runner.invoke(app, ["submit", "[worker_question] waiting request"]))
-
-    read_json(runner.invoke(app, ["tick", "--command-id", running["id"]]))
-    read_json(runner.invoke(app, ["tick", "--command-id", running["id"]]))
+    read_json(runner.invoke(app, ["run", "--command-id", completed["id"]]))
     read_json(runner.invoke(app, ["run", "--command-id", waiting["id"]]))
 
     with dashboard_server(tmp_path) as base_url, browser_page() as page:
         page.goto(base_url)
 
-        queued_class = page.locator(f'[data-command-id="{queued["id"]}"]').get_attribute("class")
-        running_class = page.locator(f'[data-command-id="{running["id"]}"]').get_attribute("class")
+        completed_class = page.locator(f'[data-command-id="{completed["id"]}"]').get_attribute(
+            "class"
+        )
         waiting_class = page.locator(f'[data-command-id="{waiting["id"]}"]').get_attribute("class")
-        assert "queued-state" in queued_class
-        assert "running-state" in running_class
+        assert "done-state" in completed_class
         assert "attention" in waiting_class
 
-        page.locator(f'[data-command-id="{running["id"]}"]').click()
-        expect(page.locator("#viewResultBtn")).to_be_disabled()
-
-        read_json(runner.invoke(app, ["run", "--command-id", running["id"]]))
-        page.locator("#refreshBtn").click()
+        page.locator(f'[data-command-id="{completed["id"]}"]').click()
         expect(page.locator("#viewResultBtn")).to_be_enabled()
         page.locator("#viewResultBtn").click()
         expect(page.locator("#resultModal")).to_be_visible()

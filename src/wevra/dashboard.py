@@ -7,6 +7,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -17,18 +18,23 @@ from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
 from wevra.config import AppConfig, load_config
+from wevra.db import initialize_database
 from wevra.models import CommandStage, Priority, RuntimeBackend, WorkflowMode
 from wevra.service import (
     answer_question,
+    approve_agent_run,
     append_instruction,
+    deny_agent_run,
     list_commands,
     list_events,
     list_instructions,
+    list_agent_runs,
     list_questions,
     list_reviews,
     list_tasks,
     run_engine,
     submit_command,
+    tick_once,
 )
 
 
@@ -81,6 +87,9 @@ def build_snapshot(repo_root: Path, settings: Optional[AppConfig] = None) -> dic
     tasks = [task.model_dump(mode="json") for task in list_tasks(settings.db_path)]
     questions = [question.model_dump(mode="json") for question in list_questions(settings.db_path)]
     reviews = [review.model_dump(mode="json") for review in list_reviews(settings.db_path)]
+    agent_runs = [
+        agent_run.model_dump(mode="json") for agent_run in list_agent_runs(settings.db_path)
+    ]
     instructions = [
         instruction.model_dump(mode="json") for instruction in list_instructions(settings.db_path)
     ]
@@ -102,6 +111,10 @@ def build_snapshot(repo_root: Path, settings: Optional[AppConfig] = None) -> dic
     for review in reviews:
         review_counts[review["decision"]] = review_counts.get(review["decision"], 0) + 1
 
+    agent_run_counts: Dict[str, int] = {}
+    for agent_run in agent_runs:
+        agent_run_counts[agent_run["state"]] = agent_run_counts.get(agent_run["state"], 0) + 1
+
     active_commands = [
         command
         for command in commands
@@ -116,6 +129,7 @@ def build_snapshot(repo_root: Path, settings: Optional[AppConfig] = None) -> dic
             "working_dir": str(settings.working_dir),
             "language": settings.ui_language or settings.language,
             "dashboard_url": dashboard_url(settings),
+            "auto_approve_agent_actions": settings.auto_approve_agent_actions,
             "roles": summarize_roles(settings),
         },
         "commands": {
@@ -135,6 +149,13 @@ def build_snapshot(repo_root: Path, settings: Optional[AppConfig] = None) -> dic
         "reviews": {
             "counts": review_counts,
             "items": reviews,
+        },
+        "agent_runs": {
+            "counts": agent_run_counts,
+            "items": agent_runs,
+            "pending": [
+                agent_run for agent_run in agent_runs if agent_run["state"] == "pending_approval"
+            ],
         },
         "instructions": {
             "count": len(instructions),
@@ -160,6 +181,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
     @property
     def settings(self) -> AppConfig:
         return self.server.settings  # type: ignore[attr-defined]
+
+    @property
+    def state_lock(self):
+        return self.server.state_lock  # type: ignore[attr-defined]
 
     def log_message(self, format: str, *args) -> None:
         return
@@ -193,7 +218,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_html(HTTPStatus.OK, read_static_html())
             return
         if parsed.path == "/api/snapshot":
-            self.send_json(HTTPStatus.OK, build_snapshot(self.repo_root, self.settings))
+            with self.state_lock:
+                self.send_json(HTTPStatus.OK, build_snapshot(self.repo_root, self.settings))
             return
         self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
 
@@ -217,15 +243,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
             priority = Priority(str(payload.get("priority", Priority.HIGH.value)))
             backend_raw = str(payload.get("backend", "")).strip().lower()
             backend = RuntimeBackend(backend_raw) if backend_raw else None
-            command = submit_command(
-                self.settings.db_path,
-                goal=goal,
-                workflow_mode=workflow_mode,
-                priority=priority,
-                backend=backend,
-                settings=self.settings,
-                repo_root=self.repo_root,
-            )
+            with self.state_lock:
+                command = submit_command(
+                    self.settings.db_path,
+                    goal=goal,
+                    workflow_mode=workflow_mode,
+                    priority=priority,
+                    backend=backend,
+                    settings=self.settings,
+                    repo_root=self.repo_root,
+                )
             self.send_json(
                 HTTPStatus.CREATED, {"ok": True, "command": command.model_dump(mode="json")}
             )
@@ -239,9 +266,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     HTTPStatus.BAD_REQUEST, {"ok": False, "error": "command_and_body_required"}
                 )
                 return
-            instruction, command = append_instruction(
-                self.settings.db_path, command_id=command_id, body=body
-            )
+            with self.state_lock:
+                instruction, command = append_instruction(
+                    self.settings.db_path, command_id=command_id, body=body
+                )
             self.send_json(
                 HTTPStatus.OK,
                 {
@@ -255,13 +283,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/commands/run":
             command_id = str(payload.get("command_id", "")).strip() or None
             max_steps = int(payload.get("max_steps", 100) or 100)
-            result = run_engine(
-                self.settings.db_path,
-                command_id=command_id,
-                max_steps=max_steps,
-                settings=self.settings,
-                repo_root=self.repo_root,
-            )
+            with self.state_lock:
+                result = run_engine(
+                    self.settings.db_path,
+                    command_id=command_id,
+                    max_steps=max_steps,
+                    settings=self.settings,
+                    repo_root=self.repo_root,
+                )
             self.send_json(HTTPStatus.OK, {"ok": True, "result": result})
             return
 
@@ -273,36 +302,99 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     HTTPStatus.BAD_REQUEST, {"ok": False, "error": "question_and_answer_required"}
                 )
                 return
-            answered = answer_question(
-                self.settings.db_path, question_id=question_id, answer=answer_text
-            )
-            resumed = run_engine(
-                self.settings.db_path,
-                command_id=answered.command_id,
-                max_steps=int(payload.get("max_steps", 100) or 100),
-                settings=self.settings,
-                repo_root=self.repo_root,
-            )
+            with self.state_lock:
+                answered = answer_question(
+                    self.settings.db_path, question_id=question_id, answer=answer_text
+                )
             self.send_json(
                 HTTPStatus.OK,
                 {
                     "ok": True,
                     "question": answered.model_dump(mode="json"),
-                    "result": resumed,
                 },
+            )
+            return
+
+        if parsed.path == "/api/agent-runs/approve":
+            agent_run_id = str(payload.get("agent_run_id", "")).strip()
+            if not agent_run_id:
+                self.send_json(
+                    HTTPStatus.BAD_REQUEST, {"ok": False, "error": "agent_run_id_required"}
+                )
+                return
+            with self.state_lock:
+                approved = approve_agent_run(self.settings.db_path, agent_run_id=agent_run_id)
+            self.send_json(
+                HTTPStatus.OK,
+                {"ok": True, "agent_run": approved.model_dump(mode="json")},
+            )
+            return
+
+        if parsed.path == "/api/agent-runs/deny":
+            agent_run_id = str(payload.get("agent_run_id", "")).strip()
+            if not agent_run_id:
+                self.send_json(
+                    HTTPStatus.BAD_REQUEST, {"ok": False, "error": "agent_run_id_required"}
+                )
+                return
+            reason = str(payload.get("reason", "")).strip() or None
+            with self.state_lock:
+                denied = deny_agent_run(
+                    self.settings.db_path, agent_run_id=agent_run_id, reason=reason
+                )
+            self.send_json(
+                HTTPStatus.OK,
+                {"ok": True, "agent_run": denied.model_dump(mode="json")},
             )
             return
 
         self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
 
 
+class WevraDashboardServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def shutdown(self) -> None:
+        self.stop_event.set()  # type: ignore[attr-defined]
+        super().shutdown()
+        engine_thread = getattr(self, "engine_thread", None)
+        if engine_thread is not None and engine_thread.is_alive():
+            engine_thread.join(timeout=2)
+
+
+def engine_poll_delay(action: str) -> float:
+    if action in {"no_op", "blocked", "approval_required"}:
+        return 0.6
+    return 0.05
+
+
+def engine_loop(server: WevraDashboardServer) -> None:
+    while not server.stop_event.is_set():
+        try:
+            with server.state_lock:
+                outcome = tick_once(
+                    server.settings.db_path,
+                    settings=server.settings,
+                    repo_root=server.repo_root,
+                )
+        except Exception:
+            server.stop_event.wait(1.0)
+            continue
+        server.stop_event.wait(engine_poll_delay(outcome.action))
+
+
 def create_server(repo_root: Path, host: str, port: int) -> ThreadingHTTPServer:
     settings = load_config(repo_root)
-    server = ThreadingHTTPServer((host, port), DashboardHandler)
+    server = WevraDashboardServer((host, port), DashboardHandler)
     settings.ui_host = host
     settings.ui_port = server.server_address[1]
+    initialize_database(settings.db_path)
     server.repo_root = repo_root.resolve()  # type: ignore[attr-defined]
     server.settings = settings  # type: ignore[attr-defined]
+    server.state_lock = threading.RLock()  # type: ignore[attr-defined]
+    server.stop_event = threading.Event()  # type: ignore[attr-defined]
+    server.engine_thread = threading.Thread(target=engine_loop, args=(server,), daemon=True)  # type: ignore[attr-defined]
+    server.engine_thread.start()  # type: ignore[attr-defined]
     return server
 
 

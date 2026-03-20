@@ -13,7 +13,8 @@ DEFAULT_WEVRA_INI = """[runtime]
 working_dir = .
 db_path = .wevra/wevra.db
 language = en
-dangerously_bypass_approvals_and_sandbox = false
+auto_approve_agent_actions = false
+agent_timeout_seconds = 1800
 home =
 
 [ui]
@@ -108,12 +109,13 @@ class AppConfig:
     db_path: Path
     language: str
     runtime_home: Path | None
+    auto_approve_agent_actions: bool
+    agent_timeout_seconds: int
     ui_port: int
     ui_host: str
     ui_auto_start: bool
     ui_open_browser: bool
     ui_language: str
-    danger: bool
     notifications: Dict[str, bool] = field(default_factory=dict)
     env: Dict[str, str] = field(default_factory=dict)
     roles: Dict[str, RoleConfig] = field(default_factory=dict)
@@ -193,6 +195,19 @@ def load_config(repo_root: Path) -> AppConfig:
         parser.get("runtime", "home", fallback=""),
         repo_root,
     )
+    auto_approve_agent_actions = normalize_bool(
+        parser.get(
+            "runtime",
+            "auto_approve_agent_actions",
+            fallback=parser.get(
+                "runtime", "dangerously_bypass_approvals_and_sandbox", fallback="false"
+            ),
+        )
+    )
+    agent_timeout_seconds = max(
+        parser.getint("runtime", "agent_timeout_seconds", fallback=1800),
+        1,
+    )
 
     working_dir = Path(working_dir_raw)
     if not working_dir.is_absolute():
@@ -230,14 +245,13 @@ def load_config(repo_root: Path) -> AppConfig:
         db_path=db_path,
         language=parser.get("runtime", "language", fallback="en").strip() or "en",
         runtime_home=runtime_home,
+        auto_approve_agent_actions=auto_approve_agent_actions,
+        agent_timeout_seconds=agent_timeout_seconds,
         ui_port=parser.getint("ui", "port", fallback=43861),
         ui_host=parser.get("ui", "host", fallback="127.0.0.1").strip() or "127.0.0.1",
         ui_auto_start=normalize_bool(parser.get("ui", "auto_start", fallback="true")),
         ui_open_browser=normalize_bool(parser.get("ui", "open_browser", fallback="true")),
         ui_language=parser.get("ui", "language", fallback="").strip(),
-        danger=normalize_bool(
-            parser.get("runtime", "dangerously_bypass_approvals_and_sandbox", fallback="false")
-        ),
         notifications=notifications,
         env=merged_env,
         roles=roles,

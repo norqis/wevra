@@ -1,6 +1,7 @@
 import json
 import signal
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Optional
@@ -39,11 +40,13 @@ from wevra.models import (
 )
 from wevra.service import (
     StructuredCliBackend,
+    approve_agent_run,
     BackendInterface,
     add_mode_control_tasks,
     answer_question,
     append_instruction,
     backend_for,
+    deny_agent_run,
     build_context_payload,
     build_final_response,
     build_final_test_spec,
@@ -52,6 +55,7 @@ from wevra.service import (
     effective_mode,
     infer_mode_from_goal,
     infer_mode_from_specs,
+    list_agent_runs,
     list_instructions,
     mode_prompt_guidance,
     mode_requires_review,
@@ -120,7 +124,8 @@ def test_init_repo_config_is_idempotent_and_load_config_creates_workdir(tmp_path
 working_dir = worktree
 db_path = runtime/app.db
 language = ja
-dangerously_bypass_approvals_and_sandbox = true
+auto_approve_agent_actions = true
+agent_timeout_seconds = 321
 home = runtime-home
 
 [ui]
@@ -161,6 +166,8 @@ count = 0
 
     assert settings.language == "ja"
     assert settings.runtime_home == (tmp_path / "runtime-home").resolve()
+    assert settings.auto_approve_agent_actions is True
+    assert settings.agent_timeout_seconds == 321
     assert settings.working_dir == (tmp_path / "worktree").resolve()
     assert settings.working_dir.is_dir()
     assert settings.db_path == (tmp_path / "runtime/app.db").resolve()
@@ -327,6 +334,8 @@ def test_dashboard_http_handles_errors_and_serves_snapshot(tmp_path, monkeypatch
             ("/api/commands", {}, "goal_required"),
             ("/api/commands/append", {"command_id": "x"}, "command_and_body_required"),
             ("/api/questions/answer", {"question_id": "x"}, "question_and_answer_required"),
+            ("/api/agent-runs/approve", {}, "agent_run_id_required"),
+            ("/api/agent-runs/deny", {}, "agent_run_id_required"),
             ("/api/unknown", {}, "not_found"),
         ]
         for path, body, expected_error in cases:
@@ -452,7 +461,95 @@ def test_build_snapshot_includes_counts_roles_and_active_commands(tmp_path, monk
     assert snapshot["commands"]["counts"]["waiting_question"] == 1
     assert snapshot["questions"]["counts"]["open"] == 1
     assert snapshot["commands"]["active"][0]["id"] == command_id
+    assert any(run["command_id"] == command_id for run in snapshot["agent_runs"]["items"])
     assert snapshot["checksum"]
+
+
+def test_dashboard_snapshot_and_agent_approval_endpoints(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    agents_path = tmp_path / "agents.ini"
+    agents_path.write_text(
+        agents_path.read_text(encoding="utf-8").replace(
+            "[planner]\nruntime = mock\n", "[planner]\nruntime = codex\n"
+        ),
+        encoding="utf-8",
+    )
+
+    class CompletingPlanner:
+        def plan(self, *args, **kwargs):
+            return PlannerOutput(
+                decision=PlannerDecision.COMPLETE,
+                workflow_mode=WorkflowMode.PLANNING,
+                final_response="done after approval",
+            )
+
+    monkeypatch.setattr(service_module, "backend_for", lambda *args, **kwargs: CompletingPlanner())
+
+    server = create_server(tmp_path, "127.0.0.1", 0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        base_url = f"http://{host}:{port}"
+
+        created = request_json(
+            f"{base_url}/api/commands",
+            method="POST",
+            body=json.dumps({"goal": "needs approval", "workflow_mode": "planning"}).encode(
+                "utf-8"
+            ),
+            headers={"Content-Type": "application/json"},
+        )[1]["command"]
+
+        deadline = time.time() + 5
+        pending_run = None
+        while time.time() < deadline:
+            snapshot = request_json(f"{base_url}/api/snapshot")[1]
+            pending = [
+                run
+                for run in snapshot["agent_runs"]["pending"]
+                if run["command_id"] == created["id"]
+            ]
+            if pending:
+                pending_run = pending[0]
+                break
+            time.sleep(0.1)
+        assert pending_run is not None
+
+        approved = request_json(
+            f"{base_url}/api/agent-runs/approve",
+            method="POST",
+            body=json.dumps({"agent_run_id": pending_run["id"]}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        assert approved[0] == 200
+
+        deadline = time.time() + 5
+        final_snapshot = None
+        while time.time() < deadline:
+            final_snapshot = request_json(f"{base_url}/api/snapshot")[1]
+            command = next(
+                item for item in final_snapshot["commands"]["items"] if item["id"] == created["id"]
+            )
+            if command["stage"] == "done":
+                break
+            time.sleep(0.1)
+        assert final_snapshot is not None
+        assert command["stage"] == "done"
+
+        status, payload = request_json(
+            f"{base_url}/api/agent-runs/deny",
+            method="POST",
+            body=json.dumps({}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        assert status == 400
+        assert payload["error"] == "agent_run_id_required"
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
 
 
 def test_structured_cli_backends_build_commands_and_handle_failures(tmp_path, monkeypatch):
@@ -460,7 +557,7 @@ def test_structured_cli_backends_build_commands_and_handle_failures(tmp_path, mo
 
     codex_runs = []
 
-    def fake_codex_run(command, cwd, env, text, capture_output, check):
+    def fake_codex_run(command, cwd, env, text, capture_output, check, timeout):
         codex_runs.append((command, cwd, env))
         output_path = Path(command[command.index("--output-last-message") + 1])
         output_path.write_text(json.dumps({"decision": "complete"}), encoding="utf-8")
@@ -470,7 +567,8 @@ def test_structured_cli_backends_build_commands_and_handle_failures(tmp_path, mo
     codex_backend = StructuredCliBackend(
         RuntimeBackend.CODEX,
         model="gpt-test",
-        danger=False,
+        auto_approve_agent_actions=False,
+        timeout_seconds=30,
         runtime_home=runtime_home,
     )
     codex_payload = codex_backend._run_codex("hello", {"type": "object"}, tmp_path)
@@ -482,7 +580,7 @@ def test_structured_cli_backends_build_commands_and_handle_failures(tmp_path, mo
     assert codex_cwd == str(tmp_path)
     assert codex_env["HOME"] == str(runtime_home)
 
-    def fake_claude_run(command, cwd, env, text, capture_output, check):
+    def fake_claude_run(command, cwd, env, text, capture_output, check, timeout):
         assert "--dangerously-skip-permissions" in command
         return SimpleNamespace(
             returncode=0,
@@ -494,7 +592,8 @@ def test_structured_cli_backends_build_commands_and_handle_failures(tmp_path, mo
     claude_backend = StructuredCliBackend(
         RuntimeBackend.CLAUDE,
         model="opus-test",
-        danger=True,
+        auto_approve_agent_actions=True,
+        timeout_seconds=30,
         runtime_home=runtime_home,
     )
     claude_payload = claude_backend._run_claude("review", {"type": "object"}, tmp_path)
@@ -510,9 +609,12 @@ def test_structured_cli_backends_build_commands_and_handle_failures(tmp_path, mo
     with pytest.raises(RuntimeError, match="boom"):
         claude_backend._run_claude("broken", {"type": "object"}, tmp_path)
     with pytest.raises(RuntimeError, match="Unsupported backend"):
-        StructuredCliBackend(RuntimeBackend.INHERIT, model="", danger=False)._run_structured(
-            "prompt", {}, str(tmp_path)
-        )
+        StructuredCliBackend(
+            RuntimeBackend.INHERIT,
+            model="",
+            auto_approve_agent_actions=False,
+            timeout_seconds=30,
+        )._run_structured("prompt", {}, str(tmp_path))
 
 
 def test_service_mode_helpers_and_context_payload_cover_inference_paths(tmp_path):
@@ -829,6 +931,96 @@ def test_service_append_instruction_and_list_helpers_validate_errors(tmp_path):
     assert instructions[0].id == appended.id
 
 
+def test_append_instruction_rejects_terminal_commands(tmp_path):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    initialize_database(settings.db_path)
+    command = submit_command(
+        settings.db_path,
+        goal="append validation complete",
+        workflow_mode=WorkflowMode.RESEARCH,
+        priority=Priority.HIGH,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+
+    with connect(settings.db_path) as conn:
+        conn.execute(
+            "UPDATE commands SET stage = ?, final_response = ? WHERE id = ?",
+            (CommandStage.DONE.value, "done", command.id),
+        )
+        conn.commit()
+
+    with pytest.raises(ValueError, match="terminal command"):
+        append_instruction(settings.db_path, command.id, "Follow this up.")
+
+
+def test_agent_run_approval_and_denial_flow(tmp_path, monkeypatch):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    settings.roles["planner"].runtime = RuntimeBackend.CODEX
+    settings.auto_approve_agent_actions = False
+    initialize_database(settings.db_path)
+
+    command = submit_command(
+        settings.db_path,
+        goal="approval path",
+        workflow_mode=WorkflowMode.PLANNING,
+        priority=Priority.HIGH,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+
+    tick_once(settings.db_path, command_id=command.id, settings=settings, repo_root=tmp_path)
+    approval = tick_once(
+        settings.db_path, command_id=command.id, settings=settings, repo_root=tmp_path
+    )
+    assert approval.action == "approval_required"
+    assert approval.command.stage == CommandStage.WAITING_APPROVAL
+
+    agent_runs = list_agent_runs(settings.db_path, command_id=command.id)
+    assert len(agent_runs) == 1
+    assert agent_runs[0].state.value == "pending_approval"
+
+    approved = approve_agent_run(settings.db_path, agent_runs[0].id)
+    assert approved.state.value == "approved"
+    resumed = service_module.get_command(settings.db_path, command.id)
+    assert resumed.stage == CommandStage.PLANNING
+
+    class CompletingPlanner:
+        def plan(self, *args, **kwargs):
+            return PlannerOutput(
+                decision=PlannerDecision.COMPLETE,
+                workflow_mode=WorkflowMode.PLANNING,
+                final_response="approved and completed",
+            )
+
+    monkeypatch.setattr(service_module, "backend_for", lambda *args, **kwargs: CompletingPlanner())
+    done = tick_once(settings.db_path, command_id=command.id, settings=settings, repo_root=tmp_path)
+    assert done.action == "command_completed"
+    assert done.command.stage == CommandStage.DONE
+
+    denied_command = submit_command(
+        settings.db_path,
+        goal="denial path",
+        workflow_mode=WorkflowMode.PLANNING,
+        priority=Priority.HIGH,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+    tick_once(settings.db_path, command_id=denied_command.id, settings=settings, repo_root=tmp_path)
+    denied_outcome = tick_once(
+        settings.db_path, command_id=denied_command.id, settings=settings, repo_root=tmp_path
+    )
+    assert denied_outcome.action == "approval_required"
+    denied_run = list_agent_runs(settings.db_path, command_id=denied_command.id)[0]
+    denied = deny_agent_run(settings.db_path, denied_run.id, reason="No external runs allowed.")
+    assert denied.state.value == "denied"
+    failed = service_module.get_command(settings.db_path, denied_command.id)
+    assert failed.stage == CommandStage.FAILED
+    assert failed.failure_reason == "No external runs allowed."
+
+
 def test_service_dispatch_failure_and_verification_bypass_paths(tmp_path):
     init_repo_config(tmp_path)
     settings = load_config(tmp_path)
@@ -942,6 +1134,7 @@ def test_reduce_planning_failure_implicit_gate_and_backend_selection(tmp_path, m
     settings = load_config(tmp_path)
     settings.roles["planner"].runtime = RuntimeBackend.CODEX
     settings.roles["reviewer"].runtime = RuntimeBackend.CLAUDE
+    settings.auto_approve_agent_actions = True
     initialize_database(settings.db_path)
 
     structured = backend_for(

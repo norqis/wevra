@@ -1,6 +1,7 @@
 import json
 import sqlite3
 import threading
+import time
 from urllib import request
 
 from typer.testing import CliRunner
@@ -72,7 +73,8 @@ def test_runtime_home_overrides_are_applied_to_external_clis(tmp_path, monkeypat
     backend = StructuredCliBackend(
         RuntimeBackend.CODEX,
         model="",
-        danger=False,
+        auto_approve_agent_actions=False,
+        timeout_seconds=30,
         runtime_home=runtime_home,
     )
 
@@ -457,7 +459,16 @@ def test_dashboard_api_answers_question_and_resumes(tmp_path, monkeypatch):
             {"question_id": question_id, "answer": "Proceed with the current approach."},
         )
         assert answered["ok"] is True
-        assert answered["result"]["final_command"]["stage"] == "done"
+        deadline = time.time() + 5
+        final_snapshot = None
+        while time.time() < deadline:
+            final_snapshot = get_json(f"http://{host}:{port}/api/snapshot")
+            command = final_snapshot["commands"]["items"][0]
+            if command["stage"] == "done":
+                break
+            time.sleep(0.1)
+        assert final_snapshot is not None
+        assert final_snapshot["commands"]["items"][0]["stage"] == "done"
     finally:
         server.shutdown()
         thread.join(timeout=5)

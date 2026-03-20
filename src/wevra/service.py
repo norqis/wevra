@@ -1845,6 +1845,50 @@ def request_agent_approval(
     )
 
 
+def _resume_stage_for_agent_runs(agent_runs: Sequence[AgentRunRecord]) -> CommandStage:
+    stages = {agent_run.resume_stage for agent_run in agent_runs}
+    if not stages:
+        raise ValueError("No agent runs were supplied.")
+    return min(stages, key=lambda stage: STAGE_RANK[stage.value])
+
+
+def _approve_agent_run_record(conn, agent_run: AgentRunRecord) -> AgentRunRecord:
+    update_agent_run(conn, agent_run.id, state=AgentRunState.APPROVED.value, error=None)
+    append_event(
+        conn,
+        "agent_run",
+        agent_run.id,
+        "agent_run_approved",
+        {"command_id": agent_run.command_id, "resume_stage": agent_run.resume_stage.value},
+    )
+    append_event(
+        conn,
+        "command",
+        agent_run.command_id,
+        "agent_approval_resolved",
+        {"agent_run_id": agent_run.id, "decision": "approved"},
+    )
+    refreshed = get_agent_run_by_id(conn, agent_run.id)
+    assert refreshed is not None
+    return refreshed
+
+
+def _pending_agent_runs_for_command(
+    conn, command_id: str, role_name: Optional[str] = None
+) -> List[AgentRunRecord]:
+    query = """
+        SELECT * FROM agent_runs
+        WHERE command_id = ? AND state = ?
+    """
+    params: List[object] = [command_id, AgentRunState.PENDING_APPROVAL.value]
+    if role_name:
+        query += " AND role_name = ?"
+        params.append(role_name)
+    query += " ORDER BY created_at ASC"
+    rows = conn.execute(query, params).fetchall()
+    return [agent_run_from_row(row) for row in rows]
+
+
 def approve_agent_run(db_path: Path, agent_run_id: str) -> AgentRunRecord:
     initialize_database(db_path)
     with connect(db_path) as conn:
@@ -1854,26 +1898,37 @@ def approve_agent_run(db_path: Path, agent_run_id: str) -> AgentRunRecord:
         if agent_run.state != AgentRunState.PENDING_APPROVAL:
             raise ValueError(f"Agent run is not pending approval: {agent_run_id}")
 
-        update_agent_run(conn, agent_run.id, state=AgentRunState.APPROVED.value, error=None)
+        refreshed = _approve_agent_run_record(conn, agent_run)
         update_command(conn, agent_run.command_id, stage=agent_run.resume_stage.value)
-        append_event(
-            conn,
-            "agent_run",
-            agent_run.id,
-            "agent_run_approved",
-            {"command_id": agent_run.command_id, "resume_stage": agent_run.resume_stage.value},
-        )
+        conn.commit()
+        return refreshed
+
+
+def approve_agent_runs_batch(
+    db_path: Path, command_id: str, role_name: Optional[str] = None
+) -> List[AgentRunRecord]:
+    initialize_database(db_path)
+    with connect(db_path) as conn:
+        pending = _pending_agent_runs_for_command(conn, command_id, role_name=role_name)
+        if not pending:
+            raise ValueError("No pending agent approvals matched the batch selection.")
+
+        approved = [_approve_agent_run_record(conn, agent_run) for agent_run in pending]
+        update_command(conn, command_id, stage=_resume_stage_for_agent_runs(pending).value)
         append_event(
             conn,
             "command",
-            agent_run.command_id,
-            "agent_approval_resolved",
-            {"agent_run_id": agent_run.id, "decision": "approved"},
+            command_id,
+            "agent_approval_batch_resolved",
+            {
+                "decision": "approved",
+                "count": len(approved),
+                "role_name": role_name,
+                "agent_run_ids": [agent_run.id for agent_run in approved],
+            },
         )
         conn.commit()
-        refreshed = get_agent_run_by_id(conn, agent_run.id)
-        assert refreshed is not None
-        return refreshed
+        return approved
 
 
 def deny_agent_run(

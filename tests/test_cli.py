@@ -6,9 +6,10 @@ from urllib import request
 
 from typer.testing import CliRunner
 
+import wevra.service as service_module
 from wevra.cli import app
 from wevra.dashboard import create_server
-from wevra.models import RuntimeBackend
+from wevra.models import PlannerDecision, PlannerOutput, RuntimeBackend, WorkflowMode
 from wevra.service import StructuredCliBackend
 
 
@@ -503,9 +504,50 @@ def test_dashboard_api_appends_instruction_and_replans(tmp_path, monkeypatch):
         assert result["ok"] is True
         assert result["result"]["final_command"]["stage"] == "done"
 
-        snapshot = get_json(f"http://{host}:{port}/api/snapshot")
-        assert any(item["command_id"] == command_id for item in snapshot["instructions"]["items"])
-        assert any(task["task_key"] == "append_followup" for task in snapshot["tasks"]["items"])
+        detail = get_json(f"http://{host}:{port}/api/commands/{command_id}/detail")
+        assert any(item["command_id"] == command_id for item in detail["instructions"]["items"])
+        assert any(task["task_key"] == "append_followup" for task in detail["tasks"]["items"])
     finally:
         server.shutdown()
         thread.join(timeout=5)
+
+
+def test_cli_batch_approve_agent_runs(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    agents_path = tmp_path / "agents.ini"
+    agents_path.write_text(
+        agents_path.read_text(encoding="utf-8").replace(
+            "[planner]\nruntime = mock\n", "[planner]\nruntime = codex\n"
+        ),
+        encoding="utf-8",
+    )
+
+    class CompletingPlanner:
+        def plan(self, *args, **kwargs):
+            return PlannerOutput(
+                decision=PlannerDecision.COMPLETE,
+                workflow_mode=WorkflowMode.PLANNING,
+                final_response="Approved by CLI batch command",
+            )
+
+    monkeypatch.setattr(service_module, "backend_for", lambda *args, **kwargs: CompletingPlanner())
+
+    command = read_json(runner.invoke(app, ["submit", "--mode", "planning", "cli batch approval"]))
+    first_tick = read_json(runner.invoke(app, ["tick", "--command-id", command["id"]]))
+    assert first_tick["action"] == "planning_started"
+    approval_tick = read_json(runner.invoke(app, ["tick", "--command-id", command["id"]]))
+    assert approval_tick["action"] == "approval_required"
+
+    agent_runs = read_json(runner.invoke(app, ["agent-runs", "--command-id", command["id"]]))
+    assert agent_runs["agent_runs"][0]["state"] == "pending_approval"
+
+    approved = read_json(
+        runner.invoke(app, ["approve-agent-runs", command["id"], "--role", "planner"])
+    )
+    assert len(approved["agent_runs"]) == 1
+    assert approved["agent_runs"][0]["state"] == "approved"
+
+    completed = read_json(runner.invoke(app, ["run", "--command-id", command["id"]]))
+    assert completed["final_command"]["stage"] == "done"

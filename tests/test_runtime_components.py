@@ -23,7 +23,12 @@ from wevra.config import (
     read_simple_env,
     resolve_optional_config_path,
 )
-from wevra.dashboard import build_snapshot, create_server
+from wevra.dashboard import (
+    build_command_detail,
+    build_snapshot,
+    build_summary_snapshot,
+    create_server,
+)
 from wevra.db import connect, initialize_database
 from wevra.models import (
     CommandRecord,
@@ -335,6 +340,7 @@ def test_dashboard_http_handles_errors_and_serves_snapshot(tmp_path, monkeypatch
             ("/api/commands/append", {"command_id": "x"}, "command_and_body_required"),
             ("/api/questions/answer", {"question_id": "x"}, "question_and_answer_required"),
             ("/api/agent-runs/approve", {}, "agent_run_id_required"),
+            ("/api/agent-runs/approve-batch", {}, "command_id_required"),
             ("/api/agent-runs/deny", {}, "agent_run_id_required"),
             ("/api/unknown", {}, "not_found"),
         ]
@@ -448,6 +454,18 @@ def test_dashboard_process_helpers_cover_no_pid_and_main_entrypoint(tmp_path, mo
     assert closed == ["served", "closed"]
 
 
+def test_dashboard_url_uses_localhost_when_binding_all_interfaces(tmp_path):
+    init_repo_config(tmp_path)
+    (tmp_path / "wevra.ini").write_text(
+        (tmp_path / "wevra.ini")
+        .read_text(encoding="utf-8")
+        .replace("host = 127.0.0.1", "host = 0.0.0.0"),
+        encoding="utf-8",
+    )
+    settings = load_config(tmp_path)
+    assert dashboard_module.dashboard_url(settings) == f"http://127.0.0.1:{settings.ui_port}"
+
+
 def test_build_snapshot_includes_counts_roles_and_active_commands(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
@@ -503,6 +521,12 @@ def test_dashboard_snapshot_and_agent_approval_endpoints(tmp_path, monkeypatch):
             headers={"Content-Type": "application/json"},
         )[1]["command"]
 
+        detail_status, detail_payload = request_json(
+            f"{base_url}/api/commands/{created['id']}/detail"
+        )
+        assert detail_status == 200
+        assert detail_payload["command"]["id"] == created["id"]
+
         deadline = time.time() + 5
         pending_run = None
         while time.time() < deadline:
@@ -518,13 +542,14 @@ def test_dashboard_snapshot_and_agent_approval_endpoints(tmp_path, monkeypatch):
             time.sleep(0.1)
         assert pending_run is not None
 
-        approved = request_json(
-            f"{base_url}/api/agent-runs/approve",
+        batch_status, batch_payload = request_json(
+            f"{base_url}/api/agent-runs/approve-batch",
             method="POST",
-            body=json.dumps({"agent_run_id": pending_run["id"]}).encode("utf-8"),
+            body=json.dumps({"command_id": created["id"], "role_name": "planner"}).encode("utf-8"),
             headers={"Content-Type": "application/json"},
         )
-        assert approved[0] == 200
+        assert batch_status == 200
+        assert len(batch_payload["agent_runs"]) == 1
 
         deadline = time.time() + 5
         final_snapshot = None
@@ -550,6 +575,26 @@ def test_dashboard_snapshot_and_agent_approval_endpoints(tmp_path, monkeypatch):
     finally:
         server.shutdown()
         thread.join(timeout=5)
+
+
+def test_build_summary_and_command_detail_split_selected_data(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+    submitted = read_json(
+        runner.invoke(app, ["submit", "[worker_question] split payload coverage"])
+    )
+    command_id = submitted["id"]
+    read_json(runner.invoke(app, ["run", "--command-id", command_id]))
+
+    summary = build_summary_snapshot(tmp_path)
+    detail = build_command_detail(tmp_path, command_id)
+
+    assert summary["commands"]["items"][0]["id"] == command_id
+    assert summary["questions"]["open"][0]["command_id"] == command_id
+    assert "tasks" not in summary
+    assert detail["command"]["id"] == command_id
+    assert detail["tasks"]["items"]
+    assert detail["questions"]["items"][0]["command_id"] == command_id
 
 
 def test_structured_cli_backends_build_commands_and_handle_failures(tmp_path, monkeypatch):

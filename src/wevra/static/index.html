@@ -463,6 +463,16 @@
       background: rgba(151, 176, 214, 0.40);
     }
 
+    .command-item.waiting_approval-state {
+      border-color: rgba(255, 191, 95, 0.38);
+      background: linear-gradient(180deg, rgba(255, 191, 95, 0.12), rgba(255, 255, 255, 0.02));
+      box-shadow: inset 0 0 0 1px rgba(255, 191, 95, 0.08);
+    }
+
+    .command-item.waiting_approval-state::before {
+      background: rgba(255, 191, 95, 0.86);
+    }
+
     .command-item.planning-state,
     .command-item.running-state,
     .command-item.replanning-state,
@@ -504,9 +514,9 @@
       border: 1px solid rgba(151, 176, 214, 0.1);
     }
 
-    .pill.done, .pill.approve { color: var(--good); }
-    .pill.waiting_question, .pill.blocked, .pill.request_changes { color: var(--warn); }
-    .pill.failed, .pill.fail { color: var(--bad); }
+    .pill.done, .pill.approve, .pill.completed, .pill.approved { color: var(--good); }
+    .pill.waiting_question, .pill.blocked, .pill.request_changes, .pill.waiting_approval, .pill.pending_approval { color: var(--warn); }
+    .pill.failed, .pill.fail, .pill.denied { color: var(--bad); }
     .pill.running, .pill.planning, .pill.replanning, .pill.verifying { color: var(--accent-2); }
 
     .question-alert {
@@ -659,6 +669,35 @@
       font-family: var(--font-display);
     }
 
+    .detail-banner {
+      grid-column: 1 / -1;
+      border-radius: 16px;
+      border: 1px solid rgba(255, 111, 145, 0.28);
+      background: linear-gradient(180deg, rgba(255, 111, 145, 0.12), rgba(255, 255, 255, 0.02));
+      padding: 12px 14px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .detail-banner.warn {
+      border-color: rgba(255, 191, 95, 0.28);
+      background: linear-gradient(180deg, rgba(255, 191, 95, 0.12), rgba(255, 255, 255, 0.02));
+    }
+
+    .detail-banner h3 {
+      margin: 0;
+      font-size: 12px;
+      font-family: var(--font-display);
+    }
+
+    .detail-banner .body {
+      color: rgba(239, 244, 255, 0.9);
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
     .detail-grid {
       display: grid;
       grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1fr);
@@ -752,6 +791,34 @@
       word-break: break-word;
       font-size: 12px;
       line-height: 1.55;
+    }
+
+    .agent-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      margin-top: 4px;
+    }
+
+    .agent-actions button {
+      min-height: 36px;
+      border-radius: 12px;
+      padding: 0 14px;
+      font-size: 12px;
+    }
+
+    .agent-actions .deny {
+      background: rgba(255, 111, 145, 0.14);
+      color: #ffd5df;
+      border: 1px solid rgba(255, 111, 145, 0.22);
+    }
+
+    .agent-run-summary {
+      color: rgba(239, 244, 255, 0.84);
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+      line-height: 1.5;
     }
 
     .modal-backdrop {
@@ -944,6 +1011,7 @@
               <button class="workspace-tab active" data-tab="overview" id="overviewTab">Overview</button>
               <button class="workspace-tab" data-tab="tasks" id="tasksTab">Tasks</button>
               <button class="workspace-tab" data-tab="reviews" id="reviewsTab">Reviews</button>
+              <button class="workspace-tab" data-tab="agents" id="agentsTab">Agents</button>
               <button class="workspace-tab" data-tab="activity" id="activityTab">Activity</button>
             </div>
             <div class="workspace-actions" id="workspaceActions">
@@ -961,6 +1029,9 @@
           </section>
           <section class="tab-panel" data-tab-panel="reviews">
             <div class="list" id="reviewsList"></div>
+          </section>
+          <section class="tab-panel" data-tab-panel="agents">
+            <div class="list" id="agentRunsList"></div>
           </section>
           <section class="tab-panel" data-tab-panel="activity">
             <div class="activity-stack">
@@ -1026,6 +1097,7 @@
       submitting: false,
       appending: false,
       answeringQuestionId: null,
+      agentDecisionInFlight: null,
       visibleQuestionId: null,
       questionDrafts: {}
     };
@@ -1033,6 +1105,7 @@
     const commandsListEl = document.getElementById('commandsList');
     const tasksListEl = document.getElementById('tasksList');
     const reviewsListEl = document.getElementById('reviewsList');
+    const agentRunsListEl = document.getElementById('agentRunsList');
     const eventsListEl = document.getElementById('eventsList');
     const instructionsListEl = document.getElementById('instructionsList');
     const questionHistoryListEl = document.getElementById('questionHistoryList');
@@ -1059,6 +1132,7 @@
         commandsHeading: 'Requests',
         tasksHeading: 'Tasks',
         reviewsHeading: 'Reviews',
+        agentsHeading: 'Agents',
         eventsHeading: 'Activity Feed',
         selectedHeading: 'Selected Request',
         commandsBadge: 'Work Queue',
@@ -1092,6 +1166,7 @@
         noTasks: 'No tasks for the current selection.',
         noOpenQuestions: 'No open questions.',
         noReviews: 'No reviews yet.',
+        noAgentRuns: 'No agent runs yet.',
         noEvents: 'No events yet.',
         noCommandSelected: 'No command selected.',
         answerPlaceholder: 'Type the answer to resume the workflow.',
@@ -1117,6 +1192,16 @@
         appending: 'Appending instruction to',
         answering: 'Answering',
         reviewerLabel: 'reviewer',
+        approvalNeeded: 'Approval Required',
+        approvalHelp: 'This request is waiting for an operator decision before the selected agent can continue.',
+        allow: 'Allow',
+        deny: 'Deny',
+        agentKind: 'Kind',
+        agentRole: 'Role',
+        agentState: 'State',
+        agentPrompt: 'Prompt',
+        agentOutput: 'Summary',
+        agentError: 'Error',
         resultReady: 'Result Ready',
         resultUnavailable: 'No Result Yet',
       },
@@ -1126,6 +1211,7 @@
         commandsHeading: '依頼一覧',
         tasksHeading: 'タスク',
         reviewsHeading: 'レビュー',
+        agentsHeading: 'エージェント',
         eventsHeading: 'アクティビティ',
         selectedHeading: '選択中の依頼',
         commandsBadge: '進行キュー',
@@ -1159,6 +1245,7 @@
         noTasks: '選択中のコマンドにタスクはありません。',
         noOpenQuestions: '未回答の質問はありません。',
         noReviews: 'レビューはまだありません。',
+        noAgentRuns: 'エージェント履歴はまだありません。',
         noEvents: 'イベントはまだありません。',
         noCommandSelected: 'コマンドが選択されていません。',
         answerPlaceholder: '再開のための回答を書いてください。',
@@ -1184,6 +1271,16 @@
         appending: '追加指示を送信中',
         answering: '回答中',
         reviewerLabel: 'レビュアー',
+        approvalNeeded: '承認待ち',
+        approvalHelp: '選択中の依頼は、該当エージェントの実行を許可するまで停止しています。',
+        allow: '許可',
+        deny: '拒否',
+        agentKind: '種別',
+        agentRole: '役割',
+        agentState: '状態',
+        agentPrompt: '依頼内容',
+        agentOutput: '結果',
+        agentError: 'エラー',
         resultReady: '結果あり',
         resultUnavailable: '結果なし',
       }
@@ -1207,10 +1304,22 @@
     };
 
     const STAGE_LABELS = {
+      en: {
+        queued: 'Queued',
+        planning: 'Planning',
+        running: 'Running',
+        waiting_approval: 'Waiting Approval',
+        waiting_question: 'Waiting Question',
+        verifying: 'Reviewing',
+        replanning: 'Replanning',
+        done: 'Done',
+        failed: 'Failed'
+      },
       ja: {
         queued: '待機',
         planning: '計画中',
         running: '実行中',
+        waiting_approval: '承認待ち',
         waiting_question: '質問待ち',
         verifying: 'レビュー中',
         replanning: '再計画',
@@ -1259,10 +1368,47 @@
     };
 
     const REVIEW_DECISION_LABELS = {
+      en: {
+        approve: 'Approve',
+        request_changes: 'Request Changes',
+        fail: 'Fail'
+      },
       ja: {
         approve: '承認',
         request_changes: '差し戻し',
         fail: '失敗'
+      }
+    };
+
+    const AGENT_RUN_STATE_LABELS = {
+      en: {
+        pending_approval: 'Pending Approval',
+        approved: 'Approved',
+        denied: 'Denied',
+        running: 'Running',
+        completed: 'Completed',
+        failed: 'Failed'
+      },
+      ja: {
+        pending_approval: '承認待ち',
+        approved: '許可済み',
+        denied: '拒否',
+        running: '実行中',
+        completed: '完了',
+        failed: '失敗'
+      }
+    };
+
+    const AGENT_RUN_KIND_LABELS = {
+      en: {
+        planner: 'Planner',
+        task: 'Task',
+        review: 'Review'
+      },
+      ja: {
+        planner: '計画',
+        task: '実行',
+        review: 'レビュー'
       }
     };
 
@@ -1296,6 +1442,13 @@
         review_recorded: 'レビュー記録',
         review_rework: 'レビュー差し戻し',
         review_failed: 'レビュー失敗',
+        agent_approval_requested: '承認要求',
+        agent_approval_resolved: '承認結果',
+        agent_run_created: 'エージェント実行作成',
+        agent_run_started: 'エージェント実行開始',
+        agent_run_finished: 'エージェント実行完了',
+        agent_run_approved: 'エージェント実行許可',
+        agent_run_denied: 'エージェント実行拒否',
         instruction_append: '追加指示',
         instruction_appended: '追加指示',
         replanning_requested: '再計画要求',
@@ -1310,14 +1463,16 @@
         task: 'task',
         question: 'question',
         review: 'review',
-        instruction: 'instruction'
+        instruction: 'instruction',
+        agent_run: 'agent_run'
       },
       ja: {
         command: 'コマンド',
         task: 'タスク',
         question: '質問',
         review: 'レビュー',
-        instruction: '追加指示'
+        instruction: '追加指示',
+        agent_run: 'エージェント'
       }
     };
 
@@ -1362,6 +1517,14 @@
 
     function reviewDecisionLabel(value) {
       return localizeValue(REVIEW_DECISION_LABELS, value);
+    }
+
+    function agentRunStateLabel(value) {
+      return localizeValue(AGENT_RUN_STATE_LABELS, value);
+    }
+
+    function agentRunKindLabel(value) {
+      return localizeValue(AGENT_RUN_KIND_LABELS, value);
     }
 
     function capabilityLabel(value) {
@@ -1411,6 +1574,7 @@
       document.getElementById('commandsHeading').textContent = t('commandsHeading');
       document.getElementById('tasksTab').textContent = t('tasksHeading');
       document.getElementById('reviewsTab').textContent = t('reviewsHeading');
+      document.getElementById('agentsTab').textContent = t('agentsHeading');
       document.getElementById('activityTab').textContent = t('activity');
       document.getElementById('overviewTab').textContent = t('overview');
       document.getElementById('eventsHeading').textContent = t('eventsHeading');
@@ -1471,6 +1635,7 @@
         commands: commandsListEl.scrollTop,
         tasks: tasksListEl.scrollTop,
         reviews: reviewsListEl.scrollTop,
+        agents: agentRunsListEl.scrollTop,
         instructions: instructionsListEl.scrollTop,
         questionHistory: questionHistoryListEl.scrollTop,
         events: eventsListEl.scrollTop,
@@ -1482,6 +1647,7 @@
       commandsListEl.scrollTop = positions.commands || 0;
       tasksListEl.scrollTop = positions.tasks || 0;
       reviewsListEl.scrollTop = positions.reviews || 0;
+      agentRunsListEl.scrollTop = positions.agents || 0;
       instructionsListEl.scrollTop = positions.instructions || 0;
       questionHistoryListEl.scrollTop = positions.questionHistory || 0;
       eventsListEl.scrollTop = positions.events || 0;
@@ -1496,6 +1662,18 @@
       const submitButton = document.getElementById('questionAlertSubmit');
       if (!answerInput || !submitButton) return;
       submitButton.disabled = state.answeringQuestionId === questionId || !answerInput.value.trim();
+    }
+
+    function selectedCommand(snapshot = state.snapshot) {
+      if (!snapshot) return null;
+      const selected = state.selectedCommandId || snapshot.commands.active[0]?.id || snapshot.commands.items[0]?.id;
+      return snapshot.commands.items.find((item) => item.id === selected) || null;
+    }
+
+    function selectedPendingApprovals(snapshot = state.snapshot) {
+      const command = selectedCommand(snapshot);
+      if (!snapshot || !command) return [];
+      return snapshot.agent_runs.pending.filter((item) => item.command_id === command.id);
     }
 
     function updateBusyState() {
@@ -1551,6 +1729,7 @@
           renderTasks(snapshot);
           renderQuestionAlert(snapshot);
           renderReviews(snapshot);
+          renderAgentRuns(snapshot);
           renderInstructions(snapshot);
           renderQuestionHistory(snapshot);
           renderEvents(snapshot);
@@ -1648,6 +1827,70 @@
       `).join('') || `<div class="meta">${escapeHtml(t('noReviews'))}</div>`;
     }
 
+    async function submitAgentDecision(agentRunId, decision) {
+      if (state.agentDecisionInFlight) return;
+      state.agentDecisionInFlight = agentRunId;
+      if (state.snapshot) {
+        render(state.snapshot);
+      } else {
+        updateBusyState();
+      }
+      statusLineEl.textContent = decision === 'approve'
+        ? `${t('allow')} ${agentRunId}…`
+        : `${t('deny')} ${agentRunId}…`;
+      try {
+        await api(`/api/agent-runs/${decision}`, {
+          method: 'POST',
+          body: JSON.stringify({ agent_run_id: agentRunId }),
+        });
+        await refreshSnapshot();
+      } finally {
+        state.agentDecisionInFlight = null;
+        updateBusyState();
+      }
+    }
+
+    function renderAgentRuns(snapshot) {
+      const selected = state.selectedCommandId;
+      const agentRuns = snapshot.agent_runs.items
+        .filter((item) => !selected || item.command_id === selected)
+        .slice()
+        .reverse();
+      agentRunsListEl.innerHTML = agentRuns.map((agentRun) => {
+        const pending = agentRun.state === 'pending_approval';
+        const busy = state.agentDecisionInFlight === agentRun.id;
+        const summary = agentRun.error || agentRun.output_summary || agentRun.prompt_excerpt || '';
+        return `
+          <article class="card">
+            <div class="title">${escapeHtml(agentRun.title)}</div>
+            <div class="meta">
+              ${pill(agentRun.state, agentRunStateLabel)}
+              ${pill(agentRun.run_kind, agentRunKindLabel)}
+              <span>${escapeHtml(t('agentRole'))}: ${escapeHtml(agentRun.role_name)}</span>
+              <span>${escapeHtml(agentRun.runtime)}${agentRun.model ? ` / ${escapeHtml(agentRun.model)}` : ''}</span>
+            </div>
+            ${summary ? `<div class="agent-run-summary">${escapeHtml(summary)}</div>` : ''}
+            <div class="meta">
+              <span>${escapeHtml(agentRun.created_at)}</span>
+            </div>
+            ${pending ? `
+              <div class="agent-actions">
+                <button class="primary" data-agent-allow="${escapeHtml(agentRun.id)}" ${busy ? 'disabled' : ''}>${escapeHtml(t('allow'))}</button>
+                <button class="deny" data-agent-deny="${escapeHtml(agentRun.id)}" ${busy ? 'disabled' : ''}>${escapeHtml(t('deny'))}</button>
+              </div>
+            ` : ''}
+          </article>
+        `;
+      }).join('') || `<div class="meta">${escapeHtml(t('noAgentRuns'))}</div>`;
+
+      agentRunsListEl.querySelectorAll('[data-agent-allow]').forEach((node) => {
+        node.addEventListener('click', () => submitAgentDecision(node.dataset.agentAllow, 'approve'));
+      });
+      agentRunsListEl.querySelectorAll('[data-agent-deny]').forEach((node) => {
+        node.addEventListener('click', () => submitAgentDecision(node.dataset.agentDeny, 'deny'));
+      });
+    }
+
     function renderQuestionHistory(snapshot) {
       const selected = state.selectedCommandId;
       const questionHistory = snapshot.questions.items
@@ -1704,6 +1947,7 @@
       }
       state.selectedCommandId = selected;
       const command = snapshot.commands.items.find((item) => item.id === selected);
+      const pendingApprovals = snapshot.agent_runs.pending.filter((item) => item.command_id === selected);
       const appendLocked = Boolean(command?.final_response) || ['done', 'failed'].includes(command.stage);
       viewResultBtnEl.textContent = command?.final_response ? t('viewResult') : t('resultUnavailable');
       viewResultBtnEl.disabled = !command?.final_response;
@@ -1722,6 +1966,18 @@
             ${pill(command.stage, stageLabel)}
           </div>
         </div>
+        ${pendingApprovals.length ? `
+          <div class="detail-banner warn">
+            <h3>${escapeHtml(t('approvalNeeded'))}</h3>
+            <div class="body">${escapeHtml(t('approvalHelp'))}</div>
+          </div>
+        ` : ''}
+        ${command.failure_reason ? `
+          <div class="detail-banner">
+            <h3>${escapeHtml(t('agentError'))}</h3>
+            <div class="body">${escapeHtml(command.failure_reason)}</div>
+          </div>
+        ` : ''}
         <div class="detail-card">
           <h3>${escapeHtml(t('overview'))}</h3>
           <div class="detail-keyvals">
@@ -1782,6 +2038,7 @@
       renderTasks(snapshot);
       renderQuestionAlert(snapshot);
       renderReviews(snapshot);
+      renderAgentRuns(snapshot);
       renderInstructions(snapshot);
       renderQuestionHistory(snapshot);
       renderEvents(snapshot);
@@ -1833,13 +2090,9 @@
       updateBusyState();
       statusLineEl.textContent = t('submitting');
       try {
-        const created = await api('/api/commands', {
+        await api('/api/commands', {
           method: 'POST',
           body: JSON.stringify({ goal, workflow_mode: workflowMode, priority, backend }),
-        });
-        await api('/api/commands/run', {
-          method: 'POST',
-          body: JSON.stringify({ command_id: created.command.id }),
         });
         document.getElementById('goal').value = '';
         await refreshSnapshot();
@@ -1861,10 +2114,6 @@
         await api('/api/commands/append', {
           method: 'POST',
           body: JSON.stringify({ command_id: commandId, body }),
-        });
-        await api('/api/commands/run', {
-          method: 'POST',
-          body: JSON.stringify({ command_id: commandId }),
         });
         appendModalInputEl.value = '';
         closeAppendModal();

@@ -13,6 +13,9 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 from wevra.config import AppConfig, load_config
 from wevra.db import connect, initialize_database
 from wevra.models import (
+    AgentRunKind,
+    AgentRunRecord,
+    AgentRunState,
     CommandRecord,
     CommandStage,
     EventRecord,
@@ -48,10 +51,11 @@ STAGE_RANK = {
     CommandStage.REPLANNING.value: 1,
     CommandStage.RUNNING.value: 2,
     CommandStage.VERIFYING.value: 3,
-    CommandStage.WAITING_QUESTION.value: 4,
-    CommandStage.QUEUED.value: 5,
-    CommandStage.DONE.value: 6,
-    CommandStage.FAILED.value: 7,
+    CommandStage.WAITING_APPROVAL.value: 4,
+    CommandStage.WAITING_QUESTION.value: 5,
+    CommandStage.QUEUED.value: 6,
+    CommandStage.DONE.value: 7,
+    CommandStage.FAILED.value: 8,
 }
 
 MODE_KEYWORDS = {
@@ -230,6 +234,16 @@ def update_question(conn, question_id: str, **fields) -> None:
     )
 
 
+def update_agent_run(conn, agent_run_id: str, **fields) -> None:
+    fields["updated_at"] = utc_now()
+    assignments = [f"{key} = ?" for key in fields]
+    values = list(fields.values()) + [agent_run_id]
+    conn.execute(
+        f"UPDATE agent_runs SET {', '.join(assignments)} WHERE id = ?",
+        values,
+    )
+
+
 def command_from_row(row) -> CommandRecord:
     payload = dict(row)
     payload["replan_requested"] = bool(payload.get("replan_requested", 0))
@@ -260,6 +274,12 @@ def instruction_from_row(row) -> InstructionRecord:
     return InstructionRecord.model_validate(dict(row))
 
 
+def agent_run_from_row(row) -> AgentRunRecord:
+    payload = dict(row)
+    payload["approval_required"] = bool(payload.get("approval_required", 0))
+    return AgentRunRecord.model_validate(payload)
+
+
 def event_from_row(row) -> EventRecord:
     return EventRecord.model_validate(
         {
@@ -271,6 +291,238 @@ def event_from_row(row) -> EventRecord:
             "created_at": row["created_at"],
         }
     )
+
+
+def create_agent_run_record(
+    conn,
+    *,
+    command_id: str,
+    role_name: str,
+    capability: str,
+    runtime: RuntimeBackend,
+    model: str,
+    run_kind: AgentRunKind,
+    title: str,
+    resume_stage: CommandStage,
+    state: AgentRunState,
+    approval_required: bool,
+    task_id: Optional[str] = None,
+    reviewer_slot: Optional[int] = None,
+    prompt_excerpt: Optional[str] = None,
+) -> AgentRunRecord:
+    run_id = new_id("agentrun")
+    now = utc_now()
+    conn.execute(
+        """
+        INSERT INTO agent_runs (
+            id, command_id, task_id, reviewer_slot, role_name, capability, runtime, model,
+            run_kind, title, resume_stage, state, approval_required, prompt_excerpt,
+            output_summary, error, created_at, started_at, finished_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            run_id,
+            command_id,
+            task_id,
+            reviewer_slot,
+            role_name,
+            capability,
+            runtime.value,
+            model,
+            run_kind.value,
+            title,
+            resume_stage.value,
+            state.value,
+            int(approval_required),
+            prompt_excerpt,
+            None,
+            None,
+            now,
+            now if state == AgentRunState.RUNNING else None,
+            None,
+            now,
+        ),
+    )
+    append_event(
+        conn,
+        "agent_run",
+        run_id,
+        "agent_run_created",
+        {
+            "command_id": command_id,
+            "task_id": task_id,
+            "reviewer_slot": reviewer_slot,
+            "role_name": role_name,
+            "capability": capability,
+            "runtime": runtime.value,
+            "run_kind": run_kind.value,
+            "resume_stage": resume_stage.value,
+            "state": state.value,
+        },
+    )
+    row = conn.execute("SELECT * FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
+    return agent_run_from_row(row)
+
+
+def list_agent_runs_for_command(conn, command_id: str) -> List[AgentRunRecord]:
+    rows = conn.execute(
+        "SELECT * FROM agent_runs WHERE command_id = ? ORDER BY created_at ASC", (command_id,)
+    ).fetchall()
+    return [agent_run_from_row(row) for row in rows]
+
+
+def list_agent_runs(db_path: Path, command_id: Optional[str] = None) -> List[AgentRunRecord]:
+    initialize_database(db_path)
+    with connect(db_path) as conn:
+        if command_id:
+            return list_agent_runs_for_command(conn, command_id)
+        rows = conn.execute("SELECT * FROM agent_runs ORDER BY created_at ASC").fetchall()
+    return [agent_run_from_row(row) for row in rows]
+
+
+def get_agent_run_by_id(conn, agent_run_id: str) -> Optional[AgentRunRecord]:
+    row = conn.execute("SELECT * FROM agent_runs WHERE id = ?", (agent_run_id,)).fetchone()
+    return agent_run_from_row(row) if row else None
+
+
+def _find_active_agent_run(
+    conn,
+    *,
+    command_id: str,
+    run_kind: AgentRunKind,
+    task_id: Optional[str] = None,
+    reviewer_slot: Optional[int] = None,
+) -> Optional[AgentRunRecord]:
+    clauses = ["command_id = ?", "run_kind = ?", "state IN (?, ?, ?)"]
+    params: List[object] = [
+        command_id,
+        run_kind.value,
+        AgentRunState.PENDING_APPROVAL.value,
+        AgentRunState.APPROVED.value,
+        AgentRunState.RUNNING.value,
+    ]
+    if task_id is None:
+        clauses.append("task_id IS NULL")
+    else:
+        clauses.append("task_id = ?")
+        params.append(task_id)
+    if reviewer_slot is None:
+        clauses.append("reviewer_slot IS NULL")
+    else:
+        clauses.append("reviewer_slot = ?")
+        params.append(reviewer_slot)
+    row = conn.execute(
+        f"SELECT * FROM agent_runs WHERE {' AND '.join(clauses)} ORDER BY created_at ASC LIMIT 1",
+        params,
+    ).fetchone()
+    return agent_run_from_row(row) if row else None
+
+
+def ensure_agent_run(
+    conn,
+    *,
+    command: CommandRecord,
+    role_name: str,
+    capability: str,
+    runtime: RuntimeBackend,
+    model: str,
+    run_kind: AgentRunKind,
+    title: str,
+    resume_stage: CommandStage,
+    approval_required: bool,
+    task_id: Optional[str] = None,
+    reviewer_slot: Optional[int] = None,
+    prompt_excerpt: Optional[str] = None,
+) -> AgentRunRecord:
+    existing = _find_active_agent_run(
+        conn,
+        command_id=command.id,
+        run_kind=run_kind,
+        task_id=task_id,
+        reviewer_slot=reviewer_slot,
+    )
+    if existing is not None:
+        return existing
+    return create_agent_run_record(
+        conn,
+        command_id=command.id,
+        role_name=role_name,
+        capability=capability,
+        runtime=runtime,
+        model=model,
+        run_kind=run_kind,
+        title=title,
+        resume_stage=resume_stage,
+        state=AgentRunState.PENDING_APPROVAL if approval_required else AgentRunState.RUNNING,
+        approval_required=approval_required,
+        task_id=task_id,
+        reviewer_slot=reviewer_slot,
+        prompt_excerpt=prompt_excerpt,
+    )
+
+
+def mark_agent_run_running(conn, agent_run_id: str) -> AgentRunRecord:
+    now = utc_now()
+    update_agent_run(
+        conn,
+        agent_run_id,
+        state=AgentRunState.RUNNING.value,
+        started_at=now,
+        error=None,
+    )
+    append_event(conn, "agent_run", agent_run_id, "agent_run_started", {})
+    return get_agent_run_by_id(conn, agent_run_id)
+
+
+def mark_agent_run_finished(
+    conn,
+    agent_run_id: str,
+    *,
+    state: AgentRunState,
+    output_summary: Optional[str] = None,
+    error: Optional[str] = None,
+) -> AgentRunRecord:
+    update_agent_run(
+        conn,
+        agent_run_id,
+        state=state.value,
+        output_summary=output_summary,
+        error=error,
+        finished_at=utc_now(),
+    )
+    append_event(
+        conn,
+        "agent_run",
+        agent_run_id,
+        "agent_run_finished",
+        {"state": state.value, "error": error, "output_summary": output_summary},
+    )
+    return get_agent_run_by_id(conn, agent_run_id)
+
+
+def list_pending_agent_runs_for_command(conn, command_id: str) -> List[AgentRunRecord]:
+    rows = conn.execute(
+        """
+        SELECT * FROM agent_runs
+        WHERE command_id = ? AND state = ?
+        ORDER BY created_at ASC
+        """,
+        (command_id, AgentRunState.PENDING_APPROVAL.value),
+    ).fetchall()
+    return [agent_run_from_row(row) for row in rows]
+
+
+def list_approved_agent_runs_for_command(conn, command_id: str) -> List[AgentRunRecord]:
+    rows = conn.execute(
+        """
+        SELECT * FROM agent_runs
+        WHERE command_id = ? AND state = ?
+        ORDER BY created_at ASC
+        """,
+        (command_id, AgentRunState.APPROVED.value),
+    ).fetchall()
+    return [agent_run_from_row(row) for row in rows]
 
 
 def dependency_map_for_command(conn, command_id: str) -> Dict[str, List[str]]:
@@ -371,6 +623,13 @@ def build_context_payload(
     if task is not None:
         payload["task"] = task.model_dump(mode="json")
     return payload
+
+
+def prompt_excerpt(prompt: str, limit: int = 240) -> str:
+    compact = " ".join(prompt.strip().split())
+    if len(compact) <= limit:
+        return compact
+    return compact[: limit - 1] + "…"
 
 
 class BackendInterface:
@@ -697,12 +956,14 @@ class StructuredCliBackend(BackendInterface):
         self,
         backend: RuntimeBackend,
         model: str,
-        danger: bool,
+        auto_approve_agent_actions: bool,
+        timeout_seconds: int,
         runtime_home: Path | None = None,
     ):
         self.backend = backend
         self.model = model
-        self.danger = danger
+        self.auto_approve_agent_actions = auto_approve_agent_actions
+        self.timeout_seconds = timeout_seconds
         self.runtime_home = runtime_home
 
     def plan(
@@ -802,7 +1063,7 @@ class StructuredCliBackend(BackendInterface):
             ]
             if self.model:
                 command.extend(["--model", self.model])
-            if self.danger:
+            if self.auto_approve_agent_actions:
                 command.append("--dangerously-bypass-approvals-and-sandbox")
             else:
                 command.append("--full-auto")
@@ -816,12 +1077,17 @@ class StructuredCliBackend(BackendInterface):
                 text=True,
                 capture_output=True,
                 check=False,
+                timeout=self.timeout_seconds,
             )
             if result.returncode != 0:
                 raise RuntimeError(
                     result.stderr.strip() or result.stdout.strip() or "codex exec failed"
                 )
             return json.loads(Path(output_path).read_text())
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"codex timed out after {self.timeout_seconds}s while waiting for a structured response."
+            ) from exc
         finally:
             Path(schema_path).unlink(missing_ok=True)
             Path(output_path).unlink(missing_ok=True)
@@ -835,26 +1101,32 @@ class StructuredCliBackend(BackendInterface):
         ]
         if self.model:
             command.extend(["--model", self.model])
-        if self.danger:
+        if self.auto_approve_agent_actions:
             command.append("--dangerously-skip-permissions")
         else:
-            command.extend(["--permission-mode", "acceptEdits"])
+            command.extend(["--permission-mode", "default"])
         command.append(prompt)
         env = self._build_runtime_env()
 
-        result = subprocess.run(
-            command,
-            cwd=str(workspace_root),
-            env=env,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(
-                result.stderr.strip() or result.stdout.strip() or "claude print failed"
+        try:
+            result = subprocess.run(
+                command,
+                cwd=str(workspace_root),
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=self.timeout_seconds,
             )
-        return json.loads(result.stdout)
+            if result.returncode != 0:
+                raise RuntimeError(
+                    result.stderr.strip() or result.stdout.strip() or "claude print failed"
+                )
+            return json.loads(result.stdout)
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"claude timed out after {self.timeout_seconds}s while waiting for a structured response."
+            ) from exc
 
     def _build_runtime_env(self) -> dict[str, str]:
         env = dict(os.environ)
@@ -864,15 +1136,27 @@ class StructuredCliBackend(BackendInterface):
         return env
 
 
-def backend_for(command: CommandRecord, settings: AppConfig, capability: str) -> BackendInterface:
+def execution_profile(
+    command: CommandRecord, settings: AppConfig, capability: str
+) -> Tuple[str, RuntimeBackend, str]:
     role = settings.role_for(capability)
     runtime = role.runtime if command.backend == RuntimeBackend.INHERIT else command.backend
+    return role.name, runtime, role.model
+
+
+def approval_required_for_runtime(settings: AppConfig, runtime: RuntimeBackend) -> bool:
+    return runtime != RuntimeBackend.MOCK and not settings.auto_approve_agent_actions
+
+
+def backend_for(command: CommandRecord, settings: AppConfig, capability: str) -> BackendInterface:
+    _, runtime, model = execution_profile(command, settings, capability)
     if runtime == RuntimeBackend.MOCK:
         return MockBackend()
     return StructuredCliBackend(
         runtime,
-        role.model,
-        settings.danger,
+        model,
+        settings.auto_approve_agent_actions,
+        settings.agent_timeout_seconds,
         runtime_home=settings.runtime_home,
     )
 
@@ -1265,6 +1549,8 @@ def append_instruction(
         if command_row is None:
             raise ValueError(f"Unknown command: {command_id}")
         command = command_from_row(command_row)
+        if command.stage in {CommandStage.DONE, CommandStage.FAILED}:
+            raise ValueError(f"Cannot append instructions to a terminal command: {command_id}")
         instruction = create_instruction_record(conn, command.id, instruction_body)
 
         if command.stage == CommandStage.WAITING_QUESTION:
@@ -1290,7 +1576,44 @@ def append_instruction(
                     fields["answer"] = "[superseded by appended instruction]"
                 update_question(conn, question.id, **fields)
 
-        if command.stage in {CommandStage.RUNNING, CommandStage.VERIFYING}:
+        if command.stage == CommandStage.WAITING_APPROVAL:
+            conn.execute(
+                """
+                UPDATE agent_runs
+                SET state = ?, error = ?, finished_at = ?, updated_at = ?
+                WHERE command_id = ? AND state IN (?, ?)
+                """,
+                (
+                    AgentRunState.DENIED.value,
+                    "Superseded by appended instruction.",
+                    utc_now(),
+                    utc_now(),
+                    command.id,
+                    AgentRunState.PENDING_APPROVAL.value,
+                    AgentRunState.APPROVED.value,
+                ),
+            )
+            update_command(
+                conn,
+                command.id,
+                stage=CommandStage.REPLANNING.value,
+                question_state="none",
+                replan_requested=0,
+                final_response=None,
+                failure_reason=None,
+            )
+            append_event(
+                conn,
+                "command",
+                command.id,
+                "replanning_requested",
+                {
+                    "source": "instruction_append",
+                    "mode": "supersede_pending_approval",
+                    "instruction_id": instruction.id,
+                },
+            )
+        elif command.stage in {CommandStage.RUNNING, CommandStage.VERIFYING}:
             update_command(
                 conn,
                 command.id,
@@ -1450,6 +1773,18 @@ def answered_question_ready(conn, command_id: str) -> bool:
     return row is not None
 
 
+def approved_agent_run_ready(conn, command_id: str) -> bool:
+    row = conn.execute(
+        """
+        SELECT 1 FROM agent_runs
+        WHERE command_id = ? AND state = ?
+        LIMIT 1
+        """,
+        (command_id, AgentRunState.APPROVED.value),
+    ).fetchone()
+    return row is not None
+
+
 def select_actionable_command(conn, command_id: Optional[str]) -> Optional[CommandRecord]:
     if command_id:
         row = conn.execute("SELECT * FROM commands WHERE id = ?", (command_id,)).fetchone()
@@ -1466,6 +1801,10 @@ def select_actionable_command(conn, command_id: Optional[str]) -> Optional[Comma
             conn, command.id
         ):
             continue
+        if command.stage == CommandStage.WAITING_APPROVAL and not approved_agent_run_ready(
+            conn, command.id
+        ):
+            continue
         actionable.append(command)
     if not actionable:
         return None
@@ -1477,6 +1816,109 @@ def select_actionable_command(conn, command_id: Optional[str]) -> Optional[Comma
         )
     )
     return actionable[0]
+
+
+def request_agent_approval(
+    conn,
+    command: CommandRecord,
+    agent_run: AgentRunRecord,
+    note: str,
+) -> TickOutcome:
+    update_command(conn, command.id, stage=CommandStage.WAITING_APPROVAL.value)
+    append_event(
+        conn,
+        "command",
+        command.id,
+        "agent_approval_requested",
+        {
+            "agent_run_id": agent_run.id,
+            "run_kind": agent_run.run_kind.value,
+            "role_name": agent_run.role_name,
+            "title": agent_run.title,
+        },
+    )
+    row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
+    return TickOutcome(
+        action="approval_required",
+        command=command_from_row(row),
+        note=note,
+    )
+
+
+def approve_agent_run(db_path: Path, agent_run_id: str) -> AgentRunRecord:
+    initialize_database(db_path)
+    with connect(db_path) as conn:
+        agent_run = get_agent_run_by_id(conn, agent_run_id)
+        if agent_run is None:
+            raise ValueError(f"Unknown agent run: {agent_run_id}")
+        if agent_run.state != AgentRunState.PENDING_APPROVAL:
+            raise ValueError(f"Agent run is not pending approval: {agent_run_id}")
+
+        update_agent_run(conn, agent_run.id, state=AgentRunState.APPROVED.value, error=None)
+        update_command(conn, agent_run.command_id, stage=agent_run.resume_stage.value)
+        append_event(
+            conn,
+            "agent_run",
+            agent_run.id,
+            "agent_run_approved",
+            {"command_id": agent_run.command_id, "resume_stage": agent_run.resume_stage.value},
+        )
+        append_event(
+            conn,
+            "command",
+            agent_run.command_id,
+            "agent_approval_resolved",
+            {"agent_run_id": agent_run.id, "decision": "approved"},
+        )
+        conn.commit()
+        refreshed = get_agent_run_by_id(conn, agent_run.id)
+        assert refreshed is not None
+        return refreshed
+
+
+def deny_agent_run(
+    db_path: Path, agent_run_id: str, reason: Optional[str] = None
+) -> AgentRunRecord:
+    initialize_database(db_path)
+    denial_reason = (reason or "").strip() or "Operator denied the requested agent action."
+    with connect(db_path) as conn:
+        agent_run = get_agent_run_by_id(conn, agent_run_id)
+        if agent_run is None:
+            raise ValueError(f"Unknown agent run: {agent_run_id}")
+        if agent_run.state != AgentRunState.PENDING_APPROVAL:
+            raise ValueError(f"Agent run is not pending approval: {agent_run_id}")
+
+        update_agent_run(
+            conn,
+            agent_run.id,
+            state=AgentRunState.DENIED.value,
+            error=denial_reason,
+            finished_at=utc_now(),
+        )
+        update_command(
+            conn,
+            agent_run.command_id,
+            stage=CommandStage.FAILED.value,
+            failure_reason=denial_reason,
+        )
+        append_event(
+            conn,
+            "agent_run",
+            agent_run.id,
+            "agent_run_denied",
+            {"command_id": agent_run.command_id, "reason": denial_reason},
+        )
+        append_event(
+            conn,
+            "command",
+            agent_run.command_id,
+            "agent_approval_resolved",
+            {"agent_run_id": agent_run.id, "decision": "denied", "reason": denial_reason},
+        )
+        conn.commit()
+        refreshed = get_agent_run_by_id(conn, agent_run.id)
+        assert refreshed is not None
+        return refreshed
 
 
 def reduce_queued(conn, command: CommandRecord) -> TickOutcome:
@@ -1497,11 +1939,35 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
     questions = list_questions_for_command(conn, command.id)
     reviews = list_reviews_for_command(conn, command.id)
     instructions = list_instructions_for_command(conn, command.id)
+    role_name, runtime, model = execution_profile(command, settings, "planner")
+    agent_run = ensure_agent_run(
+        conn,
+        command=command,
+        role_name=role_name,
+        capability="planner",
+        runtime=runtime,
+        model=model,
+        run_kind=AgentRunKind.PLANNER,
+        title="Plan the next workflow step",
+        resume_stage=command.stage,
+        approval_required=approval_required_for_runtime(settings, runtime),
+        prompt_excerpt=prompt_excerpt(command.goal),
+    )
+    if agent_run.state == AgentRunState.PENDING_APPROVAL:
+        return request_agent_approval(conn, command, agent_run, note="waiting for planner approval")
+    if agent_run.state == AgentRunState.APPROVED:
+        agent_run = mark_agent_run_running(conn, agent_run.id)
     backend = backend_for(command, settings, "planner")
 
     try:
         output = backend.plan(command, tasks, questions, reviews, instructions)
     except Exception as exc:
+        mark_agent_run_finished(
+            conn,
+            agent_run.id,
+            state=AgentRunState.FAILED,
+            error=str(exc),
+        )
         update_command(
             conn,
             command.id,
@@ -1514,6 +1980,13 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
         append_event(conn, "command", command.id, "planning_failed", {"error": str(exc)})
         row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
         return TickOutcome(action="planning_failed", command=command_from_row(row), note=str(exc))
+
+    mark_agent_run_finished(
+        conn,
+        agent_run.id,
+        state=AgentRunState.COMPLETED,
+        output_summary=output.decision.value,
+    )
 
     next_run_count = command.run_count + 1
     next_planning_attempts = command.planning_attempts + 1
@@ -1927,9 +2400,71 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
             action="command_completed", command=command_from_row(row), note="all tasks completed"
         )
 
+    precreated_runs: Dict[str, AgentRunRecord] = {}
+    approval_task = next(
+        (
+            task
+            for task in batch
+            if approval_required_for_runtime(
+                settings, execution_profile(command, settings, task.capability)[1]
+            )
+        ),
+        None,
+    )
+    if approval_task is not None:
+        role_name, runtime, model = execution_profile(command, settings, approval_task.capability)
+        agent_run = ensure_agent_run(
+            conn,
+            command=command,
+            role_name=role_name,
+            capability=approval_task.capability,
+            runtime=runtime,
+            model=model,
+            run_kind=AgentRunKind.TASK,
+            title=approval_task.title,
+            resume_stage=CommandStage.RUNNING,
+            approval_required=True,
+            task_id=approval_task.id,
+            prompt_excerpt=prompt_excerpt(approval_task.description),
+        )
+        if agent_run.state == AgentRunState.PENDING_APPROVAL:
+            return request_agent_approval(
+                conn,
+                command,
+                agent_run,
+                note=f"waiting for approval to run '{approval_task.title}'",
+            )
+        if agent_run.state == AgentRunState.APPROVED:
+            agent_run = mark_agent_run_running(conn, agent_run.id)
+        batch = [approval_task]
+        precreated_runs[approval_task.id] = agent_run
+
+    agent_run_map: Dict[str, AgentRunRecord] = {}
     for task in batch:
+        agent_run = precreated_runs.get(task.id)
+        if agent_run is None:
+            role_name, runtime, model = execution_profile(command, settings, task.capability)
+            agent_run = ensure_agent_run(
+                conn,
+                command=command,
+                role_name=role_name,
+                capability=task.capability,
+                runtime=runtime,
+                model=model,
+                run_kind=AgentRunKind.TASK,
+                title=task.title,
+                resume_stage=CommandStage.RUNNING,
+                approval_required=False,
+                task_id=task.id,
+                prompt_excerpt=prompt_excerpt(task.description),
+            )
+        agent_run_map[task.id] = agent_run
         update_task(
-            conn, task.id, state=TaskState.RUNNING.value, attempt_count=task.attempt_count + 1
+            conn,
+            task.id,
+            state=TaskState.RUNNING.value,
+            attempt_count=task.attempt_count + 1,
+            assigned_run_id=agent_run.id,
         )
         append_event(conn, "task", task.id, "task_started", {"command_id": command.id})
 
@@ -1948,6 +2483,7 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
     failed_any = False
     for task in active_batch:
         output, error = results[task.id]
+        agent_run = agent_run_map[task.id]
         if error is not None:
             update_task(
                 conn,
@@ -1956,6 +2492,7 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
                 error=error,
                 output_payload=json.dumps({"error": error}, sort_keys=True),
             )
+            mark_agent_run_finished(conn, agent_run.id, state=AgentRunState.FAILED, error=error)
             append_event(
                 conn, "task", task.id, "task_failed", {"command_id": command.id, "error": error}
             )
@@ -1970,6 +2507,12 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
                 state=TaskState.DONE.value,
                 output_payload=json.dumps(result_payload, sort_keys=True),
                 error=None,
+            )
+            mark_agent_run_finished(
+                conn,
+                agent_run.id,
+                state=AgentRunState.COMPLETED,
+                output_summary=output.summary or task.title,
             )
             append_event(
                 conn,
@@ -1991,6 +2534,12 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
                 else TaskState.CANCELED
             )
             update_task(conn, task.id, state=task_state.value, error=None)
+            mark_agent_run_finished(
+                conn,
+                agent_run.id,
+                state=AgentRunState.COMPLETED,
+                output_summary=output.question or "question requested",
+            )
             question = create_question_record(
                 conn,
                 command=command,
@@ -2016,6 +2565,12 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
                 state=TaskState.FAILED.value,
                 error=failure_reason,
                 output_payload=json.dumps({"error": failure_reason}, sort_keys=True),
+            )
+            mark_agent_run_finished(
+                conn,
+                agent_run.id,
+                state=AgentRunState.FAILED,
+                error=failure_reason,
             )
             append_event(
                 conn,
@@ -2111,8 +2666,10 @@ def run_review_batch(
     reviews: List[ReviewRecord],
     instructions: List[InstructionRecord],
     settings: AppConfig,
+    slots: Optional[List[int]] = None,
 ) -> List[Tuple[int, ReviewerOutput]]:
     reviewer_count = settings.role_for("reviewer").count
+    active_slots = slots or list(range(1, reviewer_count + 1))
 
     def run_single(slot: int) -> Tuple[int, ReviewerOutput]:
         backend = backend_for(command, settings, "reviewer")
@@ -2130,8 +2687,8 @@ def run_review_batch(
             )
 
     outputs: List[Tuple[int, ReviewerOutput]] = []
-    with ThreadPoolExecutor(max_workers=reviewer_count) as executor:
-        futures = [executor.submit(run_single, slot) for slot in range(1, reviewer_count + 1)]
+    with ThreadPoolExecutor(max_workers=max(len(active_slots), 1)) as executor:
+        futures = [executor.submit(run_single, slot) for slot in active_slots]
         for future in as_completed(futures):
             outputs.append(future.result())
     outputs.sort(key=lambda item: item[0])
@@ -2164,7 +2721,51 @@ def reduce_verifying(conn, command: CommandRecord, settings: AppConfig) -> TickO
     questions = list_questions_for_command(conn, command.id)
     previous_reviews = list_reviews_for_command(conn, command.id)
     instructions = list_instructions_for_command(conn, command.id)
-    outputs = run_review_batch(command, tasks, questions, previous_reviews, instructions, settings)
+    reviewer_count = settings.role_for("reviewer").count
+    slot_run_map: Dict[int, AgentRunRecord] = {}
+    for slot in range(1, reviewer_count + 1):
+        role_name, runtime, model = execution_profile(command, settings, "reviewer")
+        agent_run = ensure_agent_run(
+            conn,
+            command=command,
+            role_name=role_name,
+            capability="reviewer",
+            runtime=runtime,
+            model=model,
+            run_kind=AgentRunKind.REVIEW,
+            title=f"Final review slot {slot}",
+            resume_stage=CommandStage.VERIFYING,
+            approval_required=approval_required_for_runtime(settings, runtime),
+            reviewer_slot=slot,
+            prompt_excerpt=prompt_excerpt(command.goal),
+        )
+        slot_run_map[slot] = agent_run
+
+    pending_runs = [
+        run for run in slot_run_map.values() if run.state == AgentRunState.PENDING_APPROVAL
+    ]
+    if pending_runs:
+        return request_agent_approval(
+            conn,
+            command,
+            pending_runs[0],
+            note=f"waiting for approval to run reviewer #{pending_runs[0].reviewer_slot}",
+        )
+
+    if any(run.state == AgentRunState.APPROVED for run in slot_run_map.values()):
+        for slot, agent_run in list(slot_run_map.items()):
+            if agent_run.state == AgentRunState.APPROVED:
+                slot_run_map[slot] = mark_agent_run_running(conn, agent_run.id)
+
+    outputs = run_review_batch(
+        command,
+        tasks,
+        questions,
+        previous_reviews,
+        instructions,
+        settings,
+        slots=list(slot_run_map.keys()),
+    )
 
     reviewer_kind = (
         command.backend.value
@@ -2176,6 +2777,24 @@ def reduce_verifying(conn, command: CommandRecord, settings: AppConfig) -> TickO
         for slot, output in outputs
     ]
     next_run_count = command.run_count + len(outputs)
+
+    review_map = {review.reviewer_slot: review for review in created_reviews}
+    for slot, output in outputs:
+        agent_run = slot_run_map[slot]
+        if output.decision == ReviewDecision.FAIL:
+            mark_agent_run_finished(
+                conn,
+                agent_run.id,
+                state=AgentRunState.FAILED,
+                error=output.failure_reason or output.summary,
+            )
+        else:
+            mark_agent_run_finished(
+                conn,
+                agent_run.id,
+                state=AgentRunState.COMPLETED,
+                output_summary=review_map[slot].summary,
+            )
 
     if any(review.decision == ReviewDecision.FAIL for review in created_reviews):
         failure_reason = next(
@@ -2276,6 +2895,12 @@ def tick_once(
             outcome = reduce_planning(conn, command, settings)
         elif command.stage == CommandStage.RUNNING:
             outcome = reduce_running(conn, command, settings)
+        elif command.stage == CommandStage.WAITING_APPROVAL:
+            outcome = TickOutcome(
+                action="blocked",
+                command=command,
+                note="waiting for operator approval",
+            )
         elif command.stage == CommandStage.WAITING_QUESTION:
             outcome = reduce_waiting_question(conn, command)
         elif command.stage == CommandStage.VERIFYING:

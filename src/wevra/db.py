@@ -105,12 +105,37 @@ CREATE TABLE IF NOT EXISTS events (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS agent_runs (
+    id TEXT PRIMARY KEY,
+    command_id TEXT NOT NULL REFERENCES commands(id) ON DELETE CASCADE,
+    task_id TEXT,
+    reviewer_slot INTEGER,
+    role_name TEXT NOT NULL,
+    capability TEXT NOT NULL,
+    runtime TEXT NOT NULL,
+    model TEXT NOT NULL DEFAULT '',
+    run_kind TEXT NOT NULL,
+    title TEXT NOT NULL,
+    resume_stage TEXT NOT NULL DEFAULT 'running',
+    state TEXT NOT NULL,
+    approval_required INTEGER NOT NULL DEFAULT 0,
+    prompt_excerpt TEXT,
+    output_summary TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT,
+    updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_tasks_command_state ON tasks(command_id, state);
 CREATE INDEX IF NOT EXISTS idx_tasks_command_key ON tasks(command_id, task_key);
 CREATE INDEX IF NOT EXISTS idx_questions_command_state ON questions(command_id, state);
 CREATE INDEX IF NOT EXISTS idx_reviews_command ON reviews(command_id);
 CREATE INDEX IF NOT EXISTS idx_instructions_command ON instructions(command_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_events_stream ON events(stream_type, stream_id, id);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_command ON agent_runs(command_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_state ON agent_runs(state, created_at);
 """
 
 
@@ -162,5 +187,32 @@ def initialize_database(db_path: Path) -> Path:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_runs (
+                id TEXT PRIMARY KEY,
+                command_id TEXT NOT NULL REFERENCES commands(id) ON DELETE CASCADE,
+                task_id TEXT,
+                reviewer_slot INTEGER,
+                role_name TEXT NOT NULL,
+                capability TEXT NOT NULL,
+                runtime TEXT NOT NULL,
+                model TEXT NOT NULL DEFAULT '',
+                run_kind TEXT NOT NULL,
+                title TEXT NOT NULL,
+                resume_stage TEXT NOT NULL DEFAULT 'running',
+                state TEXT NOT NULL,
+                approval_required INTEGER NOT NULL DEFAULT 0,
+                prompt_excerpt TEXT,
+                output_summary TEXT,
+                error TEXT,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                finished_at TEXT,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        ensure_column(conn, "agent_runs", "resume_stage", "TEXT NOT NULL DEFAULT 'running'")
         conn.commit()
     return db_path

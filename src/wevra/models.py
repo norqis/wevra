@@ -31,6 +31,7 @@ class CommandStage(str, Enum):
     QUEUED = "queued"
     PLANNING = "planning"
     RUNNING = "running"
+    WAITING_APPROVAL = "waiting_approval"
     WAITING_QUESTION = "waiting_question"
     VERIFYING = "verifying"
     REPLANNING = "replanning"
@@ -62,6 +63,21 @@ class ReviewDecision(str, Enum):
     APPROVE = "approve"
     REQUEST_CHANGES = "request_changes"
     FAIL = "fail"
+
+
+class AgentRunState(str, Enum):
+    PENDING_APPROVAL = "pending_approval"
+    APPROVED = "approved"
+    DENIED = "denied"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class AgentRunKind(str, Enum):
+    PLANNER = "planner"
+    TASK = "task"
+    REVIEW = "review"
 
 
 class PlannerDecision(str, Enum):
@@ -149,6 +165,29 @@ class InstructionRecord(BaseModel):
     command_id: str
     body: str
     created_at: str
+
+
+class AgentRunRecord(BaseModel):
+    id: str
+    command_id: str
+    task_id: Optional[str] = None
+    reviewer_slot: Optional[int] = None
+    role_name: str
+    capability: str
+    runtime: RuntimeBackend
+    model: str = ""
+    run_kind: AgentRunKind
+    title: str
+    resume_stage: CommandStage
+    state: AgentRunState
+    approval_required: bool = False
+    prompt_excerpt: Optional[str] = None
+    output_summary: Optional[str] = None
+    error: Optional[str] = None
+    created_at: str
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    updated_at: str
 
 
 class EventRecord(BaseModel):

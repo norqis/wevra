@@ -140,6 +140,21 @@
       max-width: 420px;
     }
 
+    .hero-owner {
+      display: inline-flex;
+      align-items: center;
+      min-height: 40px;
+      padding: 0 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(124, 156, 255, 0.22);
+      background: rgba(124, 156, 255, 0.10);
+      color: #d8e4ff;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+
     .live-indicator {
       display: inline-flex;
       align-items: center;
@@ -800,6 +815,52 @@
       margin-top: 4px;
     }
 
+    .agent-batch-bar {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .agent-batch-group {
+      border: 1px solid rgba(151, 176, 214, 0.14);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.03);
+      padding: 10px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .agent-batch-copy {
+      display: grid;
+      gap: 4px;
+    }
+
+    .agent-batch-copy strong {
+      font-size: 12px;
+    }
+
+    .agent-batch-copy span {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .agent-batch-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .agent-batch-actions button {
+      min-height: 36px;
+      border-radius: 12px;
+      padding: 0 14px;
+      font-size: 12px;
+    }
+
     .agent-actions button {
       min-height: 36px;
       border-radius: 12px;
@@ -948,6 +1009,7 @@
                 <option value="ja">Japanese</option>
               </select>
               <div class="live-indicator" id="liveIndicator">Live</div>
+              <div class="hero-owner" id="engineOwnerBadge">Dashboard Loop</div>
               <button class="secondary" id="refreshBtn">Refresh</button>
             </div>
             <div class="hero-status" id="statusLine">Loading snapshot…</div>
@@ -1088,11 +1150,15 @@
   <script>
     const state = {
       snapshot: null,
+      summarySnapshot: null,
+      detailSnapshot: null,
       selectedCommandId: null,
       modalCommandId: null,
       currentTab: 'overview',
       localeOverride: new URLSearchParams(window.location.search).get('lang'),
       lastChecksum: null,
+      lastSummaryChecksum: null,
+      lastDetailChecksum: null,
       refreshInFlight: false,
       submitting: false,
       appending: false,
@@ -1111,6 +1177,7 @@
     const questionHistoryListEl = document.getElementById('questionHistoryList');
     const commandDetailEl = document.getElementById('commandDetail');
     const statusLineEl = document.getElementById('statusLine');
+    const engineOwnerBadgeEl = document.getElementById('engineOwnerBadge');
     const questionAlertEl = document.getElementById('questionAlert');
     const questionAlertBodyEl = document.getElementById('questionAlertBody');
     const resultModalEl = document.getElementById('resultModal');
@@ -1150,6 +1217,7 @@
         closeAppendBtn: 'Close',
         languageLabel: 'Language',
         liveIndicator: 'LIVE',
+        engineOwnerBadge: 'Dashboard Loop',
         goalLabel: 'Request',
         workflowLabel: 'Workflow',
         priorityLabelText: 'Priority',
@@ -1188,12 +1256,19 @@
         dependsOn: 'depends_on',
         writeFiles: 'write_files',
         updated: 'Updated',
+        listeningLocal: 'Local only',
+        listeningNetwork: 'Network access enabled',
         submitting: 'Starting request…',
         appending: 'Appending instruction to',
         answering: 'Answering',
         reviewerLabel: 'reviewer',
         approvalNeeded: 'Approval Required',
         approvalHelp: 'This request is waiting for an operator decision before the selected agent can continue.',
+        batchApprovalHeading: 'Batch Approval',
+        batchApprovalHelp: 'Allow all pending runs for this request, or approve one role at a time.',
+        allowAllPending: 'Allow All Pending',
+        allowAllRole: 'Allow All {role}',
+        pendingApprovalsCount: '{count} pending approvals',
         allow: 'Allow',
         deny: 'Deny',
         agentKind: 'Kind',
@@ -1229,6 +1304,7 @@
         closeAppendBtn: '閉じる',
         languageLabel: '言語',
         liveIndicator: 'LIVE',
+        engineOwnerBadge: 'ダッシュボード自動進行',
         goalLabel: '依頼内容',
         workflowLabel: '進め方',
         priorityLabelText: '優先度',
@@ -1267,12 +1343,19 @@
         dependsOn: '依存',
         writeFiles: '書き込み対象',
         updated: '更新日時',
+        listeningLocal: 'ローカルのみ',
+        listeningNetwork: '外部アクセス可',
         submitting: '依頼を投入中…',
         appending: '追加指示を送信中',
         answering: '回答中',
         reviewerLabel: 'レビュアー',
         approvalNeeded: '承認待ち',
         approvalHelp: '選択中の依頼は、該当エージェントの実行を許可するまで停止しています。',
+        batchApprovalHeading: 'まとめて許可',
+        batchApprovalHelp: 'この依頼の承認待ちを、依頼単位または役割単位でまとめて許可できます。',
+        allowAllPending: 'この依頼をまとめて許可',
+        allowAllRole: '{role} をまとめて許可',
+        pendingApprovalsCount: '承認待ち {count} 件',
         allow: '許可',
         deny: '拒否',
         agentKind: '種別',
@@ -1423,6 +1506,9 @@
     };
 
     const EVENT_LABELS = {
+      en: {
+        agent_approval_batch_resolved: 'Batch Approval',
+      },
       ja: {
         command_submitted: 'コマンド投入',
         planning_started: '計画開始',
@@ -1449,6 +1535,7 @@
         agent_run_finished: 'エージェント実行完了',
         agent_run_approved: 'エージェント実行許可',
         agent_run_denied: 'エージェント実行拒否',
+        agent_approval_batch_resolved: 'まとめて許可',
         instruction_append: '追加指示',
         instruction_appended: '追加指示',
         replanning_requested: '再計画要求',
@@ -1491,6 +1578,12 @@
       return labels[locale]?.[value] || value;
     }
 
+    function formatText(template, values = {}) {
+      return Object.entries(values).reduce((result, [key, value]) => {
+        return result.replaceAll(`{${key}}`, String(value));
+      }, template);
+    }
+
     function modeLabel(value) {
       return localizeValue(MODE_LABELS, value);
     }
@@ -1529,6 +1622,11 @@
 
     function capabilityLabel(value) {
       return localizeValue(CAPABILITY_LABELS, value);
+    }
+
+    function engineOwnerLabel(value) {
+      if (value === 'dashboard_background_loop') return t('engineOwnerBadge');
+      return value || t('engineOwnerBadge');
     }
 
     function eventLabel(value) {
@@ -1588,6 +1686,7 @@
       document.getElementById('appendModalSubmit').textContent = t('appendBtn');
       document.getElementById('languageLabel').textContent = t('languageLabel');
       document.getElementById('liveIndicator').textContent = t('liveIndicator');
+      engineOwnerBadgeEl.textContent = engineOwnerLabel(state.summarySnapshot?.runtime?.engine_owner);
       document.getElementById('goalLabel').textContent = t('goalLabel');
       document.getElementById('workflowLabel').textContent = t('workflowLabel');
       document.getElementById('priorityLabelText').textContent = t('priorityLabelText');
@@ -1676,6 +1775,35 @@
       return snapshot.agent_runs.pending.filter((item) => item.command_id === command.id);
     }
 
+    function composeSnapshot(summary, detail) {
+      if (!summary) return null;
+      return {
+        generated_at: summary.generated_at,
+        checksum: `${summary.checksum}:${detail?.checksum || 'none'}`,
+        runtime: summary.runtime,
+        commands: summary.commands,
+        tasks: detail?.tasks || { items: [] },
+        questions: {
+          open: summary.questions?.open || [],
+          items: detail?.questions?.items || [],
+        },
+        reviews: detail?.reviews || { items: [] },
+        agent_runs: {
+          pending: summary.agent_runs?.pending || [],
+          items: detail?.agent_runs?.items || [],
+        },
+        instructions: detail?.instructions || { items: [] },
+        events: detail?.events || [],
+      };
+    }
+
+    function composeStatusLine(summary) {
+      if (!summary) return t('loading');
+      const listen = summary.runtime?.listen || {};
+      const exposure = listen.access_mode === 'network' ? t('listeningNetwork') : t('listeningLocal');
+      return `${t('updated')} ${summary.generated_at} · ${exposure} · ${listen.host}:${listen.port}`;
+    }
+
     function updateBusyState() {
       submitBtnEl.disabled = state.submitting;
       refreshBtnEl.disabled = state.refreshInFlight;
@@ -1725,14 +1853,9 @@
       commandsListEl.querySelectorAll('[data-command-id]').forEach((node) => {
         node.addEventListener('click', () => {
           state.selectedCommandId = node.getAttribute('data-command-id');
-          renderDetail(snapshot);
-          renderTasks(snapshot);
-          renderQuestionAlert(snapshot);
-          renderReviews(snapshot);
-          renderAgentRuns(snapshot);
-          renderInstructions(snapshot);
-          renderQuestionHistory(snapshot);
-          renderEvents(snapshot);
+          state.detailSnapshot = null;
+          render(composeSnapshot(state.summarySnapshot, state.detailSnapshot));
+          void refreshSelectedDetail();
         });
       });
     }
@@ -1850,13 +1973,74 @@
       }
     }
 
+    async function submitAgentBatchDecision(commandId, roleName = '') {
+      if (state.agentDecisionInFlight || !commandId) return;
+      state.agentDecisionInFlight = `batch:${commandId}:${roleName || 'all'}`;
+      if (state.snapshot) {
+        render(state.snapshot);
+      } else {
+        updateBusyState();
+      }
+      statusLineEl.textContent = roleName
+        ? `${t('allow')} ${roleName}…`
+        : `${t('allow')} ${commandId}…`;
+      try {
+        const pendingIds = (state.snapshot?.agent_runs?.pending || [])
+          .filter((item) => item.command_id === commandId)
+          .filter((item) => !roleName || item.role_name === roleName)
+          .map((item) => item.id);
+        for (const agentRunId of pendingIds) {
+          await api('/api/agent-runs/approve', {
+            method: 'POST',
+            body: JSON.stringify({ agent_run_id: agentRunId }),
+          });
+        }
+        await refreshSnapshot({ forceDetail: true });
+      } finally {
+        state.agentDecisionInFlight = null;
+        updateBusyState();
+      }
+    }
+
     function renderAgentRuns(snapshot) {
       const selected = state.selectedCommandId;
+      const pendingApprovals = (snapshot.agent_runs.pending || []).filter((item) => !selected || item.command_id === selected);
+      const batchCommandId = selected || pendingApprovals[0]?.command_id || '';
       const agentRuns = snapshot.agent_runs.items
         .filter((item) => !selected || item.command_id === selected)
         .slice()
         .reverse();
-      agentRunsListEl.innerHTML = agentRuns.map((agentRun) => {
+      const roleBuckets = new Map();
+      pendingApprovals.forEach((item) => {
+        const bucket = roleBuckets.get(item.role_name) || [];
+        bucket.push(item);
+        roleBuckets.set(item.role_name, bucket);
+      });
+      const batchMarkup = pendingApprovals.length ? `
+        <section class="agent-batch-bar">
+          <article class="agent-batch-group">
+            <div class="agent-batch-copy">
+              <strong>${escapeHtml(t('batchApprovalHeading'))}</strong>
+              <span>${escapeHtml(formatText(t('pendingApprovalsCount'), { count: pendingApprovals.length }))}</span>
+            </div>
+            <div class="agent-batch-actions">
+              <button class="primary" data-agent-allow-batch="${escapeHtml(batchCommandId)}" ${state.agentDecisionInFlight ? 'disabled' : ''}>${escapeHtml(t('allowAllPending'))}</button>
+            </div>
+          </article>
+          ${Array.from(roleBuckets.entries()).map(([roleName, items]) => `
+            <article class="agent-batch-group">
+              <div class="agent-batch-copy">
+                <strong>${escapeHtml(roleName)}</strong>
+                <span>${escapeHtml(formatText(t('pendingApprovalsCount'), { count: items.length }))}</span>
+              </div>
+              <div class="agent-batch-actions">
+                <button class="secondary" data-agent-allow-role="${escapeHtml(roleName)}" ${state.agentDecisionInFlight ? 'disabled' : ''}>${escapeHtml(formatText(t('allowAllRole'), { role: roleName }))}</button>
+              </div>
+            </article>
+          `).join('')}
+        </section>
+      ` : '';
+      agentRunsListEl.innerHTML = `${batchMarkup}${agentRuns.map((agentRun) => {
         const pending = agentRun.state === 'pending_approval';
         const busy = state.agentDecisionInFlight === agentRun.id;
         const summary = agentRun.error || agentRun.output_summary || agentRun.prompt_excerpt || '';
@@ -1881,13 +2065,19 @@
             ` : ''}
           </article>
         `;
-      }).join('') || `<div class="meta">${escapeHtml(t('noAgentRuns'))}</div>`;
+      }).join('')}` || `<div class="meta">${escapeHtml(t('noAgentRuns'))}</div>`;
 
       agentRunsListEl.querySelectorAll('[data-agent-allow]').forEach((node) => {
         node.addEventListener('click', () => submitAgentDecision(node.dataset.agentAllow, 'approve'));
       });
       agentRunsListEl.querySelectorAll('[data-agent-deny]').forEach((node) => {
         node.addEventListener('click', () => submitAgentDecision(node.dataset.agentDeny, 'deny'));
+      });
+      agentRunsListEl.querySelectorAll('[data-agent-allow-batch]').forEach((node) => {
+        node.addEventListener('click', () => submitAgentBatchDecision(node.dataset.agentAllowBatch));
+      });
+      agentRunsListEl.querySelectorAll('[data-agent-allow-role]').forEach((node) => {
+        node.addEventListener('click', () => submitAgentBatchDecision(batchCommandId, node.dataset.agentAllowRole));
       });
     }
 
@@ -2026,10 +2216,13 @@
     }
 
     function render(snapshot) {
+      if (!snapshot) return;
       const scrollPositions = captureScrollPositions();
       state.snapshot = snapshot;
       state.lastChecksum = snapshot.checksum;
       applyLocale();
+      state.lastSummaryChecksum = state.summarySnapshot?.checksum || null;
+      state.lastDetailChecksum = state.detailSnapshot?.checksum || null;
       if (!snapshot.commands.items.some((item) => item.id === state.selectedCommandId)) {
         state.selectedCommandId = snapshot.commands.active[0]?.id || snapshot.commands.items[0]?.id || null;
       }
@@ -2045,21 +2238,64 @@
       setWorkspaceTab(state.currentTab);
       restoreScrollPositions(scrollPositions);
       updateBusyState();
-      statusLineEl.textContent = `${t('updated')} ${snapshot.generated_at}`;
+      engineOwnerBadgeEl.textContent = engineOwnerLabel(snapshot.runtime?.engine_owner);
+      engineOwnerBadgeEl.title = snapshot.runtime?.engine_owner || '';
+      statusLineEl.textContent = composeStatusLine(state.summarySnapshot || snapshot);
     }
 
-    async function refreshSnapshot() {
+    async function refreshSelectedDetail() {
       if (state.refreshInFlight) return;
       state.refreshInFlight = true;
       updateBusyState();
       try {
-        const snapshot = await api('/api/snapshot');
-        if (snapshot.checksum === state.lastChecksum && state.snapshot) {
-          state.snapshot = snapshot;
-          statusLineEl.textContent = `${t('updated')} ${snapshot.generated_at}`;
+        const detail = state.selectedCommandId
+          ? await api(`/api/commands/${encodeURIComponent(state.selectedCommandId)}/detail`)
+          : null;
+        if (detail?.checksum === state.lastDetailChecksum && state.snapshot) {
+          state.detailSnapshot = detail;
+          statusLineEl.textContent = composeStatusLine(state.summarySnapshot);
           return;
         }
-        render(snapshot);
+        state.detailSnapshot = detail;
+        render(composeSnapshot(state.summarySnapshot, detail));
+      } finally {
+        state.refreshInFlight = false;
+        updateBusyState();
+      }
+    }
+
+    async function refreshSnapshot(options = {}) {
+      if (state.refreshInFlight) return;
+      const forceDetail = Boolean(options.forceDetail);
+      state.refreshInFlight = true;
+      updateBusyState();
+      try {
+        const summary = await api('/api/snapshot');
+        const nextSelected = summary.commands.items.some((item) => item.id === state.selectedCommandId)
+          ? state.selectedCommandId
+          : summary.commands.active[0]?.id || summary.commands.items[0]?.id || null;
+        const selectedChanged = nextSelected !== state.selectedCommandId;
+        state.selectedCommandId = nextSelected;
+        let detail = null;
+        if (nextSelected) {
+          detail = await api(`/api/commands/${encodeURIComponent(nextSelected)}/detail`);
+        }
+
+        if (
+          summary.checksum === state.lastSummaryChecksum &&
+          (detail?.checksum || null) === (state.lastDetailChecksum || null) &&
+          state.snapshot
+        ) {
+          state.summarySnapshot = summary;
+          state.detailSnapshot = detail;
+          state.snapshot = composeSnapshot(summary, detail);
+          statusLineEl.textContent = composeStatusLine(summary);
+          return;
+        }
+
+        state.summarySnapshot = summary;
+        state.detailSnapshot = detail;
+        render(composeSnapshot(summary, detail));
       } finally {
         state.refreshInFlight = false;
         updateBusyState();

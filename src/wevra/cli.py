@@ -13,6 +13,7 @@ from wevra.db import initialize_database
 from wevra.models import Priority, RuntimeBackend, WorkflowMode
 from wevra.service import (
     approve_agent_run,
+    approve_agent_runs_batch,
     answer_question,
     append_instruction,
     deny_agent_run,
@@ -317,6 +318,27 @@ def approve_agent_run_command(
 ) -> None:
     """Approve a pending agent action."""
     print_json(approve_agent_run(resolve_db_path(db_path), agent_run_id).model_dump(mode="json"))
+
+
+@app.command("approve-agent-runs")
+def approve_agent_runs_command(
+    command_id: str = typer.Argument(..., help="Command identifier."),
+    role: Optional[str] = typer.Option(None, "--role", help="Optional role name to batch approve."),
+    db_path: Optional[Path] = typer.Option(
+        None, help="Optional path to the SQLite runtime database."
+    ),
+) -> None:
+    """Batch-approve pending agent actions for a command."""
+    print_json(
+        {
+            "agent_runs": [
+                agent_run.model_dump(mode="json")
+                for agent_run in approve_agent_runs_batch(
+                    resolve_db_path(db_path), command_id=command_id, role_name=role
+                )
+            ]
+        }
+    )
 
 
 @app.command("deny-agent-run")

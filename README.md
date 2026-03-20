@@ -64,6 +64,7 @@ From the dashboard you can:
 - answer questions when the flow pauses
 - inspect tasks, reviews, agent runs, and final results
 - approve or deny individual agent actions when external runtimes need operator approval
+- approve all pending agent actions for the current request, or approve one role at a time
 - append follow-up instructions to active work
 
 Everything in the dashboard can also be driven from the CLI when you want to script or automate it.
@@ -104,6 +105,7 @@ Inspect or resolve pending agent approvals from the CLI:
 ```bash
 ./wevra agent-runs --command-id <command-id>
 ./wevra approve-agent-run <agent-run-id>
+./wevra approve-agent-runs <command-id> --role implementer
 ./wevra deny-agent-run <agent-run-id> "Do not run external tools for this request."
 ```
 
@@ -114,6 +116,7 @@ Inspect or resolve pending agent approvals from the CLI:
 3. Work runs in order, with safe parallel execution where possible.
 4. If clarification is needed, Wevra pauses and asks the user.
 5. If agent actions require operator approval, Wevra pauses and waits in the `Agents` tab until each run is allowed or denied.
+   You can also approve the whole request, or a whole role such as `implementer`, in one action.
 6. In `implementation` mode, Wevra runs the existing test suite and then the final review pass.
 7. Work is only complete when the final review passes.
 
@@ -146,7 +149,7 @@ Controls runtime, UI, and notification behavior.
 | `runtime.agent_timeout_seconds` | `1800` | Maximum time to wait for a Codex or Claude structured response before failing the run. |
 | `runtime.home` | empty | Optional `HOME` override used when launching external CLIs such as Codex or Claude. |
 | `ui.auto_start` | `true` | Starts the dashboard when `wevra start` runs. |
-| `ui.host` | `127.0.0.1` | Dashboard bind host. |
+| `ui.host` | `127.0.0.1` | Dashboard bind host. Use `127.0.0.1` for local-only access. Use `0.0.0.0` or the machine's LAN IP when you want to reach Wevra from another host, hostname, or FQDN. |
 | `ui.port` | `43861` | Dashboard port. |
 | `ui.open_browser` | `true` | Opens the browser on dashboard start. |
 | `ui.language` | empty | Optional dashboard language override. |
@@ -177,7 +180,9 @@ Supported `runtime` values are `mock`, `codex`, and `claude`.
 
 `mock` is for demos, local development, CI, and flow verification. It does not perform real implementation or review work through Codex or Claude. Before using Wevra for real work, switch roles such as `planner`, `implementer`, and `reviewer` to `codex` or `claude`.
 
-When a role uses `codex` or `claude` and `runtime.auto_approve_agent_actions = false`, Wevra does not leave the inner CLI prompt on screen. Instead, it pauses the workflow and asks for an explicit allow/deny decision in the dashboard `Agents` tab.
+When a role uses `codex` or `claude` and `runtime.auto_approve_agent_actions = false`, Wevra does not leave the inner CLI prompt on screen. Instead, it pauses the workflow and asks for an explicit allow/deny decision in the dashboard `Agents` tab, where you can also allow the whole selected request or one role at a time.
+
+If you want to access the dashboard from outside the machine, `ui.host = 0.0.0.0` is the Wevra-side setting you need. DNS or hosts entries, OS firewall, NAT, and FQDN routing still have to be handled by your network setup.
 
 ### `.env`
 

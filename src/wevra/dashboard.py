@@ -23,6 +23,7 @@ from wevra.models import CommandStage, Priority, RuntimeBackend, WorkflowMode
 from wevra.service import (
     answer_question,
     approve_agent_run,
+    approve_agent_runs_batch,
     append_instruction,
     deny_agent_run,
     list_commands,
@@ -58,8 +59,37 @@ def log_file_for(settings: AppConfig) -> Path:
     return settings.db_path.parent / "dashboard.log"
 
 
+def browser_dashboard_host(settings: AppConfig) -> str:
+    host = settings.ui_host.strip()
+    if host in {"", "0.0.0.0"}:
+        return "127.0.0.1"
+    if host == "::":
+        return "localhost"
+    return host
+
+
 def dashboard_url(settings: AppConfig) -> str:
-    return f"http://{settings.ui_host}:{settings.ui_port}"
+    return f"http://{browser_dashboard_host(settings)}:{settings.ui_port}"
+
+
+def build_runtime_metadata(settings: AppConfig, *, owner: str | None = None) -> dict[str, Any]:
+    access_mode = (
+        "local_only" if settings.ui_host in {"127.0.0.1", "localhost", "::1"} else "network"
+    )
+    return {
+        "db_path": str(settings.db_path),
+        "working_dir": str(settings.working_dir),
+        "language": settings.ui_language or settings.language,
+        "dashboard_url": dashboard_url(settings),
+        "auto_approve_agent_actions": settings.auto_approve_agent_actions,
+        "roles": summarize_roles(settings),
+        "engine_owner": owner or "manual",
+        "listen": {
+            "host": settings.ui_host,
+            "port": settings.ui_port,
+            "access_mode": access_mode,
+        },
+    }
 
 
 def read_static_html() -> str:
@@ -124,14 +154,7 @@ def build_snapshot(repo_root: Path, settings: Optional[AppConfig] = None) -> dic
     payload = {
         "generated_at": iso_now(),
         "repo_root": str(repo_root),
-        "runtime": {
-            "db_path": str(settings.db_path),
-            "working_dir": str(settings.working_dir),
-            "language": settings.ui_language or settings.language,
-            "dashboard_url": dashboard_url(settings),
-            "auto_approve_agent_actions": settings.auto_approve_agent_actions,
-            "roles": summarize_roles(settings),
-        },
+        "runtime": build_runtime_metadata(settings),
         "commands": {
             "counts": command_counts,
             "items": commands,
@@ -161,6 +184,100 @@ def build_snapshot(repo_root: Path, settings: Optional[AppConfig] = None) -> dic
             "count": len(instructions),
             "items": instructions,
         },
+        "events": events,
+    }
+    checksum_payload = dict(payload)
+    checksum_payload.pop("generated_at", None)
+    payload["checksum"] = hashlib.sha256(
+        json.dumps(checksum_payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+def build_summary_snapshot(repo_root: Path, settings: Optional[AppConfig] = None) -> dict[str, Any]:
+    settings = settings or load_config(repo_root)
+    commands = [command.model_dump(mode="json") for command in list_commands(settings.db_path)]
+    open_questions = [
+        question.model_dump(mode="json")
+        for question in list_questions(settings.db_path, open_only=True)
+    ]
+    pending_agent_runs = [
+        agent_run.model_dump(mode="json")
+        for agent_run in list_agent_runs(settings.db_path)
+        if agent_run.state.value == "pending_approval"
+    ]
+
+    command_counts: Dict[str, int] = {}
+    for command in commands:
+        command_counts[command["stage"]] = command_counts.get(command["stage"], 0) + 1
+
+    active_commands = [
+        command
+        for command in commands
+        if command["stage"] not in {CommandStage.DONE.value, CommandStage.FAILED.value}
+    ]
+
+    payload = {
+        "generated_at": iso_now(),
+        "repo_root": str(repo_root),
+        "runtime": build_runtime_metadata(settings, owner="dashboard_background_loop"),
+        "commands": {
+            "counts": command_counts,
+            "items": commands,
+            "active": active_commands,
+        },
+        "questions": {
+            "open": open_questions,
+        },
+        "agent_runs": {
+            "pending": pending_agent_runs,
+        },
+    }
+    checksum_payload = dict(payload)
+    checksum_payload.pop("generated_at", None)
+    payload["checksum"] = hashlib.sha256(
+        json.dumps(checksum_payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+def build_command_detail(
+    repo_root: Path, command_id: str, settings: Optional[AppConfig] = None
+) -> dict[str, Any]:
+    settings = settings or load_config(repo_root)
+    command = next(
+        (item for item in list_commands(settings.db_path) if item.id == command_id),
+        None,
+    )
+    tasks = [task.model_dump(mode="json") for task in list_tasks(settings.db_path, command_id)]
+    questions = [
+        question.model_dump(mode="json")
+        for question in list_questions(settings.db_path, command_id)
+    ]
+    reviews = [
+        review.model_dump(mode="json") for review in list_reviews(settings.db_path, command_id)
+    ]
+    agent_runs = [
+        agent_run.model_dump(mode="json")
+        for agent_run in list_agent_runs(settings.db_path, command_id)
+    ]
+    instructions = [
+        instruction.model_dump(mode="json")
+        for instruction in list_instructions(settings.db_path, command_id)
+    ]
+    events = [event.model_dump(mode="json") for event in list_events(settings.db_path, command_id)][
+        -80:
+    ]
+
+    payload = {
+        "generated_at": iso_now(),
+        "command_id": command_id,
+        "command": command.model_dump(mode="json") if command else None,
+        "tasks": {"items": tasks},
+        "questions": {"items": questions},
+        "reviews": {"items": reviews},
+        "agent_runs": {"items": agent_runs},
+        "instructions": {"items": instructions},
         "events": events,
     }
     checksum_payload = dict(payload)
@@ -219,7 +336,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/snapshot":
             with self.state_lock:
-                self.send_json(HTTPStatus.OK, build_snapshot(self.repo_root, self.settings))
+                self.send_json(HTTPStatus.OK, build_summary_snapshot(self.repo_root, self.settings))
+            return
+        if (
+            parsed.path.startswith("/api/commands/")
+            and parsed.path.endswith("/detail")
+            and len(parsed.path.strip("/").split("/")) == 4
+        ):
+            command_id = parsed.path.strip("/").split("/")[2]
+            with self.state_lock:
+                self.send_json(
+                    HTTPStatus.OK,
+                    build_command_detail(self.repo_root, command_id, self.settings),
+                )
             return
         self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
 
@@ -327,6 +456,29 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_json(
                 HTTPStatus.OK,
                 {"ok": True, "agent_run": approved.model_dump(mode="json")},
+            )
+            return
+
+        if parsed.path == "/api/agent-runs/approve-batch":
+            command_id = str(payload.get("command_id", "")).strip()
+            if not command_id:
+                self.send_json(
+                    HTTPStatus.BAD_REQUEST, {"ok": False, "error": "command_id_required"}
+                )
+                return
+            role_name = str(payload.get("role_name", "")).strip() or None
+            with self.state_lock:
+                approved = approve_agent_runs_batch(
+                    self.settings.db_path,
+                    command_id=command_id,
+                    role_name=role_name,
+                )
+            self.send_json(
+                HTTPStatus.OK,
+                {
+                    "ok": True,
+                    "agent_runs": [agent_run.model_dump(mode="json") for agent_run in approved],
+                },
             )
             return
 

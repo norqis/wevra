@@ -68,6 +68,7 @@ def test_dashboard_browser_submit_and_view_result(tmp_path, monkeypatch):
         page.locator("#submitBtn").click()
 
         expect(page.locator("#commandsList .command-item")).to_have_count(1)
+        expect(page.locator("#engineOwnerBadge")).to_contain_text("Dashboard")
         expect(page.locator("#viewResultBtn")).to_be_enabled()
         expect(page.locator("#openAppendBtn")).to_be_disabled()
 
@@ -194,7 +195,8 @@ def test_dashboard_browser_agents_tab_handles_manual_approval(tmp_path, monkeypa
 
         page.locator("#agentsTab").click()
         expect(page.locator("#agentRunsList")).to_contain_text("Pending Approval")
-        page.locator("[data-agent-allow]").first.click()
+        expect(page.locator("[data-agent-allow-batch]")).to_be_visible()
+        page.locator("[data-agent-allow-batch]").click()
 
         page.locator("#overviewTab").click()
         expect(page.locator("#viewResultBtn")).to_be_enabled()

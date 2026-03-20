@@ -147,7 +147,6 @@ runtime、UI、通知まわりの挙動を設定します。
 | `runtime.agent_timeout_seconds` | `1800` | Codex / Claude の構造化応答を待つ最大秒数です。超えたらその実行を失敗扱いにします。 |
 | `runtime.home` | 空 | Codex や Claude など外部 CLI を起動するときに使う `HOME` の上書きです。 |
 | `ui.auto_start` | `true` | `wevra start` 実行時に dashboard を自動起動します。 |
-| `ui.host` | `127.0.0.1` | dashboard の bind host です。ローカルだけで使うなら `127.0.0.1`、別ホストや hostname / FQDN から入れたいなら `0.0.0.0` またはこの PC の LAN IP を使います。 |
 | `ui.port` | `43861` | dashboard の port です。 |
 | `ui.open_browser` | `true` | dashboard 起動時にブラウザを開きます。 |
 | `ui.language` | 空 | dashboard の言語を明示指定できます。 |
@@ -179,8 +178,6 @@ role ごとに、どの実行先と model を使うかを設定します。
 `mock` は、デモ、ローカル開発、CI、フロー確認のための擬似実行先です。Codex や Claude を使った実際の実装やレビューは行いません。実運用するときは、`planner`、`implementer`、`reviewer` などを `codex` か `claude` に切り替えてから使ってください。
 
 role を `codex` や `claude` にし、`runtime.auto_approve_agent_actions = false` にしている場合、Wevra は各 CLI の確認プロンプトを画面に出しっぱなしにはしません。代わりに dashboard の `エージェント` タブに承認待ちを出し、依頼ごとや role ごとにまとめて許可 / 拒否を判断できるようにします。
-
-dashboard を別ホストや FQDN から開きたい場合、Wevra 側で必要なのは `ui.host = 0.0.0.0` か LAN IP に変えることです。hosts / DNS、OS の firewall、NAT、FortiGate 側の転送設定はネットワーク側で別途用意してください。
 
 ### `.env`
 

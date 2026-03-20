@@ -22,7 +22,6 @@ auto_start = true
 port = 43861
 open_browser = true
 language =
-host = 127.0.0.1
 
 [notification]
 question_opened = false
@@ -94,6 +93,9 @@ CAPABILITY_TO_ROLE = {
 }
 
 
+LOOPBACK_HOST = "127.0.0.1"
+
+
 @dataclass
 class RoleConfig:
     name: str
@@ -112,7 +114,6 @@ class AppConfig:
     auto_approve_agent_actions: bool
     agent_timeout_seconds: int
     ui_port: int
-    ui_host: str
     ui_auto_start: bool
     ui_open_browser: bool
     ui_language: str
@@ -196,13 +197,7 @@ def load_config(repo_root: Path) -> AppConfig:
         repo_root,
     )
     auto_approve_agent_actions = normalize_bool(
-        parser.get(
-            "runtime",
-            "auto_approve_agent_actions",
-            fallback=parser.get(
-                "runtime", "dangerously_bypass_approvals_and_sandbox", fallback="false"
-            ),
-        )
+        parser.get("runtime", "auto_approve_agent_actions", fallback="false")
     )
     agent_timeout_seconds = max(
         parser.getint("runtime", "agent_timeout_seconds", fallback=1800),
@@ -248,7 +243,6 @@ def load_config(repo_root: Path) -> AppConfig:
         auto_approve_agent_actions=auto_approve_agent_actions,
         agent_timeout_seconds=agent_timeout_seconds,
         ui_port=parser.getint("ui", "port", fallback=43861),
-        ui_host=parser.get("ui", "host", fallback="127.0.0.1").strip() or "127.0.0.1",
         ui_auto_start=normalize_bool(parser.get("ui", "auto_start", fallback="true")),
         ui_open_browser=normalize_bool(parser.get("ui", "open_browser", fallback="true")),
         ui_language=parser.get("ui", "language", fallback="").strip(),

@@ -17,8 +17,8 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
-from wevra.config import AppConfig, load_config
-from wevra.db import initialize_database
+from wevra.config import AppConfig, LOOPBACK_HOST, load_config
+from wevra.db import connect, initialize_database
 from wevra.models import CommandStage, Priority, RuntimeBackend, WorkflowMode
 from wevra.service import (
     answer_question,
@@ -59,23 +59,13 @@ def log_file_for(settings: AppConfig) -> Path:
     return settings.db_path.parent / "dashboard.log"
 
 
-def browser_dashboard_host(settings: AppConfig) -> str:
-    host = settings.ui_host.strip()
-    if host in {"", "0.0.0.0"}:
-        return "127.0.0.1"
-    if host == "::":
-        return "localhost"
-    return host
-
-
 def dashboard_url(settings: AppConfig) -> str:
-    return f"http://{browser_dashboard_host(settings)}:{settings.ui_port}"
+    return f"http://{LOOPBACK_HOST}:{settings.ui_port}"
 
 
-def build_runtime_metadata(settings: AppConfig, *, owner: str | None = None) -> dict[str, Any]:
-    access_mode = (
-        "local_only" if settings.ui_host in {"127.0.0.1", "localhost", "::1"} else "network"
-    )
+def build_runtime_metadata(
+    settings: AppConfig, *, owner: str | None = None, engine_state: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     return {
         "db_path": str(settings.db_path),
         "working_dir": str(settings.working_dir),
@@ -84,10 +74,11 @@ def build_runtime_metadata(settings: AppConfig, *, owner: str | None = None) -> 
         "auto_approve_agent_actions": settings.auto_approve_agent_actions,
         "roles": summarize_roles(settings),
         "engine_owner": owner or "manual",
+        "engine_state": engine_state or {"status": "running", "last_error": None},
         "listen": {
-            "host": settings.ui_host,
+            "host": LOOPBACK_HOST,
             "port": settings.ui_port,
-            "access_mode": access_mode,
+            "access_mode": "local_only",
         },
     }
 
@@ -154,7 +145,10 @@ def build_snapshot(repo_root: Path, settings: Optional[AppConfig] = None) -> dic
     payload = {
         "generated_at": iso_now(),
         "repo_root": str(repo_root),
-        "runtime": build_runtime_metadata(settings),
+        "runtime": build_runtime_metadata(
+            settings,
+            engine_state={"status": "running", "last_error": None},
+        ),
         "commands": {
             "counts": command_counts,
             "items": commands,
@@ -194,8 +188,35 @@ def build_snapshot(repo_root: Path, settings: Optional[AppConfig] = None) -> dic
     return payload
 
 
-def build_summary_snapshot(repo_root: Path, settings: Optional[AppConfig] = None) -> dict[str, Any]:
+def build_command_detail_tokens(db_path: Path) -> Dict[str, str]:
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                c.id AS command_id,
+                MAX(
+                    COALESCE(c.updated_at, ''),
+                    COALESCE((SELECT MAX(updated_at) FROM tasks WHERE command_id = c.id), ''),
+                    COALESCE((SELECT MAX(updated_at) FROM questions WHERE command_id = c.id), ''),
+                    COALESCE((SELECT MAX(updated_at) FROM reviews WHERE command_id = c.id), ''),
+                    COALESCE((SELECT MAX(updated_at) FROM agent_runs WHERE command_id = c.id), ''),
+                    COALESCE((SELECT MAX(created_at) FROM instructions WHERE command_id = c.id), ''),
+                    COALESCE((SELECT MAX(created_at) FROM events WHERE stream_type = 'command' AND stream_id = c.id), '')
+                ) AS detail_token
+            FROM commands c
+            """
+        ).fetchall()
+    return {row["command_id"]: row["detail_token"] for row in rows}
+
+
+def build_summary_snapshot(
+    repo_root: Path,
+    settings: Optional[AppConfig] = None,
+    *,
+    engine_state: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     settings = settings or load_config(repo_root)
+    detail_tokens = build_command_detail_tokens(settings.db_path)
     commands = [command.model_dump(mode="json") for command in list_commands(settings.db_path)]
     open_questions = [
         question.model_dump(mode="json")
@@ -209,6 +230,7 @@ def build_summary_snapshot(repo_root: Path, settings: Optional[AppConfig] = None
 
     command_counts: Dict[str, int] = {}
     for command in commands:
+        command["detail_token"] = detail_tokens.get(command["id"], command["updated_at"])
         command_counts[command["stage"]] = command_counts.get(command["stage"], 0) + 1
 
     active_commands = [
@@ -220,7 +242,11 @@ def build_summary_snapshot(repo_root: Path, settings: Optional[AppConfig] = None
     payload = {
         "generated_at": iso_now(),
         "repo_root": str(repo_root),
-        "runtime": build_runtime_metadata(settings, owner="dashboard_background_loop"),
+        "runtime": build_runtime_metadata(
+            settings,
+            owner="dashboard_background_loop",
+            engine_state=engine_state,
+        ),
         "commands": {
             "counts": command_counts,
             "items": commands,
@@ -336,7 +362,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/snapshot":
             with self.state_lock:
-                self.send_json(HTTPStatus.OK, build_summary_snapshot(self.repo_root, self.settings))
+                self.send_json(
+                    HTTPStatus.OK,
+                    build_summary_snapshot(
+                        self.repo_root,
+                        self.settings,
+                        engine_state=getattr(self.server, "engine_state", None),
+                    ),
+                )
             return
         if (
             parsed.path.startswith("/api/commands/")
@@ -529,22 +562,38 @@ def engine_loop(server: WevraDashboardServer) -> None:
                     settings=server.settings,
                     repo_root=server.repo_root,
                 )
-        except Exception:
+                server.engine_state = {  # type: ignore[attr-defined]
+                    "status": "running",
+                    "last_error": None,
+                    "updated_at": iso_now(),
+                    "last_action": outcome.action,
+                }
+        except Exception as exc:
+            with server.state_lock:
+                server.engine_state = {  # type: ignore[attr-defined]
+                    "status": "error",
+                    "last_error": str(exc),
+                    "updated_at": iso_now(),
+                }
             server.stop_event.wait(1.0)
             continue
         server.stop_event.wait(engine_poll_delay(outcome.action))
 
 
-def create_server(repo_root: Path, host: str, port: int) -> ThreadingHTTPServer:
+def create_server(repo_root: Path, port: int) -> ThreadingHTTPServer:
     settings = load_config(repo_root)
-    server = WevraDashboardServer((host, port), DashboardHandler)
-    settings.ui_host = host
+    server = WevraDashboardServer((LOOPBACK_HOST, port), DashboardHandler)
     settings.ui_port = server.server_address[1]
     initialize_database(settings.db_path)
     server.repo_root = repo_root.resolve()  # type: ignore[attr-defined]
     server.settings = settings  # type: ignore[attr-defined]
     server.state_lock = threading.RLock()  # type: ignore[attr-defined]
     server.stop_event = threading.Event()  # type: ignore[attr-defined]
+    server.engine_state = {  # type: ignore[attr-defined]
+        "status": "running",
+        "last_error": None,
+        "updated_at": iso_now(),
+    }
     server.engine_thread = threading.Thread(target=engine_loop, args=(server,), daemon=True)  # type: ignore[attr-defined]
     server.engine_thread.start()  # type: ignore[attr-defined]
     return server
@@ -587,8 +636,6 @@ def start_dashboard(repo_root: Path, settings: Optional[AppConfig] = None) -> di
                 "wevra.dashboard",
                 "--repo-root",
                 str(repo_root.resolve()),
-                "--host",
-                settings.ui_host,
                 "--port",
                 str(settings.ui_port),
             ],
@@ -639,12 +686,11 @@ def dashboard_status(repo_root: Path, settings: Optional[AppConfig] = None) -> d
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the Wevra dashboard server.")
     parser.add_argument("--repo-root", required=True)
-    parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=43861)
     args = parser.parse_args()
 
     repo_root = Path(args.repo_root).resolve()
-    server = create_server(repo_root, args.host, args.port)
+    server = create_server(repo_root, args.port)
     try:
         server.serve_forever()
     finally:

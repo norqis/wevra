@@ -446,7 +446,7 @@ def test_dashboard_api_answers_question_and_resumes(tmp_path, monkeypatch):
     read_json(runner.invoke(app, ["submit", "[worker_question] answer from dashboard"]))
     read_json(runner.invoke(app, ["run"]))
 
-    server = create_server(tmp_path, "127.0.0.1", 0)
+    server = create_server(tmp_path, 0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -485,7 +485,7 @@ def test_dashboard_api_appends_instruction_and_replans(tmp_path, monkeypatch):
     read_json(runner.invoke(app, ["tick", "--command-id", command_id]))
     read_json(runner.invoke(app, ["tick", "--command-id", command_id]))
 
-    server = create_server(tmp_path, "127.0.0.1", 0)
+    server = create_server(tmp_path, 0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:

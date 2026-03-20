@@ -35,8 +35,8 @@ SQLite を別途インストールする必要はありません。
 
 `./wevra init` のあと、必要に応じて生成されたローカル設定ファイルを編集します。
 
-- `wevra.ini`: workspace、dashboard の host と port、通知、runtime の既定値、CLI 用の home 上書き
-- `agents.ini`: role ごとの backend と model
+- `wevra.ini`: workspace、dashboard の host と port、通知、runtime の既定値、CLI 用の `HOME` 上書き
+- `agents.ini`: role ごとの実行先と model
 - `.env`: `DISCORD_WEBHOOK_URL` のようなローカル secret
 
 既定値のままで問題なければ、この手順は飛ばしてそのまま起動できます。
@@ -144,7 +144,7 @@ runtime、UI、通知まわりの挙動を設定します。
 
 ### `agents.ini`
 
-role ごとに、どの AI 実行先と model を使うかを設定します。
+role ごとに、どの実行先と model を使うかを設定します。
 
 - `runtime`: その role をどの実行先で動かすか
 - `model`: その実行先に渡す model 名
@@ -162,6 +162,8 @@ role ごとに、どの AI 実行先と model を使うかを設定します。
 
 `runtime` に指定できる値は `mock`、`codex`、`claude` です。
 
+`mock` は、デモ、ローカル開発、CI、フロー確認のための擬似実行先です。Codex や Claude を使った実際の実装やレビューは行いません。実運用するときは、`planner`、`implementer`、`reviewer` などを `codex` か `claude` に切り替えてから使ってください。
+
 ### `.env`
 
 設定ファイルから参照されるローカル secret や env 値を置きます。
@@ -175,3 +177,5 @@ role ごとに、どの AI 実行先と model を使うかを設定します。
 ```bash
 ./.venv/bin/pytest -q
 ```
+
+dashboard の UI を変更したときは、PR を出す前に `docs/images/dashboard-en.png` と `docs/images/dashboard-ja.png` も更新してください。

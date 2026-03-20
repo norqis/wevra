@@ -37,9 +37,8 @@ No separate SQLite install is required.
 
 After `./wevra init`, adjust the generated local config files as needed:
 
-- `wevra.ini`: working directory, dashboard host and port, notifications, and runtime defaults
-- `wevra.ini`: working directory, dashboard host and port, notifications, runtime defaults, and an optional CLI home override
-- `agents.ini`: which backend and model each role should use
+- `wevra.ini`: working directory, dashboard host and port, notifications, runtime defaults, and an optional CLI `HOME` override
+- `agents.ini`: which runtime and model each role should use
 - `.env`: local secrets such as `DISCORD_WEBHOOK_URL`
 
 If the defaults already fit your environment, you can skip this step and start Wevra immediately.
@@ -147,9 +146,9 @@ Controls runtime, UI, and notification behavior.
 
 ### `agents.ini`
 
-Controls which AI runtime and model each role uses.
+Controls which runtime and model each role uses.
 
-- `runtime`: which execution runtime to use for that role
+- `runtime`: which execution target to use for that role
 - `model`: which model name to pass to that runtime
 - `count`: how many workers to run in parallel for that role
 
@@ -165,6 +164,8 @@ Controls which AI runtime and model each role uses.
 
 Supported `runtime` values are `mock`, `codex`, and `claude`.
 
+`mock` is for demos, local development, CI, and flow verification. It does not perform real implementation or review work through Codex or Claude. Before using Wevra for real work, switch roles such as `planner`, `implementer`, and `reviewer` to `codex` or `claude`.
+
 ### `.env`
 
 Stores local secrets and env values referenced by the config files.
@@ -178,3 +179,5 @@ Stores local secrets and env values referenced by the config files.
 ```bash
 ./.venv/bin/pytest -q
 ```
+
+If you change the dashboard UI, refresh `docs/images/dashboard-en.png` and `docs/images/dashboard-ja.png` before opening a PR.

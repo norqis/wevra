@@ -40,4 +40,4 @@ indent-style = "space"
 where = ["src"]
 
 [tool.setuptools.package-data]
-wevra = ["static/*.html"]
+wevra = ["static/*.html", "static/*.png", "static/i18n/*.json"]

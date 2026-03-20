@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Wevra Dashboard</title>
+  <title>Wevra</title>
   <link rel="icon" href="data:,">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -96,15 +96,30 @@
     .hero {
       padding: 18px 20px;
       display: grid;
-      gap: 8px;
+      gap: 10px;
       align-items: start;
     }
 
     .hero-topbar {
       display: flex;
       justify-content: space-between;
-      align-items: flex-start;
+      align-items: center;
       gap: 16px;
+    }
+
+    .brand-lockup {
+      display: inline-flex;
+      align-items: center;
+      gap: 0;
+      min-width: 0;
+    }
+
+    .brand-name {
+      font-family: var(--font-display);
+      font-size: clamp(28px, 3vw, 40px);
+      line-height: 1;
+      letter-spacing: -0.04em;
+      font-weight: 700;
     }
 
     .hero-controls {
@@ -138,21 +153,6 @@
       color: var(--muted);
       font-size: 12px;
       max-width: 420px;
-    }
-
-    .hero-owner {
-      display: inline-flex;
-      align-items: center;
-      min-height: 40px;
-      padding: 0 12px;
-      border-radius: 999px;
-      border: 1px solid rgba(124, 156, 255, 0.22);
-      background: rgba(124, 156, 255, 0.10);
-      color: #d8e4ff;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-      white-space: nowrap;
     }
 
     .live-indicator {
@@ -219,13 +219,43 @@
 
     .toolbar-input {
       width: 100%;
-      min-height: 120px;
+      min-height: 74px;
       resize: vertical;
+    }
+
+    .modal-form {
+      display: grid;
+      gap: 14px;
+    }
+
+    .modal-form .toolbar-controls {
+      grid-template-columns:
+        minmax(140px, max-content)
+        minmax(116px, max-content)
+        minmax(92px, max-content)
+        minmax(148px, max-content)
+        minmax(220px, 1fr);
+      justify-content: stretch;
+    }
+
+    .modal-form .toolbar-controls .field-stack:last-child {
+      min-width: 220px;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
     }
 
     .toolbar-controls {
       display: grid;
-      grid-template-columns: minmax(120px, max-content) minmax(92px, max-content) minmax(148px, max-content) auto;
+      grid-template-columns:
+        minmax(140px, max-content)
+        minmax(116px, max-content)
+        minmax(92px, max-content)
+        minmax(148px, max-content)
+        max-content;
       gap: 8px;
       align-items: end;
       justify-content: end;
@@ -291,6 +321,37 @@
       border-radius: 14px;
       padding: 0 18px;
       align-self: end;
+      justify-self: end;
+    }
+
+    .toolbar-notice {
+      display: none;
+      gap: 6px;
+      margin-top: 2px;
+      padding: 12px 14px;
+      border-radius: 16px;
+      border: 1px solid rgba(255, 191, 95, 0.30);
+      background:
+        linear-gradient(180deg, rgba(255, 191, 95, 0.14), rgba(255, 255, 255, 0.04)),
+        rgba(18, 14, 7, 0.90);
+      color: #ffe7b7;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+
+    .toolbar-notice.visible {
+      display: grid;
+    }
+
+    .toolbar-notice-title {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+
+    .toolbar-notice-body {
+      color: rgba(255, 237, 199, 0.88);
+      font-size: 12px;
+      line-height: 1.45;
     }
 
     .status-line {
@@ -874,12 +935,182 @@
       border: 1px solid rgba(255, 111, 145, 0.22);
     }
 
+    #agentRunsList {
+      max-height: none;
+      overflow: visible;
+      gap: 12px;
+    }
+
+    .agent-role-shell {
+      display: grid;
+      gap: 12px;
+    }
+
+    .agent-role-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .agent-role-tab {
+      min-height: 38px;
+      padding: 0 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(151, 176, 214, 0.14);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--muted);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+
+    .agent-role-tab.active {
+      color: var(--ink);
+      background: linear-gradient(135deg, rgba(124, 156, 255, 0.18), rgba(93, 226, 207, 0.12));
+      border-color: rgba(124, 156, 255, 0.28);
+      box-shadow: inset 0 0 0 1px rgba(124, 156, 255, 0.08);
+    }
+
+    .agent-role-count {
+      min-width: 22px;
+      min-height: 22px;
+      padding: 0 7px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(151, 176, 214, 0.12);
+      font-size: 10px;
+      line-height: 1;
+    }
+
+    .agent-role-panel {
+      display: none;
+    }
+
+    .agent-role-panel.active {
+      display: block;
+    }
+
+    .agent-role-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .agent-run-card {
+      border: 1px solid rgba(151, 176, 214, 0.14);
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.025));
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .agent-run-card.pending {
+      border-color: rgba(255, 191, 95, 0.34);
+      background: linear-gradient(180deg, rgba(255, 191, 95, 0.12), rgba(255, 255, 255, 0.03));
+      box-shadow: inset 0 0 0 1px rgba(255, 191, 95, 0.08);
+    }
+
+    .agent-run-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .agent-run-title-stack {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .agent-run-title-stack .title {
+      font-size: 13px;
+      line-height: 1.3;
+    }
+
     .agent-run-summary {
       color: rgba(239, 244, 255, 0.84);
       white-space: pre-wrap;
       word-break: break-word;
       font-size: 12px;
       line-height: 1.5;
+    }
+
+    .agent-log-shell {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .agent-log-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .agent-log-title {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .agent-log-follow {
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(151, 176, 214, 0.12);
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .agent-log-follow.following {
+      color: #b8ffef;
+      border-color: rgba(40, 215, 184, 0.22);
+      background: rgba(40, 215, 184, 0.10);
+    }
+
+    .agent-log-follow.paused {
+      color: #ffe3ac;
+      border-color: rgba(255, 191, 95, 0.22);
+      background: rgba(255, 191, 95, 0.10);
+    }
+
+    .agent-log-pane {
+      min-height: 220px;
+      max-height: 320px;
+      padding: 14px;
+      border-radius: 16px;
+      background: rgba(4, 8, 14, 0.96);
+      color: #f4f8ff;
+      overflow: auto;
+      font-size: 12px;
+      line-height: 1.5;
+      border: 1px solid rgba(151, 176, 214, 0.14);
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+
+    .agent-empty {
+      border: 1px dashed rgba(151, 176, 214, 0.18);
+      border-radius: 16px;
+      padding: 14px;
+      color: var(--muted);
+      font-size: 12px;
     }
 
     .modal-backdrop {
@@ -928,6 +1159,69 @@
       color: var(--ink);
     }
 
+    .modal-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .result-modal-body {
+      display: grid;
+      gap: 14px;
+      white-space: normal;
+    }
+
+    .result-modal-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .result-modal-tab {
+      min-height: 34px;
+      padding: 0 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(151, 176, 214, 0.14);
+      background: rgba(255, 255, 255, 0.02);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+    }
+
+    .result-modal-tab:hover {
+      border-color: rgba(124, 156, 255, 0.3);
+      color: var(--ink);
+    }
+
+    .result-modal-tab.active {
+      background: linear-gradient(135deg, rgba(86, 180, 255, 0.24), rgba(93, 226, 207, 0.16));
+      border-color: rgba(124, 156, 255, 0.36);
+      color: var(--ink);
+    }
+
+    .result-modal-content {
+      min-height: 320px;
+      border-radius: 16px;
+      border: 1px solid rgba(151, 176, 214, 0.12);
+      background: rgba(4, 8, 14, 0.92);
+      overflow: auto;
+    }
+
+    .result-markdown {
+      margin: 0;
+      padding: 18px;
+      background: transparent;
+      border: 0;
+      border-radius: 0;
+      min-height: 100%;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 13px;
+      line-height: 1.68;
+    }
+
     pre {
       margin: 0;
       padding: 14px;
@@ -959,6 +1253,7 @@
       .toolbar-controls { grid-template-columns: 1fr; }
       .detail-grid { grid-template-columns: 1fr; }
       .list { max-height: none; }
+      .agent-role-grid { grid-template-columns: 1fr; }
       .question-alert-shell {
         grid-template-columns: 1fr;
       }
@@ -989,76 +1284,39 @@
       .workspace-topbar {
         display: grid;
       }
+      .modal-form .toolbar-controls {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 </head>
 <body>
   <main class="shell">
     <section class="hero">
-      <div>
-        <div class="hero-topbar">
-          <div>
-            <div class="eyebrow" id="heroEyebrow">Wevra Runtime</div>
-            <h1 id="heroTitle">Web Control For Structured AI Work</h1>
+      <div class="hero-topbar">
+        <div class="brand-lockup">
+          <div class="brand-name" id="heroTitle">Wevra</div>
+        </div>
+        <div class="hero-controls">
+          <div class="hero-control-row">
+            <span class="hero-control-label" id="languageLabel">Language</span>
+            <select id="languageSelect">
+              <option value="en">English</option>
+              <option value="ja">Japanese</option>
+            </select>
+            <div class="live-indicator" id="liveIndicator">Live</div>
+            <button class="secondary" id="refreshBtn">Refresh</button>
+            <button class="primary" id="openSubmitBtn">New Job</button>
           </div>
-          <div class="hero-controls">
-            <div class="hero-control-row">
-              <span class="hero-control-label" id="languageLabel">Language</span>
-              <select id="languageSelect">
-                <option value="en">English</option>
-                <option value="ja">Japanese</option>
-              </select>
-              <div class="live-indicator" id="liveIndicator">Live</div>
-              <div class="hero-owner" id="engineOwnerBadge">Dashboard Loop</div>
-              <button class="secondary" id="refreshBtn">Refresh</button>
-            </div>
-            <div class="hero-status" id="statusLine">Loading snapshot…</div>
-          </div>
+          <div class="hero-status" id="statusLine">Loading snapshot…</div>
         </div>
-      </div>
-    </section>
-
-    <section class="panel toolbar">
-      <div class="field-stack">
-        <label class="field-label" id="goalLabel" for="goal">Request</label>
-        <textarea id="goal" class="toolbar-input" placeholder="Describe the command you want Wevra to run."></textarea>
-      </div>
-      <div class="toolbar-controls">
-        <div class="field-stack">
-          <label class="field-label" id="workflowLabel" for="workflowMode">Workflow</label>
-          <select id="workflowMode">
-            <option value="auto">auto</option>
-            <option value="implementation">implementation</option>
-            <option value="research">research</option>
-            <option value="review">review</option>
-            <option value="planning">planning</option>
-          </select>
-        </div>
-        <div class="field-stack">
-          <label class="field-label" id="priorityLabelText" for="priority">Priority</label>
-          <select id="priority">
-            <option value="high">high</option>
-            <option value="medium">medium</option>
-            <option value="low">low</option>
-          </select>
-        </div>
-        <div class="field-stack">
-          <label class="field-label" id="backendLabelText" for="backend">Backend</label>
-          <select id="backend">
-            <option value="">config default</option>
-            <option value="mock">mock</option>
-            <option value="codex">codex</option>
-            <option value="claude">claude</option>
-          </select>
-        </div>
-        <button class="primary" id="submitBtn">Submit Request</button>
       </div>
     </section>
 
     <section class="grid">
       <aside class="panel queue-column">
         <div class="panel-head">
-          <h2 id="commandsHeading">Commands</h2>
+          <h2 id="commandsHeading">Jobs</h2>
           <span class="panel-badge" id="commandsBadge">Queue</span>
         </div>
         <div class="list" id="commandsList"></div>
@@ -1077,13 +1335,14 @@
               <button class="workspace-tab" data-tab="activity" id="activityTab">Activity</button>
             </div>
             <div class="workspace-actions" id="workspaceActions">
+              <button class="secondary workspace-action" id="runControlBtn">Stop</button>
               <button class="secondary workspace-action" id="viewResultBtn">No Result Yet</button>
               <button class="secondary workspace-action append-action" id="openAppendBtn">Append Instruction</button>
             </div>
           </div>
           <section class="tab-panel active" data-tab-panel="overview">
             <div class="detail-grid" id="commandDetail">
-              <div class="meta">Select a command from the list.</div>
+              <div class="meta">Select a job from the list.</div>
             </div>
           </section>
           <section class="tab-panel" data-tab-panel="tasks">
@@ -1116,16 +1375,91 @@
     </section>
   </main>
 
+  <div class="modal-backdrop" id="submitModal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="submitModalTitle">
+      <div class="modal-header">
+        <div>
+          <div class="eyebrow" id="submitModalEyebrow">New Job</div>
+          <h2 id="submitModalTitle" style="margin: 6px 0 0; font-size: 24px;">Submit Job</h2>
+        </div>
+        <button class="secondary" id="closeSubmitBtn">Close</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-form">
+          <div class="field-stack">
+            <label class="field-label" id="workspaceRootLabel" for="workspaceRoot">Working Directory</label>
+            <input id="workspaceRoot" type="text" placeholder="Working directory for this job" required />
+          </div>
+          <div class="field-stack">
+            <label class="field-label" id="goalLabel" for="goal">Job Brief</label>
+            <textarea id="goal" class="toolbar-input" placeholder="Describe the work you want Wevra to run."></textarea>
+          </div>
+          <div class="toolbar-controls">
+            <div class="field-stack">
+              <label class="field-label" id="workflowLabel" for="workflowMode">Execution Mode</label>
+              <select id="workflowMode">
+                <option value="auto">auto</option>
+                <option value="implementation">implementation</option>
+                <option value="research">research</option>
+                <option value="review">review</option>
+                <option value="planning">planning</option>
+              </select>
+            </div>
+            <div class="field-stack">
+              <label class="field-label" id="approvalModeLabelText" for="approvalMode">Approval Mode</label>
+              <select id="approvalMode">
+                <option value="auto">auto</option>
+                <option value="manual">manual</option>
+              </select>
+            </div>
+            <div class="field-stack">
+              <label class="field-label" id="priorityLabelText" for="priority">Priority</label>
+              <select id="priority">
+                <option value="high">high</option>
+                <option value="medium">medium</option>
+                <option value="low">low</option>
+              </select>
+            </div>
+            <div class="field-stack">
+              <label class="field-label" id="backendLabelText" for="backend">Backend</label>
+              <select id="backend">
+                <option value="">config default</option>
+                <option value="mock">mock</option>
+                <option value="codex">codex</option>
+                <option value="claude">claude</option>
+              </select>
+            </div>
+          </div>
+          <div class="toolbar-notice" id="approvalModeNotice" aria-live="polite">
+            <div class="toolbar-notice-title" id="approvalModeNoticeTitle">Manual approval is enabled</div>
+            <div class="toolbar-notice-body" id="approvalModeNoticeBody">When manual approval is enabled, Wevra pauses before each external AI step and waits in the Agents tab until you allow or deny it.</div>
+          </div>
+          <div class="modal-actions">
+            <button class="primary" id="submitBtn">Submit Job</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-backdrop" id="resultModal">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="resultModalTitle">
       <div class="modal-header">
         <div>
-          <div class="eyebrow" id="resultModalEyebrow">Command Result</div>
+          <div class="eyebrow" id="resultModalEyebrow">Job Result</div>
           <h2 id="resultModalTitle" style="margin: 6px 0 0; font-size: 24px;">Result</h2>
         </div>
-        <button class="secondary" id="closeResultBtn">Close</button>
+        <div class="modal-header-actions">
+          <button class="secondary" id="downloadResultBtn">Download .md</button>
+          <button class="secondary" id="closeResultBtn">Close</button>
+        </div>
       </div>
-      <div class="modal-body" id="resultModalBody">No result available yet.</div>
+      <div class="modal-body result-modal-body">
+        <div class="result-modal-tabs" id="resultModalTabs"></div>
+        <div class="result-modal-content" id="resultModalContent">
+          <pre class="result-markdown" id="resultModalBody">No result available yet.</pre>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1139,7 +1473,7 @@
         <button class="secondary" id="closeAppendBtn">Close</button>
       </div>
       <div class="modal-body" style="display:grid; gap: 12px;">
-        <textarea id="appendModalInput" style="min-height: 180px;" placeholder="Append a new instruction to the selected request."></textarea>
+        <textarea id="appendModalInput" style="min-height: 180px;" placeholder="Append a new instruction to the selected job."></textarea>
         <div class="actions" style="justify-content: flex-end;">
           <button class="primary" id="appendModalSubmit">Append And Replan</button>
         </div>
@@ -1165,8 +1499,13 @@
       appending: false,
       answeringQuestionId: null,
       agentDecisionInFlight: null,
+      commandControlInFlight: null,
       visibleQuestionId: null,
-      questionDrafts: {}
+      questionDrafts: {},
+      agentRoleTabByCommand: {},
+      agentLogFollow: {},
+      agentLogScrollTop: {},
+      resultSectionTabByCommand: {}
     };
 
     const commandsListEl = document.getElementById('commandsList');
@@ -1178,391 +1517,53 @@
     const questionHistoryListEl = document.getElementById('questionHistoryList');
     const commandDetailEl = document.getElementById('commandDetail');
     const statusLineEl = document.getElementById('statusLine');
-    const engineOwnerBadgeEl = document.getElementById('engineOwnerBadge');
     const questionAlertEl = document.getElementById('questionAlert');
     const questionAlertBodyEl = document.getElementById('questionAlertBody');
+    const submitModalEl = document.getElementById('submitModal');
     const resultModalEl = document.getElementById('resultModal');
     const resultModalTitleEl = document.getElementById('resultModalTitle');
-    const resultModalBodyEl = document.getElementById('resultModalBody');
+    const resultModalTabsEl = document.getElementById('resultModalTabs');
+    const resultModalContentEl = document.getElementById('resultModalContent');
+    const downloadResultBtnEl = document.getElementById('downloadResultBtn');
     const appendModalEl = document.getElementById('appendModal');
     const appendModalInputEl = document.getElementById('appendModalInput');
     const workspaceTabsEl = document.getElementById('workspaceTabs');
+    const openSubmitBtnEl = document.getElementById('openSubmitBtn');
+    const closeSubmitBtnEl = document.getElementById('closeSubmitBtn');
     const submitBtnEl = document.getElementById('submitBtn');
     const refreshBtnEl = document.getElementById('refreshBtn');
+    const goalInputEl = document.getElementById('goal');
+    const workflowModeEl = document.getElementById('workflowMode');
+    const approvalModeEl = document.getElementById('approvalMode');
+    const priorityEl = document.getElementById('priority');
+    const backendEl = document.getElementById('backend');
+    const workspaceRootEl = document.getElementById('workspaceRoot');
     const openAppendBtnEl = document.getElementById('openAppendBtn');
     const viewResultBtnEl = document.getElementById('viewResultBtn');
     const appendModalSubmitEl = document.getElementById('appendModalSubmit');
+    const runControlBtnEl = document.getElementById('runControlBtn');
 
-    const I18N = {
-      en: {
-        heroEyebrow: 'Wevra Runtime',
-        heroTitle: 'Web Control For Structured AI Work',
-        commandsHeading: 'Requests',
-        tasksHeading: 'Tasks',
-        reviewsHeading: 'Reviews',
-        agentsHeading: 'Agents',
-        eventsHeading: 'Activity Feed',
-        selectedHeading: 'Selected Request',
-        commandsBadge: 'Work Queue',
-        questionAlertTitle: 'Waiting For Your Answer',
-        questionAlertLead: 'This request is paused until you answer the question below.',
-        answerLabel: 'Answer',
-        questionHistory: 'Question History',
-        instructionsHeading: 'Instructions',
-        noQuestionHistory: 'No question history.',
-        submitBtn: 'Submit Request',
-        refreshBtn: 'Refresh',
-        appendAction: 'Append Instruction',
-        appendBtn: 'Append And Replan',
-        closeResultBtn: 'Close',
-        closeAppendBtn: 'Close',
-        languageLabel: 'Language',
-        liveIndicator: 'LIVE',
-        engineOwnerBadge: 'Dashboard Loop',
-        goalLabel: 'Request',
-        workflowLabel: 'Workflow',
-        priorityLabelText: 'Priority',
-        backendLabelText: 'Execution',
-        resultModalEyebrow: 'Command Result',
-        resultModalTitle: 'Result',
-        appendModalEyebrow: 'Append Instruction',
-        appendModalTitle: 'Append Instruction',
-        goalPlaceholder: 'Describe the command you want Wevra to run.',
-        appendPlaceholder: 'Add a new instruction for the selected request.',
-        executionDefaultLabel: 'Per-role defaults',
-        loading: 'Loading snapshot…',
-        noCommands: 'No commands yet.',
-        noTasks: 'No tasks for the current selection.',
-        noOpenQuestions: 'No open questions.',
-        noReviews: 'No reviews yet.',
-        noAgentRuns: 'No agent runs yet.',
-        noEvents: 'No events yet.',
-        noCommandSelected: 'No command selected.',
-        answerPlaceholder: 'Type the answer to resume the workflow.',
-        answerButton: 'Answer And Resume',
-        overview: 'Overview',
-        result: 'Result',
-        activity: 'Activity',
-        viewResult: 'View Result',
-        noResult: 'No final result yet.',
-        noResultAvailable: 'No final result available yet.',
-        noInstructions: 'No appended instructions.',
-        id: 'ID',
-        mode: 'Mode',
-        stage: 'Stage',
-        workingDirectory: 'Working Directory',
-        priority: 'Priority',
-        goal: 'Goal',
-        key: 'key',
-        dependsOn: 'depends_on',
-        writeFiles: 'write_files',
-        updated: 'Updated',
-        listeningLocal: 'Local only',
-        engineError: 'Engine error',
-        submitting: 'Starting request…',
-        appending: 'Appending instruction to',
-        answering: 'Answering',
-        reviewerLabel: 'reviewer',
-        approvalNeeded: 'Approval Required',
-        approvalHelp: 'This request is waiting for an operator decision before the selected agent can continue.',
-        batchApprovalHeading: 'Batch Approval',
-        batchApprovalHelp: 'Allow all pending runs for this request, or approve one role at a time.',
-        allowAllPending: 'Allow All Pending',
-        allowAllRole: 'Allow All {role}',
-        pendingApprovalsCount: '{count} pending approvals',
-        allow: 'Allow',
-        deny: 'Deny',
-        agentKind: 'Kind',
-        agentRole: 'Role',
-        agentState: 'State',
-        agentPrompt: 'Prompt',
-        agentOutput: 'Summary',
-        agentError: 'Error',
-        resultReady: 'Result Ready',
-        resultUnavailable: 'No Result Yet',
-      },
-      ja: {
-        heroEyebrow: 'Wevra Runtime',
-        heroTitle: '構造化 AI ワークフローのダッシュボード',
-        commandsHeading: '依頼一覧',
-        tasksHeading: 'タスク',
-        reviewsHeading: 'レビュー',
-        agentsHeading: 'エージェント',
-        eventsHeading: 'アクティビティ',
-        selectedHeading: '選択中の依頼',
-        commandsBadge: '進行キュー',
-        questionAlertTitle: '回答待ちの依頼',
-        questionAlertLead: 'この依頼は、下の質問に回答するまで停止しています。',
-        answerLabel: '回答',
-        questionHistory: '質問履歴',
-        instructionsHeading: '追加指示',
-        noQuestionHistory: '質問履歴はありません。',
-        submitBtn: '依頼を投入',
-        refreshBtn: '更新',
-        appendAction: '追加指示',
-        appendBtn: '追加指示を送って再計画',
-        closeResultBtn: '閉じる',
-        closeAppendBtn: '閉じる',
-        languageLabel: '言語',
-        liveIndicator: 'LIVE',
-        engineOwnerBadge: 'ダッシュボード自動進行',
-        goalLabel: '依頼内容',
-        workflowLabel: '進め方',
-        priorityLabelText: '優先度',
-        backendLabelText: '実行先',
-        resultModalEyebrow: 'コマンド結果',
-        resultModalTitle: '結果',
-        appendModalEyebrow: '追加指示',
-        appendModalTitle: '追加指示',
-        goalPlaceholder: 'Wevra に実行させたい依頼を書いてください。',
-        appendPlaceholder: 'この依頼に追加したい指示を書いてください。',
-        executionDefaultLabel: '役割ごとの既定値',
-        loading: 'スナップショットを読み込み中…',
-        noCommands: 'コマンドはまだありません。',
-        noTasks: '選択中のコマンドにタスクはありません。',
-        noOpenQuestions: '未回答の質問はありません。',
-        noReviews: 'レビューはまだありません。',
-        noAgentRuns: 'エージェント履歴はまだありません。',
-        noEvents: 'イベントはまだありません。',
-        noCommandSelected: 'コマンドが選択されていません。',
-        answerPlaceholder: '再開のための回答を書いてください。',
-        answerButton: '回答して再開',
-        overview: '概要',
-        result: '結果',
-        activity: 'アクティビティ',
-        viewResult: '結果を見る',
-        noResult: 'まだ最終結果はありません。',
-        noResultAvailable: '表示できる最終結果はまだありません。',
-        noInstructions: '追加指示はありません。',
-        id: 'ID',
-        mode: 'モード',
-        stage: '状態',
-        workingDirectory: '作業ディレクトリ',
-        priority: '優先度',
-        goal: '依頼内容',
-        key: 'キー',
-        dependsOn: '依存',
-        writeFiles: '書き込み対象',
-        updated: '更新日時',
-        listeningLocal: 'ローカルのみ',
-        engineError: '進行エラー',
-        submitting: '依頼を投入中…',
-        appending: '追加指示を送信中',
-        answering: '回答中',
-        reviewerLabel: 'レビュアー',
-        approvalNeeded: '承認待ち',
-        approvalHelp: '選択中の依頼は、該当エージェントの実行を許可するまで停止しています。',
-        batchApprovalHeading: 'まとめて許可',
-        batchApprovalHelp: 'この依頼の承認待ちを、依頼単位または役割単位でまとめて許可できます。',
-        allowAllPending: 'この依頼をまとめて許可',
-        allowAllRole: '{role} をまとめて許可',
-        pendingApprovalsCount: '承認待ち {count} 件',
-        allow: '許可',
-        deny: '拒否',
-        agentKind: '種別',
-        agentRole: '役割',
-        agentState: '状態',
-        agentPrompt: '依頼内容',
-        agentOutput: '結果',
-        agentError: 'エラー',
-        resultReady: '結果あり',
-        resultUnavailable: '結果なし',
-      }
-    };
+    const I18N = Object.create(null);
+    const AGENT_ROLE_ORDER = ['planner', 'investigation', 'analyst', 'implementer', 'tester', 'reviewer'];
 
-    const MODE_LABELS = {
-      en: {
-        auto: '✦ Auto',
-        implementation: '⚙ Implementation',
-        research: '⌕ Research',
-        review: '✓ Review',
-        planning: '✎ Planning'
-      },
-      ja: {
-        auto: '✦ 自動',
-        implementation: '⚙ 実装',
-        research: '⌕ 調査',
-        review: '✓ レビュー',
-        planning: '✎ 計画'
+    async function loadLocaleBundle(locale) {
+      const normalized = String(locale || 'en').toLowerCase().startsWith('ja') ? 'ja' : 'en';
+      if (I18N[normalized]) return I18N[normalized];
+      const response = await fetch(`/static/i18n/${normalized}.json`);
+      if (!response.ok) {
+        throw new Error(`Failed to load locale bundle: ${normalized}`);
       }
-    };
+      I18N[normalized] = await response.json();
+      return I18N[normalized];
+    }
 
-    const STAGE_LABELS = {
-      en: {
-        queued: 'Queued',
-        planning: 'Planning',
-        running: 'Running',
-        waiting_approval: 'Waiting Approval',
-        waiting_question: 'Waiting Question',
-        verifying: 'Reviewing',
-        replanning: 'Replanning',
-        done: 'Done',
-        failed: 'Failed'
-      },
-      ja: {
-        queued: '待機',
-        planning: '計画中',
-        running: '実行中',
-        waiting_approval: '承認待ち',
-        waiting_question: '質問待ち',
-        verifying: 'レビュー中',
-        replanning: '再計画',
-        done: '完了',
-        failed: '失敗'
-      }
-    };
-
-    const TASK_STATE_LABELS = {
-      ja: {
-        pending: '待機',
-        running: '実行中',
-        blocked: '停止中',
-        done: '完了',
-        failed: '失敗',
-        canceled: '取り下げ'
-      }
-    };
-
-    const PRIORITY_LABELS = {
-      en: {
-        high: 'High',
-        medium: 'Medium',
-        low: 'Low'
-      },
-      ja: {
-        high: '高',
-        medium: '中',
-        low: '低'
-      }
-    };
-
-    const QUESTION_STATE_LABELS = {
-      ja: {
-        open: '未回答',
-        answered: '回答済み',
-        resolved: '解決済み'
-      }
-    };
-
-    const RESOLUTION_LABELS = {
-      ja: {
-        resume_task: 'そのまま再開',
-        replan_command: '再計画'
-      }
-    };
-
-    const REVIEW_DECISION_LABELS = {
-      en: {
-        approve: 'Approve',
-        request_changes: 'Request Changes',
-        fail: 'Fail'
-      },
-      ja: {
-        approve: '承認',
-        request_changes: '差し戻し',
-        fail: '失敗'
-      }
-    };
-
-    const AGENT_RUN_STATE_LABELS = {
-      en: {
-        pending_approval: 'Pending Approval',
-        approved: 'Approved',
-        denied: 'Denied',
-        running: 'Running',
-        completed: 'Completed',
-        failed: 'Failed'
-      },
-      ja: {
-        pending_approval: '承認待ち',
-        approved: '許可済み',
-        denied: '拒否',
-        running: '実行中',
-        completed: '完了',
-        failed: '失敗'
-      }
-    };
-
-    const AGENT_RUN_KIND_LABELS = {
-      en: {
-        planner: 'Planner',
-        task: 'Task',
-        review: 'Review'
-      },
-      ja: {
-        planner: '計画',
-        task: '実行',
-        review: 'レビュー'
-      }
-    };
-
-    const CAPABILITY_LABELS = {
-      ja: {
-        implementer: '実装',
-        tester: 'テスト',
-        reviewer: 'レビュー',
-        analyst: '分析',
-        investigation: '調査'
-      }
-    };
-
-    const EVENT_LABELS = {
-      en: {
-        agent_approval_batch_resolved: 'Batch Approval',
-      },
-      ja: {
-        command_submitted: 'コマンド投入',
-        planning_started: '計画開始',
-        tasks_planned: 'タスク分解',
-        task_created: 'タスク作成',
-        task_started: 'タスク開始',
-        task_completed: 'タスク完了',
-        task_failed: 'タスク失敗',
-        task_blocked_on_question: '質問で停止',
-        task_batch_completed: 'タスク群完了',
-        task_replanned: 'タスク再計画',
-        task_superseded: '旧タスク置換',
-        question_created: '質問作成',
-        question_answered: '質問回答',
-        question_resolved: '質問解決',
-        verification_started: '全体レビュー開始',
-        review_recorded: 'レビュー記録',
-        review_rework: 'レビュー差し戻し',
-        review_failed: 'レビュー失敗',
-        agent_approval_requested: '承認要求',
-        agent_approval_resolved: '承認結果',
-        agent_run_created: 'エージェント実行作成',
-        agent_run_started: 'エージェント実行開始',
-        agent_run_finished: 'エージェント実行完了',
-        agent_run_approved: 'エージェント実行許可',
-        agent_run_denied: 'エージェント実行拒否',
-        agent_approval_batch_resolved: 'まとめて許可',
-        instruction_append: '追加指示',
-        instruction_appended: '追加指示',
-        replanning_requested: '再計画要求',
-        replanning_started: '再計画開始',
-        command_completed: 'コマンド完了'
-      }
-    };
-
-    const STREAM_TYPE_LABELS = {
-      en: {
-        command: 'command',
-        task: 'task',
-        question: 'question',
-        review: 'review',
-        instruction: 'instruction',
-        agent_run: 'agent_run'
-      },
-      ja: {
-        command: 'コマンド',
-        task: 'タスク',
-        question: '質問',
-        review: 'レビュー',
-        instruction: '追加指示',
-        agent_run: 'エージェント'
-      }
-    };
+    async function ensureLocaleBundles(locales) {
+      const requested = Array.from(new Set((locales || []).map((locale) => (
+        String(locale || 'en').toLowerCase().startsWith('ja') ? 'ja' : 'en'
+      ))));
+      if (!requested.includes('en')) requested.push('en');
+      await Promise.all(requested.map(loadLocaleBundle));
+    }
 
     function currentLocale() {
       const language = state.localeOverride || state.snapshot?.runtime?.language || 'en';
@@ -1571,12 +1572,12 @@
 
     function t(key) {
       const locale = currentLocale();
-      return I18N[locale]?.[key] || I18N.en[key] || key;
+      return I18N[locale]?.text?.[key] || I18N.en?.text?.[key] || key;
     }
 
-    function localizeValue(labels, value) {
+    function localizeValue(group, value) {
       const locale = currentLocale();
-      return labels[locale]?.[value] || value;
+      return I18N[locale]?.[group]?.[value] || I18N.en?.[group]?.[value] || value;
     }
 
     function formatText(template, values = {}) {
@@ -1586,56 +1587,69 @@
     }
 
     function modeLabel(value) {
-      return localizeValue(MODE_LABELS, value);
+      return localizeValue('mode_labels', value);
+    }
+
+    function approvalModeLabel(value) {
+      return localizeValue('approval_mode_labels', value);
     }
 
     function stageLabel(value) {
-      return localizeValue(STAGE_LABELS, value);
+      return localizeValue('stage_labels', value);
     }
 
     function taskStateLabel(value) {
-      return localizeValue(TASK_STATE_LABELS, value);
+      return localizeValue('task_state_labels', value);
     }
 
     function priorityLabel(value) {
-      return localizeValue(PRIORITY_LABELS, value);
+      return localizeValue('priority_labels', value);
     }
 
     function questionStateLabel(value) {
-      return localizeValue(QUESTION_STATE_LABELS, value);
+      return localizeValue('question_state_labels', value);
     }
 
     function resolutionLabel(value) {
-      return localizeValue(RESOLUTION_LABELS, value);
+      return localizeValue('resolution_labels', value);
     }
 
     function reviewDecisionLabel(value) {
-      return localizeValue(REVIEW_DECISION_LABELS, value);
+      return localizeValue('review_decision_labels', value);
     }
 
     function agentRunStateLabel(value) {
-      return localizeValue(AGENT_RUN_STATE_LABELS, value);
+      return localizeValue('agent_run_state_labels', value);
     }
 
     function agentRunKindLabel(value) {
-      return localizeValue(AGENT_RUN_KIND_LABELS, value);
+      return localizeValue('agent_run_kind_labels', value);
     }
 
     function capabilityLabel(value) {
-      return localizeValue(CAPABILITY_LABELS, value);
-    }
-
-    function engineOwnerLabel(value) {
-      if (value === 'dashboard_background_loop') return t('engineOwnerBadge');
-      return value || t('engineOwnerBadge');
+      return localizeValue('capability_labels', value);
     }
 
     function eventLabel(value) {
-      return localizeValue(EVENT_LABELS, value);
+      return localizeValue('event_labels', value);
     }
 
     function streamTypeLabel(value) {
-      return localizeValue(STREAM_TYPE_LABELS, value);
+      return localizeValue('stream_type_labels', value);
+    }
+
+    function roleLabel(value) {
+      return localizeValue('role_labels', value);
+    }
+
+    function resultSectionLabel(section) {
+      if (!section) return t('result');
+      const locale = currentLocale();
+      const metadata = section.metadata || {};
+      if (locale === 'ja' && metadata.title_ja) return metadata.title_ja;
+      if (locale !== 'ja' && metadata.title_en) return metadata.title_en;
+      const keyed = metadata.section_key || section.key || 'result';
+      return localizeValue('result_section_labels', keyed);
     }
 
     function escapeHtml(value) {
@@ -1650,6 +1664,15 @@
     function displayGoal(goal) {
       const value = String(goal || '');
       return value.replace(/^(?:\[[^\]]+\]\s*)+/, '') || value;
+    }
+
+    function sanitizeFileNamePart(value) {
+      return String(value || '')
+        .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ')
+        .replace(/\s+/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 80);
     }
 
     async function api(url, options = {}) {
@@ -1668,7 +1691,6 @@
       const locale = currentLocale();
       document.documentElement.lang = locale;
       document.body.classList.toggle('locale-ja', locale === 'ja');
-      document.getElementById('heroEyebrow').textContent = t('heroEyebrow');
       document.getElementById('heroTitle').textContent = t('heroTitle');
       document.getElementById('commandsHeading').textContent = t('commandsHeading');
       document.getElementById('tasksTab').textContent = t('tasksHeading');
@@ -1684,17 +1706,26 @@
       document.getElementById('closeAppendBtn').textContent = t('closeAppendBtn');
       document.getElementById('appendModalEyebrow').textContent = t('appendModalEyebrow');
       document.getElementById('appendModalTitle').textContent = t('appendModalTitle');
+      document.getElementById('openSubmitBtn').textContent = t('openSubmitBtn');
+      document.getElementById('closeSubmitBtn').textContent = t('closeSubmitBtn');
+      document.getElementById('workspaceRootLabel').textContent = t('workspaceRootLabel');
+      document.getElementById('submitModalEyebrow').textContent = t('submitModalEyebrow');
+      document.getElementById('submitModalTitle').textContent = t('submitModalTitle');
       document.getElementById('appendModalSubmit').textContent = t('appendBtn');
       document.getElementById('languageLabel').textContent = t('languageLabel');
       document.getElementById('liveIndicator').textContent = t('liveIndicator');
-      engineOwnerBadgeEl.textContent = engineOwnerLabel(state.summarySnapshot?.runtime?.engine_owner);
       document.getElementById('goalLabel').textContent = t('goalLabel');
       document.getElementById('workflowLabel').textContent = t('workflowLabel');
+      document.getElementById('approvalModeLabelText').textContent = t('approvalModeLabelText');
+      document.getElementById('approvalModeNoticeTitle').textContent = t('approvalModeNoticeTitle');
+      document.getElementById('approvalModeNoticeBody').textContent = t('approvalModeNoticeBody');
       document.getElementById('priorityLabelText').textContent = t('priorityLabelText');
       document.getElementById('backendLabelText').textContent = t('backendLabelText');
       document.getElementById('resultModalEyebrow').textContent = t('resultModalEyebrow');
       document.getElementById('resultModalTitle').textContent = t('resultModalTitle');
-      document.getElementById('goal').placeholder = t('goalPlaceholder');
+      document.getElementById('downloadResultBtn').textContent = t('downloadResult');
+      goalInputEl.placeholder = t('goalPlaceholder');
+      workspaceRootEl.placeholder = t('workspaceRootPlaceholder');
       appendModalInputEl.placeholder = t('appendPlaceholder');
       document.getElementById('instructionsHeading').textContent = t('instructionsHeading');
       document.getElementById('questionHistoryHeading').textContent = t('questionHistory');
@@ -1706,10 +1737,15 @@
       document.querySelector('#workflowMode option[value="research"]').textContent = modeLabel('research');
       document.querySelector('#workflowMode option[value="review"]').textContent = modeLabel('review');
       document.querySelector('#workflowMode option[value="planning"]').textContent = modeLabel('planning');
+      document.querySelector('#approvalMode option[value="auto"]').textContent = approvalModeLabel('auto');
+      document.querySelector('#approvalMode option[value="manual"]').textContent = approvalModeLabel('manual');
       document.querySelector('#priority option[value="high"]').textContent = priorityLabel('high');
       document.querySelector('#priority option[value="medium"]').textContent = priorityLabel('medium');
       document.querySelector('#priority option[value="low"]').textContent = priorityLabel('low');
       document.querySelector('#backend option[value=""]').textContent = t('executionDefaultLabel');
+      document.querySelector('#backend option[value="mock"]').textContent = 'mock';
+      document.querySelector('#backend option[value="codex"]').textContent = 'codex';
+      document.querySelector('#backend option[value="claude"]').textContent = 'claude';
       if (!state.snapshot) {
         statusLineEl.textContent = t('loading');
       }
@@ -1721,6 +1757,10 @@
     }
 
     function setWorkspaceTab(tabName) {
+      if (state.currentTab !== tabName) {
+        state.agentLogFollow = {};
+        state.agentLogScrollTop = {};
+      }
       state.currentTab = tabName;
       document.querySelectorAll('.workspace-tab').forEach((button) => {
         button.classList.toggle('active', button.dataset.tab === tabName);
@@ -1728,9 +1768,28 @@
       document.querySelectorAll('.tab-panel').forEach((panel) => {
         panel.classList.toggle('active', panel.dataset.tabPanel === tabName);
       });
+      if (tabName === 'agents') {
+        queueMicrotask(syncAgentLogPanes);
+      }
+    }
+
+    function syncApprovalModeNotice() {
+      const approvalMode = document.getElementById('approvalMode')?.value;
+      document.getElementById('approvalModeNotice')?.classList.toggle('visible', approvalMode === 'manual');
+    }
+
+    function openSubmitModal() {
+      submitModalEl.classList.add('open');
+      syncApprovalModeNotice();
+      queueMicrotask(() => workspaceRootEl.focus());
+    }
+
+    function closeSubmitModal() {
+      submitModalEl.classList.remove('open');
     }
 
     function captureScrollPositions() {
+      captureAgentLogPaneState();
       return {
         commands: commandsListEl.scrollTop,
         tasks: tasksListEl.scrollTop,
@@ -1751,6 +1810,85 @@
       instructionsListEl.scrollTop = positions.instructions || 0;
       questionHistoryListEl.scrollTop = positions.questionHistory || 0;
       eventsListEl.scrollTop = positions.events || 0;
+      syncAgentLogPanes();
+    }
+
+    function isNearLogBottom(element) {
+      return element.scrollHeight - (element.scrollTop + element.clientHeight) <= 12;
+    }
+
+    function captureAgentLogPaneState() {
+      document.querySelectorAll('[data-agent-log-pane]').forEach((element) => {
+        const runId = element.dataset.agentLogPane;
+        if (!runId) return;
+        const following = isNearLogBottom(element);
+        state.agentLogFollow[runId] = following;
+        state.agentLogScrollTop[runId] = element.scrollTop;
+      });
+    }
+
+    function syncAgentLogIndicator(runId, following) {
+      const indicator = document.querySelector(`[data-agent-log-follow="${CSS.escape(runId)}"]`);
+      if (!indicator) return;
+      indicator.textContent = following ? t('autoFollowOn') : t('autoFollowOff');
+      indicator.classList.toggle('following', following);
+      indicator.classList.toggle('paused', !following);
+    }
+
+    function syncAgentLogPanes() {
+      document.querySelectorAll('[data-agent-log-pane]').forEach((element) => {
+        const runId = element.dataset.agentLogPane;
+        if (!runId) return;
+        const following = state.agentLogFollow[runId] !== false;
+        if (following) {
+          element.scrollTop = element.scrollHeight;
+        } else if (typeof state.agentLogScrollTop[runId] === 'number') {
+          element.scrollTop = state.agentLogScrollTop[runId];
+        }
+        syncAgentLogIndicator(runId, following);
+        if (element.dataset.logBound === 'true') return;
+        element.dataset.logBound = 'true';
+        element.addEventListener('scroll', () => {
+          const shouldFollow = isNearLogBottom(element);
+          state.agentLogFollow[runId] = shouldFollow;
+          state.agentLogScrollTop[runId] = element.scrollTop;
+          syncAgentLogIndicator(runId, shouldFollow);
+        });
+      });
+    }
+
+    function orderedAgentRoles(agentRuns) {
+      const roles = [...new Set(agentRuns.map((agentRun) => agentRun.role_name))];
+      roles.sort((left, right) => {
+        const leftIndex = AGENT_ROLE_ORDER.indexOf(left);
+        const rightIndex = AGENT_ROLE_ORDER.indexOf(right);
+        const safeLeft = leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex;
+        const safeRight = rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex;
+        if (safeLeft !== safeRight) return safeLeft - safeRight;
+        return left.localeCompare(right);
+      });
+      return roles;
+    }
+
+    function resolveAgentRoleTab(commandId, roles, pendingApprovals) {
+      if (!commandId || !roles.length) return null;
+      const current = state.agentRoleTabByCommand[commandId];
+      if (current && roles.includes(current)) return current;
+      const pendingRole = pendingApprovals[0]?.role_name;
+      const nextRole = roles.includes(pendingRole) ? pendingRole : roles[0];
+      state.agentRoleTabByCommand[commandId] = nextRole;
+      return nextRole;
+    }
+
+    function setAgentRoleTab(roleName) {
+      const commandId = state.selectedCommandId;
+      if (!commandId || !roleName) return;
+      state.agentRoleTabByCommand[commandId] = roleName;
+      state.agentLogFollow = {};
+      state.agentLogScrollTop = {};
+      if (state.snapshot) {
+        renderAgentRuns(state.snapshot);
+      }
     }
 
     function syncAppendSubmitState() {
@@ -1776,6 +1914,94 @@
       return snapshot.agent_runs.pending.filter((item) => item.command_id === command.id);
     }
 
+    function resultSectionsForCommand(snapshot, command) {
+      if (!snapshot || !command) return [];
+      const artifacts = (snapshot.artifacts?.items || [])
+        .filter((item) => item.command_id === command.id)
+        .slice()
+        .sort((left, right) => {
+          const leftIndex = Number(left.metadata?.index || 0);
+          const rightIndex = Number(right.metadata?.index || 0);
+          if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+          return String(left.created_at || '').localeCompare(String(right.created_at || ''));
+        });
+      if (artifacts.length) {
+        return artifacts.map((artifact, index) => ({
+          key: artifact.metadata?.section_key || artifact.id || `section_${index + 1}`,
+          metadata: artifact.metadata || {},
+          body: String(artifact.body || '').trim(),
+          uri: artifact.uri || '',
+        }));
+      }
+      if (!command.final_response) return [];
+      return [
+        {
+          key: 'result',
+          metadata: {
+            section_key: 'result',
+            title_en: 'Result',
+            title_ja: '結果',
+            extension: 'md',
+          },
+          body: String(command.final_response || '').trim(),
+          uri: `result://${command.id}/result.md`,
+        },
+      ];
+    }
+
+    function buildResultDownloadName(command, section) {
+      const base = sanitizeFileNamePart(displayGoal(command.goal) || command.id || 'job') || 'job';
+      const label = sanitizeFileNamePart(resultSectionLabel(section) || 'result') || 'result';
+      return `${base}_${label}.md`;
+    }
+
+    function downloadResultSection(command, section) {
+      if (!command || !section) return;
+      const fileName = buildResultDownloadName(command, section);
+      const blob = new Blob([String(section.body || '')], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
+
+    function renderResultModal(command) {
+      const sections = resultSectionsForCommand(state.snapshot, command);
+      const activeKey =
+        state.resultSectionTabByCommand[command.id] && sections.some((section) => section.key === state.resultSectionTabByCommand[command.id])
+          ? state.resultSectionTabByCommand[command.id]
+          : sections[0]?.key || null;
+      state.resultSectionTabByCommand[command.id] = activeKey;
+      const activeSection = sections.find((section) => section.key === activeKey) || null;
+
+      resultModalTitleEl.textContent = `${t('result')} · ${displayGoal(command.goal)}`;
+      resultModalTabsEl.innerHTML = sections
+        .map((section) => `
+          <button
+            class="result-modal-tab ${section.key === activeKey ? 'active' : ''}"
+            data-result-tab="${escapeHtml(section.key)}"
+          >
+            ${escapeHtml(resultSectionLabel(section))}
+          </button>
+        `)
+        .join('');
+      resultModalContentEl.innerHTML = activeSection
+        ? `<pre class="result-markdown" id="resultModalBody">${escapeHtml(activeSection.body || t('noResultAvailable'))}</pre>`
+        : `<pre class="result-markdown" id="resultModalBody">${escapeHtml(t('noResultAvailable'))}</pre>`;
+      downloadResultBtnEl.disabled = !activeSection;
+      downloadResultBtnEl.onclick = activeSection ? () => downloadResultSection(command, activeSection) : null;
+      resultModalTabsEl.querySelectorAll('[data-result-tab]').forEach((node) => {
+        node.addEventListener('click', () => {
+          state.resultSectionTabByCommand[command.id] = node.dataset.resultTab;
+          renderResultModal(command);
+        });
+      });
+    }
+
     function composeSnapshot(summary, detail) {
       if (!summary) return null;
       return {
@@ -1793,6 +2019,7 @@
           pending: summary.agent_runs?.pending || [],
           items: detail?.agent_runs?.items || [],
         },
+        artifacts: detail?.artifacts || { items: [] },
         instructions: detail?.instructions || { items: [] },
         events: detail?.events || [],
       };
@@ -2001,6 +2228,29 @@
       }
     }
 
+    async function submitCommandControl(action, commandId) {
+      if (!commandId || state.commandControlInFlight) return;
+      state.commandControlInFlight = commandId;
+      if (state.snapshot) {
+        render(state.snapshot);
+      } else {
+        updateBusyState();
+      }
+      statusLineEl.textContent = action === 'stop'
+        ? `${t('stopJob')} ${commandId}…`
+        : `${t('resumeJob')} ${commandId}…`;
+      try {
+        await api(`/api/commands/${action}`, {
+          method: 'POST',
+          body: JSON.stringify({ command_id: commandId }),
+        });
+        await refreshSnapshot({ forceDetail: true });
+      } finally {
+        state.commandControlInFlight = null;
+        updateBusyState();
+      }
+    }
+
     function renderAgentRuns(snapshot) {
       const selected = state.selectedCommandId;
       const pendingApprovals = (snapshot.agent_runs.pending || []).filter((item) => !selected || item.command_id === selected);
@@ -2009,12 +2259,25 @@
         .filter((item) => !selected || item.command_id === selected)
         .slice()
         .reverse();
+      if (!selected || !agentRuns.length) {
+        agentRunsListEl.innerHTML = `<div class="agent-empty">${escapeHtml(t('noAgentRuns'))}</div>`;
+        return;
+      }
+
       const roleBuckets = new Map();
-      pendingApprovals.forEach((item) => {
+      agentRuns.forEach((item) => {
         const bucket = roleBuckets.get(item.role_name) || [];
         bucket.push(item);
         roleBuckets.set(item.role_name, bucket);
       });
+      const pendingBuckets = new Map();
+      pendingApprovals.forEach((item) => {
+        const bucket = pendingBuckets.get(item.role_name) || [];
+        bucket.push(item);
+        pendingBuckets.set(item.role_name, bucket);
+      });
+      const roles = orderedAgentRoles(agentRuns);
+      const activeRole = resolveAgentRoleTab(selected, roles, pendingApprovals);
       const batchMarkup = pendingApprovals.length ? `
         <section class="agent-batch-bar">
           <article class="agent-batch-group">
@@ -2026,45 +2289,90 @@
               <button class="primary" data-agent-allow-batch="${escapeHtml(batchCommandId)}" ${state.agentDecisionInFlight ? 'disabled' : ''}>${escapeHtml(t('allowAllPending'))}</button>
             </div>
           </article>
-          ${Array.from(roleBuckets.entries()).map(([roleName, items]) => `
+          ${Array.from(pendingBuckets.entries()).map(([roleName, items]) => `
             <article class="agent-batch-group">
               <div class="agent-batch-copy">
-                <strong>${escapeHtml(roleName)}</strong>
+                <strong>${escapeHtml(roleLabel(roleName))}</strong>
                 <span>${escapeHtml(formatText(t('pendingApprovalsCount'), { count: items.length }))}</span>
               </div>
               <div class="agent-batch-actions">
-                <button class="secondary" data-agent-allow-role="${escapeHtml(roleName)}" ${state.agentDecisionInFlight ? 'disabled' : ''}>${escapeHtml(formatText(t('allowAllRole'), { role: roleName }))}</button>
+                <button class="secondary" data-agent-allow-role="${escapeHtml(roleName)}" ${state.agentDecisionInFlight ? 'disabled' : ''}>${escapeHtml(formatText(t('allowAllRole'), { role: roleLabel(roleName) }))}</button>
               </div>
             </article>
           `).join('')}
         </section>
       ` : '';
-      agentRunsListEl.innerHTML = `${batchMarkup}${agentRuns.map((agentRun) => {
-        const pending = agentRun.state === 'pending_approval';
-        const busy = state.agentDecisionInFlight === agentRun.id;
-        const summary = agentRun.error || agentRun.output_summary || agentRun.prompt_excerpt || '';
+      const roleTabsMarkup = roles.length ? `
+        <div class="agent-role-tabs">
+          ${roles.map((roleName) => {
+            const count = roleBuckets.get(roleName)?.length || 0;
+            return `
+              <button
+                class="agent-role-tab ${roleName === activeRole ? 'active' : ''}"
+                data-agent-role-tab="${escapeHtml(roleName)}"
+              >
+                <span>${escapeHtml(roleLabel(roleName))}</span>
+                <span class="agent-role-count">${count}</span>
+              </button>
+            `;
+          }).join('')}
+        </div>
+      ` : '';
+      const rolePanelsMarkup = roles.map((roleName) => {
+        const runs = roleBuckets.get(roleName) || [];
         return `
-          <article class="card">
-            <div class="title">${escapeHtml(agentRun.title)}</div>
-            <div class="meta">
-              ${pill(agentRun.state, agentRunStateLabel)}
-              ${pill(agentRun.run_kind, agentRunKindLabel)}
-              <span>${escapeHtml(t('agentRole'))}: ${escapeHtml(agentRun.role_name)}</span>
-              <span>${escapeHtml(agentRun.runtime)}${agentRun.model ? ` / ${escapeHtml(agentRun.model)}` : ''}</span>
+          <section class="agent-role-panel ${roleName === activeRole ? 'active' : ''}" data-agent-role-panel="${escapeHtml(roleName)}">
+            <div class="agent-role-grid">
+              ${runs.map((agentRun) => {
+                const pending = agentRun.state === 'pending_approval';
+                const busy = state.agentDecisionInFlight === agentRun.id;
+                const summary = agentRun.error || agentRun.output_summary || '';
+                const runtimeText = `${agentRun.runtime}${agentRun.model ? ` / ${agentRun.model}` : ''}`;
+                const logText = agentRun.output_log || t('noAgentOutput');
+                return `
+                  <article class="agent-run-card ${pending ? 'pending' : ''}">
+                    <div class="agent-run-head">
+                      <div class="agent-run-title-stack">
+                        <div class="title">${escapeHtml(agentRun.title)}</div>
+                        <div class="meta">
+                          ${pill(agentRun.state, agentRunStateLabel)}
+                          ${pill(agentRun.run_kind, agentRunKindLabel)}
+                          <span>${escapeHtml(runtimeText)}</span>
+                        </div>
+                      </div>
+                    </div>
+                    ${summary ? `<div class="agent-run-summary">${escapeHtml(summary)}</div>` : ''}
+                    <div class="agent-log-shell">
+                      <div class="agent-log-head">
+                        <span class="agent-log-title">${escapeHtml(t('liveOutput'))}</span>
+                        <span class="agent-log-follow" data-agent-log-follow="${escapeHtml(agentRun.id)}">${escapeHtml(t('autoFollowOn'))}</span>
+                      </div>
+                      <pre class="agent-log-pane" data-agent-log-pane="${escapeHtml(agentRun.id)}">${escapeHtml(logText)}</pre>
+                    </div>
+                    <div class="meta">
+                      <span>${escapeHtml(t('agentRole'))}: ${escapeHtml(roleLabel(agentRun.role_name))}</span>
+                      <span>${escapeHtml(agentRun.created_at)}</span>
+                    </div>
+                    ${pending ? `
+                      <div class="agent-actions">
+                        <button class="primary" data-agent-allow="${escapeHtml(agentRun.id)}" ${busy ? 'disabled' : ''}>${escapeHtml(t('allow'))}</button>
+                        <button class="deny" data-agent-deny="${escapeHtml(agentRun.id)}" ${busy ? 'disabled' : ''}>${escapeHtml(t('deny'))}</button>
+                      </div>
+                    ` : ''}
+                  </article>
+                `;
+              }).join('')}
             </div>
-            ${summary ? `<div class="agent-run-summary">${escapeHtml(summary)}</div>` : ''}
-            <div class="meta">
-              <span>${escapeHtml(agentRun.created_at)}</span>
-            </div>
-            ${pending ? `
-              <div class="agent-actions">
-                <button class="primary" data-agent-allow="${escapeHtml(agentRun.id)}" ${busy ? 'disabled' : ''}>${escapeHtml(t('allow'))}</button>
-                <button class="deny" data-agent-deny="${escapeHtml(agentRun.id)}" ${busy ? 'disabled' : ''}>${escapeHtml(t('deny'))}</button>
-              </div>
-            ` : ''}
-          </article>
+          </section>
         `;
-      }).join('')}` || `<div class="meta">${escapeHtml(t('noAgentRuns'))}</div>`;
+      }).join('');
+      agentRunsListEl.innerHTML = `
+        <div class="agent-role-shell">
+          ${batchMarkup}
+          ${roleTabsMarkup}
+          ${rolePanelsMarkup}
+        </div>
+      `;
 
       agentRunsListEl.querySelectorAll('[data-agent-allow]').forEach((node) => {
         node.addEventListener('click', () => submitAgentDecision(node.dataset.agentAllow, 'approve'));
@@ -2078,6 +2386,10 @@
       agentRunsListEl.querySelectorAll('[data-agent-allow-role]').forEach((node) => {
         node.addEventListener('click', () => submitAgentBatchDecision(batchCommandId, node.dataset.agentAllowRole));
       });
+      agentRunsListEl.querySelectorAll('[data-agent-role-tab]').forEach((node) => {
+        node.addEventListener('click', () => setAgentRoleTab(node.dataset.agentRoleTab));
+      });
+      syncAgentLogPanes();
     }
 
     function renderQuestionHistory(snapshot) {
@@ -2126,6 +2438,9 @@
     function renderDetail(snapshot) {
       const selected = state.selectedCommandId || snapshot.commands.active[0]?.id || snapshot.commands.items[0]?.id;
       if (!selected) {
+        runControlBtnEl.textContent = t('stopJob');
+        runControlBtnEl.disabled = true;
+        runControlBtnEl.onclick = null;
         viewResultBtnEl.textContent = t('resultUnavailable');
         viewResultBtnEl.disabled = true;
         viewResultBtnEl.classList.remove('result-ready');
@@ -2137,10 +2452,32 @@
       state.selectedCommandId = selected;
       const command = snapshot.commands.items.find((item) => item.id === selected);
       const pendingApprovals = snapshot.agent_runs.pending.filter((item) => item.command_id === selected);
+      const resultSections = resultSectionsForCommand(snapshot, command);
+      const hasResult = resultSections.length > 0;
       const appendLocked = Boolean(command?.final_response) || ['done', 'failed'].includes(command.stage);
-      viewResultBtnEl.textContent = command?.final_response ? t('viewResult') : t('resultUnavailable');
-      viewResultBtnEl.disabled = !command?.final_response;
-      viewResultBtnEl.classList.toggle('result-ready', Boolean(command?.final_response));
+      const terminal = ['done', 'failed'].includes(command.stage);
+      const paused = command.stage === 'paused';
+      const stopBusy = state.commandControlInFlight === command.id;
+      if (terminal) {
+        runControlBtnEl.textContent = t('stopJob');
+        runControlBtnEl.disabled = true;
+        runControlBtnEl.onclick = null;
+      } else if (paused) {
+        runControlBtnEl.textContent = t('resumeJob');
+        runControlBtnEl.disabled = stopBusy;
+        runControlBtnEl.onclick = () => submitCommandControl('resume', command.id);
+      } else if (command.stop_requested || stopBusy) {
+        runControlBtnEl.textContent = t('stoppingJob');
+        runControlBtnEl.disabled = true;
+        runControlBtnEl.onclick = null;
+      } else {
+        runControlBtnEl.textContent = t('stopJob');
+        runControlBtnEl.disabled = false;
+        runControlBtnEl.onclick = () => submitCommandControl('stop', command.id);
+      }
+      viewResultBtnEl.textContent = hasResult ? t('viewResult') : t('resultUnavailable');
+      viewResultBtnEl.disabled = !hasResult;
+      viewResultBtnEl.classList.toggle('result-ready', hasResult);
       openAppendBtnEl.textContent = t('appendAction');
       openAppendBtnEl.disabled = appendLocked || state.appending;
 
@@ -2172,11 +2509,12 @@
           <div class="detail-keyvals">
             <div><strong>${escapeHtml(t('id'))}:</strong> ${escapeHtml(command.id)}</div>
             <div><strong>${escapeHtml(t('mode'))}:</strong> ${escapeHtml(modeLabel(command.effective_mode || command.workflow_mode))}</div>
+            <div><strong>${escapeHtml(t('approvalMode'))}:</strong> ${escapeHtml(approvalModeLabel(command.approval_mode))}</div>
             <div><strong>${escapeHtml(t('stage'))}:</strong> ${escapeHtml(stageLabel(command.stage))}</div>
             <div><strong>${escapeHtml(t('workingDirectory'))}:</strong> ${escapeHtml(command.workspace_root)}</div>
           </div>
         </div>
-        ${command?.final_response ? `
+        ${hasResult ? `
           <div class="detail-card">
             <h3>${escapeHtml(t('result'))}</h3>
             <div class="detail-keyvals">
@@ -2185,14 +2523,13 @@
           </div>
         ` : ''}
       `;
-      viewResultBtnEl.onclick = command?.final_response ? () => openResultModal(command) : null;
+      viewResultBtnEl.onclick = hasResult ? () => openResultModal(command) : null;
       openAppendBtnEl.onclick = appendLocked ? null : openAppendModal;
     }
 
     function openResultModal(command) {
       state.modalCommandId = command.id;
-      resultModalTitleEl.textContent = `${t('result')} · ${command.id}`;
-      resultModalBodyEl.textContent = command.final_response || t('noResultAvailable');
+      renderResultModal(command);
       resultModalEl.classList.add('open');
     }
 
@@ -2234,14 +2571,17 @@
       renderInstructions(snapshot);
       renderQuestionHistory(snapshot);
       renderEvents(snapshot);
+      if (state.modalCommandId) {
+        const modalCommand = snapshot.commands.items.find((item) => item.id === state.modalCommandId);
+        if (modalCommand && modalCommand.id === state.selectedCommandId) {
+          renderResultModal(modalCommand);
+        } else {
+          closeResultModal();
+        }
+      }
       setWorkspaceTab(state.currentTab);
       restoreScrollPositions(scrollPositions);
       updateBusyState();
-      engineOwnerBadgeEl.textContent = engineOwnerLabel(snapshot.runtime?.engine_owner);
-      const engineState = snapshot.runtime?.engine_state || {};
-      engineOwnerBadgeEl.title = engineState.status === 'error' && engineState.last_error
-        ? `${snapshot.runtime?.engine_owner || ''}\n${engineState.last_error}`
-        : (snapshot.runtime?.engine_owner || '');
       statusLineEl.textContent = composeStatusLine(state.summarySnapshot || snapshot);
     }
 
@@ -2275,6 +2615,8 @@
       updateBusyState();
       try {
         const summary = await api('/api/snapshot');
+        const localeToLoad = state.localeOverride || summary.runtime?.language || 'en';
+        await ensureLocaleBundles([localeToLoad]);
         const nextSelected = summary.commands.items.some((item) => item.id === state.selectedCommandId)
           ? state.selectedCommandId
           : summary.commands.active[0]?.id || summary.commands.items[0]?.id || null;
@@ -2314,34 +2656,56 @@
     }
 
     document.getElementById('refreshBtn').addEventListener('click', refreshSnapshot);
-    document.getElementById('languageSelect').addEventListener('change', (event) => {
+    openSubmitBtnEl.addEventListener('click', openSubmitModal);
+    closeSubmitBtnEl.addEventListener('click', closeSubmitModal);
+    document.getElementById('languageSelect').addEventListener('change', async (event) => {
       const nextLocale = event.target.value;
       state.localeOverride = nextLocale;
       const url = new URL(window.location.href);
       url.searchParams.set('lang', nextLocale);
       window.history.replaceState({}, '', url);
+      await ensureLocaleBundles([nextLocale]);
       if (state.snapshot) {
         render(state.snapshot);
       } else {
         applyLocale();
       }
     });
+    document.getElementById('approvalMode').addEventListener('change', syncApprovalModeNotice);
     document.getElementById('submitBtn').addEventListener('click', async () => {
       if (state.submitting) return;
-      const goal = document.getElementById('goal').value.trim();
+      const workspaceRoot = workspaceRootEl.value.trim();
+      if (!workspaceRoot) {
+        workspaceRootEl.reportValidity();
+        workspaceRootEl.focus();
+        return;
+      }
+      const goal = goalInputEl.value.trim();
       if (!goal) return;
-      const workflowMode = document.getElementById('workflowMode').value;
-      const priority = document.getElementById('priority').value;
-      const backend = document.getElementById('backend').value;
+      const workflowMode = workflowModeEl.value;
+      const approvalMode = approvalModeEl.value;
+      const priority = priorityEl.value;
+      const backend = backendEl.value;
       state.submitting = true;
       updateBusyState();
       statusLineEl.textContent = t('submitting');
       try {
-        await api('/api/commands', {
+        const payload = {
+          goal,
+          workflow_mode: workflowMode,
+          approval_mode: approvalMode,
+          priority,
+          backend,
+          workspace_root: workspaceRoot,
+        };
+        const result = await api('/api/commands', {
           method: 'POST',
-          body: JSON.stringify({ goal, workflow_mode: workflowMode, priority, backend }),
+          body: JSON.stringify(payload),
         });
-        document.getElementById('goal').value = '';
+        state.selectedCommandId = result.command?.id || state.selectedCommandId;
+        goalInputEl.value = '';
+        workspaceRootEl.value = '';
+        closeSubmitModal();
         await refreshSnapshot();
       } finally {
         state.submitting = false;
@@ -2372,6 +2736,9 @@
     });
     document.getElementById('closeResultBtn').addEventListener('click', closeResultModal);
     document.getElementById('closeAppendBtn').addEventListener('click', closeAppendModal);
+    submitModalEl.addEventListener('click', (event) => {
+      if (event.target === submitModalEl) closeSubmitModal();
+    });
     resultModalEl.addEventListener('click', (event) => {
       if (event.target === resultModalEl) closeResultModal();
     });
@@ -2382,10 +2749,18 @@
       button.addEventListener('click', () => setWorkspaceTab(button.dataset.tab));
     });
 
-    applyLocale();
-    updateBusyState();
-    refreshSnapshot();
-    setInterval(refreshSnapshot, 2500);
+    async function boot() {
+      await ensureLocaleBundles([currentLocale()]);
+      applyLocale();
+      syncApprovalModeNotice();
+      updateBusyState();
+      await refreshSnapshot();
+      window.setInterval(() => {
+        void refreshSnapshot();
+      }, 2500);
+    }
+
+    void boot();
   </script>
 </body>
 </html>

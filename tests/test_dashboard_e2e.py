@@ -35,6 +35,10 @@ def post_json(url: str, payload: dict):
         return json.loads(response.read().decode("utf-8"))
 
 
+def submit_job(tmp_path, *args):
+    return read_json(runner.invoke(app, ["submit", "--workspace-dir", str(tmp_path), *args]))
+
+
 def wait_for_refresh_condition(page, predicate, refresh_selector="#refreshBtn", attempts=12):
     last_error = None
     for _ in range(attempts):
@@ -64,11 +68,16 @@ def wait_for_python_condition(predicate, attempts=12, delay_seconds=0.3):
 def browser_page(viewport=None):
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
-        page = browser.new_page(viewport=viewport or {"width": 1600, "height": 1080})
+        context = browser.new_context(
+            viewport=viewport or {"width": 1600, "height": 1080},
+            accept_downloads=True,
+        )
+        page = context.new_page()
         page.set_default_timeout(15000)
         try:
             yield page
         finally:
+            context.close()
             browser.close()
 
 
@@ -92,17 +101,119 @@ def test_dashboard_browser_submit_and_view_result(tmp_path, monkeypatch):
     with dashboard_server(tmp_path) as base_url, browser_page() as page:
         page.goto(base_url)
 
+        page.locator("#openSubmitBtn").click()
+        expect(page.locator("#submitModal")).to_be_visible()
+        page.locator("#workspaceRoot").fill(str(tmp_path))
         page.locator("#goal").fill("implement happy path")
         page.locator("#submitBtn").click()
 
         expect(page.locator("#commandsList .command-item")).to_have_count(1)
-        expect(page.locator("#engineOwnerBadge")).to_contain_text("Dashboard")
+        expect(page.locator("#liveIndicator")).to_contain_text("LIVE")
         expect(page.locator("#viewResultBtn")).to_be_enabled()
         expect(page.locator("#openAppendBtn")).to_be_disabled()
 
         page.locator("#viewResultBtn").click()
         expect(page.locator("#resultModal")).to_be_visible()
-        expect(page.locator("#resultModalBody")).to_contain_text("Completed tasks:")
+        expect(page.locator("#resultModalTabs [data-result-tab]")).to_have_count(1)
+        expect(page.locator("#resultModalContent")).to_contain_text("Completed tasks:")
+
+
+def test_dashboard_browser_planning_result_tabs_and_download(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    with dashboard_server(tmp_path) as base_url, browser_page() as page:
+        page.goto(base_url)
+
+        page.locator("#openSubmitBtn").click()
+        expect(page.locator("#submitModal")).to_be_visible()
+        page.locator("#workflowMode").select_option("planning")
+        page.locator("#workspaceRoot").fill(str(tmp_path))
+        page.locator("#goal").fill("planning browser result")
+        page.locator("#submitBtn").click()
+
+        expect(page.locator("#viewResultBtn")).to_be_enabled()
+        page.locator("#viewResultBtn").click()
+        expect(page.locator("#resultModal")).to_be_visible()
+        expect(page.locator("#resultModalTabs [data-result-tab]")).to_have_count(3)
+        expect(page.locator("#resultModalTabs [data-result-tab]").nth(0)).to_have_text("Plan")
+        expect(page.locator("#resultModalTabs [data-result-tab]").nth(1)).to_have_text(
+            "Design Direction"
+        )
+        expect(page.locator("#resultModalTabs [data-result-tab]").nth(2)).to_have_text(
+            "Task Breakdown"
+        )
+        expect(page.locator("#resultModalContent")).to_contain_text("Goal: planning browser result")
+        expect(page.locator("#resultModalContent")).to_contain_text(
+            "Primary planning task: Produce a structured execution plan"
+        )
+
+        page.locator('#resultModalTabs [data-result-tab="task_breakdown"]').click()
+        expect(page.locator("#resultModalContent")).to_contain_text(
+            "Produce a structured execution plan"
+        )
+
+        with page.expect_download() as download_info:
+            page.locator("#downloadResultBtn").click()
+        download = download_info.value
+        assert download.suggested_filename == "planning_browser_result_Task_Breakdown.md"
+        target = tmp_path / "task-breakdown.md"
+        download.save_as(target)
+        assert "Produce a structured execution plan" in target.read_text(encoding="utf-8")
+
+
+def test_dashboard_browser_planning_result_download_uses_japanese_section_name(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    with dashboard_server(tmp_path) as base_url, browser_page() as page:
+        page.goto(f"{base_url}/?lang=ja")
+
+        page.locator("#openSubmitBtn").click()
+        expect(page.locator("#submitModal")).to_be_visible()
+        page.locator("#workflowMode").select_option("planning")
+        page.locator("#workspaceRoot").fill(str(tmp_path))
+        page.locator("#goal").fill("planning browser result")
+        page.locator("#submitBtn").click()
+
+        expect(page.locator("#viewResultBtn")).to_be_enabled()
+        page.locator("#viewResultBtn").click()
+        expect(page.locator('#resultModalTabs [data-result-tab="task_breakdown"]')).to_have_text(
+            "タスク分解"
+        )
+        page.locator('#resultModalTabs [data-result-tab="task_breakdown"]').click()
+
+        with page.expect_download() as download_info:
+            page.locator("#downloadResultBtn").click()
+        download = download_info.value
+        assert download.suggested_filename == "planning_browser_result_タスク分解.md"
+
+
+def test_dashboard_browser_submit_modal_manual_notice_and_workspace_root(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+    workspace_root = (tmp_path / "browser-workspace").resolve()
+
+    with dashboard_server(tmp_path) as base_url, browser_page() as page:
+        page.goto(f"{base_url}/?lang=ja")
+
+        page.locator("#openSubmitBtn").click()
+        expect(page.locator("#submitModal")).to_be_visible()
+        expect(page.locator("#approvalModeNotice")).not_to_be_visible()
+
+        page.locator("#approvalMode").select_option("manual")
+        expect(page.locator("#approvalModeNotice")).to_be_visible()
+        expect(page.locator("#approvalModeNoticeBody")).to_contain_text("エージェントタブ")
+
+        page.locator("#workflowMode").select_option("research")
+        page.locator("#workspaceRoot").fill(str(workspace_root))
+        page.locator("#goal").fill("workspace root from modal")
+        page.locator("#submitBtn").click()
+
+        expect(page.locator("#submitModal")).not_to_be_visible()
+        expect(page.locator("#commandDetail")).to_contain_text(str(workspace_root))
 
 
 def test_dashboard_browser_question_answer_survives_refresh_and_resumes(tmp_path, monkeypatch):
@@ -112,6 +223,8 @@ def test_dashboard_browser_question_answer_survives_refresh_and_resumes(tmp_path
     with dashboard_server(tmp_path) as base_url, browser_page() as page:
         page.goto(base_url)
 
+        page.locator("#openSubmitBtn").click()
+        page.locator("#workspaceRoot").fill(str(tmp_path))
         page.locator("#goal").fill("[worker_question] answer from browser dashboard")
         page.locator("#submitBtn").click()
 
@@ -122,7 +235,10 @@ def test_dashboard_browser_question_answer_survives_refresh_and_resumes(tmp_path
 
         post_json(
             f"{base_url}/api/commands",
-            {"goal": "background request to force a snapshot refresh"},
+            {
+                "goal": "background request to force a snapshot refresh",
+                "workspace_root": str(tmp_path),
+            },
         )
         page.locator("#refreshBtn").click()
 
@@ -133,18 +249,50 @@ def test_dashboard_browser_question_answer_survives_refresh_and_resumes(tmp_path
         expect(page.locator("#viewResultBtn")).to_be_enabled()
 
 
+def test_dashboard_browser_stop_and_resume_from_workspace_actions(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    with dashboard_server(tmp_path) as base_url, browser_page() as page:
+        page.goto(f"{base_url}/?lang=ja")
+
+        page.locator("#openSubmitBtn").click()
+        page.locator("#workspaceRoot").fill(str(tmp_path))
+        page.locator("#goal").fill("[worker_question] stop and resume from dashboard")
+        page.locator("#submitBtn").click()
+
+        expect(page.locator("#questionAlert")).to_be_visible()
+        expect(page.locator("#runControlBtn")).to_have_text("停止")
+        page.locator("#runControlBtn").click()
+
+        wait_for_refresh_condition(
+            page,
+            lambda: page.locator("#runControlBtn").inner_text() == "再開",
+        )
+        page.locator("#runControlBtn").click()
+        wait_for_refresh_condition(
+            page,
+            lambda: page.locator("#runControlBtn").inner_text() == "停止",
+        )
+
+        page.locator("#questionAlertAnswer").fill("再開して進めてください。")
+        expect(page.locator("#questionAlertSubmit")).to_be_enabled()
+        page.locator("#questionAlertSubmit").click()
+        expect(page.locator("#viewResultBtn")).to_be_enabled()
+
+
 def test_dashboard_browser_append_instruction_in_japanese_locale(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
     settings = load_config(tmp_path)
-    submitted = read_json(runner.invoke(app, ["submit", "[worker_question] dashboard append path"]))
+    submitted = submit_job(tmp_path, "[worker_question] dashboard append path")
     command_id = submitted["id"]
     read_json(runner.invoke(app, ["run", "--command-id", command_id]))
 
     with dashboard_server(tmp_path) as base_url, browser_page() as page:
         page.goto(f"{base_url}/?lang=ja")
 
-        expect(page.locator("#submitBtn")).to_have_text("依頼を投入")
+        expect(page.locator("#openSubmitBtn")).to_have_text("ジョブを投入")
         expect(page.locator("#openAppendBtn")).to_have_text("追加指示")
         expect(page.locator("#openAppendBtn")).to_be_enabled()
 
@@ -159,9 +307,10 @@ def test_dashboard_browser_append_instruction_in_japanese_locale(tmp_path, monke
                 for instruction in list_instructions(settings.db_path, command_id=command_id)
             )
         )
-        page.locator("#overviewTab").click()
-
+        page.locator("#refreshBtn").click()
+        expect(page.locator("#questionAlert")).to_be_visible()
         page.locator("#questionAlertAnswer").fill("このまま進めてください。")
+        expect(page.locator("#questionAlertSubmit")).to_be_enabled()
         page.locator("#questionAlertSubmit").click()
 
         expect(page.locator("#viewResultBtn")).to_be_enabled()
@@ -185,7 +334,9 @@ def test_dashboard_browser_workflow_modes_complete_from_ui(
     with dashboard_server(tmp_path) as base_url, browser_page() as page:
         page.goto(base_url)
 
+        page.locator("#openSubmitBtn").click()
         page.locator("#workflowMode").select_option(mode)
+        page.locator("#workspaceRoot").fill(str(tmp_path))
         page.locator("#goal").fill(goal)
         page.locator("#submitBtn").click()
 
@@ -220,7 +371,10 @@ def test_dashboard_browser_agents_tab_handles_manual_approval(tmp_path, monkeypa
     with dashboard_server(tmp_path) as base_url, browser_page() as page:
         page.goto(base_url)
 
+        page.locator("#openSubmitBtn").click()
         page.locator("#workflowMode").select_option("implementation")
+        page.locator("#approvalMode").select_option("manual")
+        page.locator("#workspaceRoot").fill(str(tmp_path))
         page.locator("#goal").fill("agent approval coverage")
         page.locator("#submitBtn").click()
 
@@ -232,7 +386,11 @@ def test_dashboard_browser_agents_tab_handles_manual_approval(tmp_path, monkeypa
         )
         page.locator("#refreshBtn").click()
         page.locator("#agentsTab").click()
+        expect(page.locator('[data-agent-role-tab="implementer"]')).to_be_visible()
         expect(page.locator("[data-agent-allow]")).to_be_visible()
+        expect(
+            page.locator('[data-agent-role-panel="implementer"].active [data-agent-log-pane]')
+        ).to_contain_text("waiting for operator approval")
         page.locator("[data-agent-allow]").click()
 
         wait_for_python_condition(
@@ -243,6 +401,130 @@ def test_dashboard_browser_agents_tab_handles_manual_approval(tmp_path, monkeypa
         page.locator("#refreshBtn").click()
         page.locator("#overviewTab").click()
         expect(page.locator("#viewResultBtn")).to_be_enabled()
+
+
+def test_dashboard_browser_agents_tab_groups_runs_by_role_for_completed_implementation(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    with dashboard_server(tmp_path) as base_url, browser_page() as page:
+        page.goto(f"{base_url}/?lang=ja")
+
+        page.locator("#openSubmitBtn").click()
+        page.locator("#workflowMode").select_option("implementation")
+        page.locator("#workspaceRoot").fill(str(tmp_path))
+        page.locator("#goal").fill("role grouped logs")
+        page.locator("#submitBtn").click()
+
+        expect(page.locator("#viewResultBtn")).to_be_enabled()
+        page.locator("#agentsTab").click()
+
+        expect(page.locator('[data-agent-role-tab="planner"]')).to_be_visible()
+        expect(page.locator('[data-agent-role-tab="implementer"]')).to_be_visible()
+        expect(page.locator('[data-agent-role-tab="tester"]')).to_be_visible()
+        expect(page.locator('[data-agent-role-tab="reviewer"]')).to_be_visible()
+
+        page.locator('[data-agent-role-tab="reviewer"]').click()
+        expect(
+            page.locator('[data-agent-role-panel="reviewer"].active .agent-run-card')
+        ).to_have_count(2)
+        reviewer_log = page.locator(
+            '[data-agent-role-panel="reviewer"].active [data-agent-log-pane]'
+        ).first
+        expect(reviewer_log).to_contain_text("mock reviewer")
+
+
+def test_dashboard_browser_agents_log_auto_follow_resets_on_tab_switch(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    agents_path = tmp_path / "agents.ini"
+    parser = configparser.ConfigParser()
+    parser.read(agents_path, encoding="utf-8")
+    parser.set("implementer", "runtime", "codex")
+    parser.set("implementer", "model", "mock-implementer")
+    with agents_path.open("w", encoding="utf-8") as handle:
+        parser.write(handle)
+
+    settings = load_config(tmp_path)
+    monkeypatch.setattr(
+        service_module, "backend_for", lambda *args, **kwargs: service_module.MockBackend()
+    )
+
+    with dashboard_server(tmp_path) as base_url, browser_page() as page:
+        page.goto(f"{base_url}/?lang=ja")
+
+        page.locator("#openSubmitBtn").click()
+        page.locator("#workflowMode").select_option("implementation")
+        page.locator("#approvalMode").select_option("manual")
+        page.locator("#workspaceRoot").fill(str(tmp_path))
+        page.locator("#goal").fill("agent log follow coverage")
+        page.locator("#submitBtn").click()
+
+        pending_run = wait_for_python_condition(
+            lambda: next(
+                (
+                    run
+                    for run in list_agent_runs(settings.db_path)
+                    if run.state.value == "pending_approval"
+                ),
+                None,
+            )
+        )
+
+        page.locator("#refreshBtn").click()
+        page.locator("#agentsTab").click()
+        expect(page.locator('[data-agent-role-tab="implementer"]')).to_be_visible()
+
+        log_selector = (
+            f'[data-agent-role-panel="implementer"].active [data-agent-log-pane="{pending_run.id}"]'
+        )
+        badge_selector = f'[data-agent-log-follow="{pending_run.id}"]'
+        expect(page.locator(log_selector)).to_contain_text("waiting for operator approval")
+        expect(page.locator(badge_selector)).to_have_text("自動追尾")
+
+        for index in range(80):
+            service_module.append_agent_run_log(
+                settings.db_path,
+                pending_run.id,
+                service_module.format_agent_log_line(f"overflow line {index} {'x' * 48}"),
+            )
+        service_module.append_agent_run_log(
+            settings.db_path,
+            pending_run.id,
+            service_module.format_agent_log_line("manual test line 1"),
+        )
+        page.locator("#refreshBtn").click()
+        wait_for_python_condition(
+            lambda: page.locator(log_selector).evaluate("(el) => el.scrollHeight > el.clientHeight")
+        )
+        assert page.locator(log_selector).evaluate(
+            "(el) => Math.abs(el.scrollHeight - el.scrollTop - el.clientHeight) <= 16"
+        )
+
+        page.locator(log_selector).evaluate(
+            "(el) => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')); }"
+        )
+        page.wait_for_timeout(150)
+        expect(page.locator(badge_selector)).to_have_text("追尾停止")
+
+        service_module.append_agent_run_log(
+            settings.db_path,
+            pending_run.id,
+            service_module.format_agent_log_line("manual test line 2"),
+        )
+        page.locator("#refreshBtn").click()
+        expect(page.locator(log_selector)).to_contain_text("manual test line 2")
+        assert page.locator(log_selector).evaluate("(el) => el.scrollTop <= 4")
+
+        page.locator("#overviewTab").click()
+        page.locator("#agentsTab").click()
+        expect(page.locator(badge_selector)).to_have_text("自動追尾")
+        assert page.locator(log_selector).evaluate(
+            "(el) => Math.abs(el.scrollHeight - el.scrollTop - el.clientHeight) <= 16"
+        )
 
 
 def test_dashboard_browser_selection_language_switch_and_working_directory(tmp_path, monkeypatch):
@@ -258,7 +540,7 @@ def test_dashboard_browser_selection_language_switch_and_working_directory(tmp_p
                 "submit",
                 "--mode",
                 "research",
-                "--workspace-root",
+                "--workspace-dir",
                 str(workspace_a),
                 "investigate the current architecture",
             ],
@@ -271,7 +553,7 @@ def test_dashboard_browser_selection_language_switch_and_working_directory(tmp_p
                 "submit",
                 "--mode",
                 "review",
-                "--workspace-root",
+                "--workspace-dir",
                 str(workspace_b),
                 "review the existing changes",
             ],
@@ -285,7 +567,7 @@ def test_dashboard_browser_selection_language_switch_and_working_directory(tmp_p
 
         expect(page.locator("#commandsList .command-item")).to_have_count(2)
         page.locator("#languageSelect").select_option("ja")
-        expect(page.locator("#submitBtn")).to_have_text("依頼を投入")
+        expect(page.locator("#openSubmitBtn")).to_have_text("ジョブを投入")
 
         page.locator(f'[data-command-id="{second["id"]}"]').click()
         expect(page.locator("#commandDetail")).to_contain_text("作業ディレクトリ")
@@ -301,8 +583,8 @@ def test_dashboard_browser_state_classes_and_result_modal_close(tmp_path, monkey
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
 
-    completed = read_json(runner.invoke(app, ["submit", "completed request"]))
-    waiting = read_json(runner.invoke(app, ["submit", "[worker_question] waiting request"]))
+    completed = submit_job(tmp_path, "completed request")
+    waiting = submit_job(tmp_path, "[worker_question] waiting request")
     read_json(runner.invoke(app, ["run", "--command-id", completed["id"]]))
     read_json(runner.invoke(app, ["run", "--command-id", waiting["id"]]))
 
@@ -334,8 +616,10 @@ def test_dashboard_browser_mobile_question_flow(tmp_path, monkeypatch):
     ):
         page.goto(f"{base_url}/?lang=ja")
 
-        expect(page.locator("#goal")).to_be_visible()
-        expect(page.locator("#submitBtn")).to_have_text("依頼を投入")
+        expect(page.locator("#openSubmitBtn")).to_have_text("ジョブを投入")
+        page.locator("#openSubmitBtn").click()
+        expect(page.locator("#submitModal")).to_be_visible()
+        page.locator("#workspaceRoot").fill(str(tmp_path))
         page.locator("#goal").fill("[worker_question] mobile browser flow")
         page.locator("#submitBtn").click()
 

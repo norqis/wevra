@@ -10,10 +10,8 @@ from wevra.models import RuntimeBackend
 
 
 DEFAULT_WEVRA_INI = """[runtime]
-working_dir = .
 db_path = .wevra/wevra.db
 language = en
-auto_approve_agent_actions = false
 agent_timeout_seconds = 1800
 home =
 
@@ -111,7 +109,6 @@ class AppConfig:
     db_path: Path
     language: str
     runtime_home: Path | None
-    auto_approve_agent_actions: bool
     agent_timeout_seconds: int
     ui_port: int
     ui_auto_start: bool
@@ -188,7 +185,6 @@ def load_config(repo_root: Path) -> AppConfig:
     merged_env = dict(env_file)
     merged_env.update({key: value for key, value in os.environ.items() if key not in merged_env})
 
-    working_dir_raw = parser.get("runtime", "working_dir", fallback=".").strip() or "."
     db_path_raw = (
         parser.get("runtime", "db_path", fallback=".wevra/wevra.db").strip() or ".wevra/wevra.db"
     )
@@ -196,17 +192,12 @@ def load_config(repo_root: Path) -> AppConfig:
         parser.get("runtime", "home", fallback=""),
         repo_root,
     )
-    auto_approve_agent_actions = normalize_bool(
-        parser.get("runtime", "auto_approve_agent_actions", fallback="false")
-    )
     agent_timeout_seconds = max(
         parser.getint("runtime", "agent_timeout_seconds", fallback=1800),
         1,
     )
 
-    working_dir = Path(working_dir_raw)
-    if not working_dir.is_absolute():
-        working_dir = (repo_root / working_dir).resolve()
+    working_dir = repo_root
 
     db_path = Path(db_path_raw)
     if not db_path.is_absolute():
@@ -240,7 +231,6 @@ def load_config(repo_root: Path) -> AppConfig:
         db_path=db_path,
         language=parser.get("runtime", "language", fallback="en").strip() or "en",
         runtime_home=runtime_home,
-        auto_approve_agent_actions=auto_approve_agent_actions,
         agent_timeout_seconds=agent_timeout_seconds,
         ui_port=parser.getint("ui", "port", fallback=43861),
         ui_auto_start=normalize_bool(parser.get("ui", "auto_start", fallback="true")),

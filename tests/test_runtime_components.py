@@ -31,6 +31,7 @@ from wevra.dashboard import (
 )
 from wevra.db import connect, initialize_database
 from wevra.models import (
+    ApprovalMode,
     CommandRecord,
     CommandStage,
     PlannerDecision,
@@ -62,6 +63,7 @@ from wevra.service import (
     infer_mode_from_goal,
     infer_mode_from_specs,
     list_agent_runs,
+    list_artifacts,
     list_instructions,
     mode_prompt_guidance,
     mode_requires_review,
@@ -82,6 +84,23 @@ runner = CliRunner()
 def read_json(result):
     assert result.exit_code == 0, result.stdout
     return json.loads(result.stdout)
+
+
+def submit_job(tmp_path, *args):
+    return read_json(runner.invoke(app, ["submit", "--workspace-dir", str(tmp_path), *args]))
+
+
+def submit_direct(tmp_path, settings, *, goal, workflow_mode, priority, **kwargs):
+    return submit_command(
+        settings.db_path,
+        goal=goal,
+        workflow_mode=workflow_mode,
+        priority=priority,
+        workspace_root=tmp_path,
+        settings=settings,
+        repo_root=tmp_path,
+        **kwargs,
+    )
 
 
 def request_json(url: str, *, method: str = "GET", body: Optional[bytes] = None, headers=None):
@@ -120,17 +139,17 @@ def test_config_helpers_parse_env_and_resolve_paths(tmp_path):
     )
 
 
-def test_init_repo_config_is_idempotent_and_load_config_creates_workdir(tmp_path, monkeypatch):
+def test_init_repo_config_is_idempotent_and_load_config_uses_repo_root_as_workdir(
+    tmp_path, monkeypatch
+):
     created = init_repo_config(tmp_path)
     assert set(created) == {"wevra.ini", "agents.ini", ".env"}
     assert init_repo_config(tmp_path) == {}
 
     (tmp_path / "wevra.ini").write_text(
         """[runtime]
-working_dir = worktree
 db_path = runtime/app.db
 language = ja
-auto_approve_agent_actions = true
 agent_timeout_seconds = 321
 home = runtime-home
 
@@ -171,9 +190,8 @@ count = 0
 
     assert settings.language == "ja"
     assert settings.runtime_home == (tmp_path / "runtime-home").resolve()
-    assert settings.auto_approve_agent_actions is True
     assert settings.agent_timeout_seconds == 321
-    assert settings.working_dir == (tmp_path / "worktree").resolve()
+    assert settings.working_dir == tmp_path.resolve()
     assert settings.working_dir.is_dir()
     assert settings.db_path == (tmp_path / "runtime/app.db").resolve()
     assert settings.ui_auto_start is False
@@ -200,11 +218,6 @@ def test_cli_public_commands_cover_version_status_and_listing(tmp_path, monkeypa
     assert version.exit_code == 0
     assert version.stdout.strip() == __version__
 
-    custom_db = tmp_path / "custom.sqlite3"
-    init_db = runner.invoke(app, ["init-db", "--db-path", str(custom_db)])
-    assert init_db.exit_code == 0
-    assert str(custom_db.resolve()) in init_db.stdout
-
     submitted = read_json(
         runner.invoke(
             app,
@@ -212,7 +225,7 @@ def test_cli_public_commands_cover_version_status_and_listing(tmp_path, monkeypa
                 "submit",
                 "--mode",
                 "research",
-                "--workspace-root",
+                "--workspace-dir",
                 str(tmp_path / "workspace-a"),
                 "investigate the current architecture",
             ],
@@ -305,6 +318,15 @@ def test_cli_start_stop_status_and_dashboard_subcommands_use_helpers(tmp_path, m
 def test_dashboard_http_handles_errors_and_serves_snapshot(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
+    docs_images = tmp_path / "docs" / "images"
+    docs_images.mkdir(parents=True, exist_ok=True)
+    docs_images.joinpath("probe.png").write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        b"\x00\x00\x00\rIHDR"
+        b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+        b"\x00\x00\x00\x0cIDATx\x9cc`\x00\x00\x00\x02\x00\x01\xe2!\xbc3"
+        b"\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
 
     server = create_server(tmp_path, 0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -315,7 +337,17 @@ def test_dashboard_http_handles_errors_and_serves_snapshot(tmp_path, monkeypatch
 
         with request.urlopen(f"{base_url}/") as response:
             html = response.read().decode("utf-8")
-        assert "Wevra Runtime" in html
+        assert "<title>Wevra</title>" in html
+
+        with request.urlopen(f"{base_url}/static/i18n/ja.json") as response:
+            locale_payload = json.loads(response.read().decode("utf-8"))
+        assert locale_payload["text"]["openSubmitBtn"] == "ジョブを投入"
+
+        with request.urlopen(f"{base_url}/docs-images/probe.png") as response:
+            image_bytes = response.read()
+            image_mime = response.headers.get_content_type()
+        assert image_mime == "image/png"
+        assert image_bytes.startswith(b"\x89PNG")
 
         status, payload = request_json(f"{base_url}/api/snapshot")
         assert status == 200
@@ -336,6 +368,7 @@ def test_dashboard_http_handles_errors_and_serves_snapshot(tmp_path, monkeypatch
 
         cases = [
             ("/api/commands", {}, "goal_required"),
+            ("/api/commands", {"goal": "x"}, "workspace_root_required"),
             ("/api/commands/append", {"command_id": "x"}, "command_and_body_required"),
             ("/api/questions/answer", {"question_id": "x"}, "question_and_answer_required"),
             ("/api/agent-runs/approve", {}, "agent_run_id_required"),
@@ -462,7 +495,7 @@ def test_dashboard_url_stays_on_loopback(tmp_path):
 def test_build_snapshot_includes_counts_roles_and_active_commands(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
-    submitted = read_json(runner.invoke(app, ["submit", "[worker_question] snapshot coverage"]))
+    submitted = submit_job(tmp_path, "[worker_question] snapshot coverage")
     command_id = submitted["id"]
     read_json(runner.invoke(app, ["run", "--command-id", command_id]))
 
@@ -473,6 +506,7 @@ def test_build_snapshot_includes_counts_roles_and_active_commands(tmp_path, monk
     assert snapshot["questions"]["counts"]["open"] == 1
     assert snapshot["commands"]["active"][0]["id"] == command_id
     assert any(run["command_id"] == command_id for run in snapshot["agent_runs"]["items"])
+    assert any("output_log" in run for run in snapshot["agent_runs"]["items"])
     assert snapshot["checksum"]
 
 
@@ -508,9 +542,14 @@ def test_dashboard_snapshot_and_agent_approval_endpoints(tmp_path, monkeypatch):
         created = request_json(
             f"{base_url}/api/commands",
             method="POST",
-            body=json.dumps({"goal": "needs approval", "workflow_mode": "planning"}).encode(
-                "utf-8"
-            ),
+            body=json.dumps(
+                {
+                    "goal": "needs approval",
+                    "workflow_mode": "planning",
+                    "approval_mode": "manual",
+                    "workspace_root": str(tmp_path),
+                }
+            ).encode("utf-8"),
             headers={"Content-Type": "application/json"},
         )[1]["command"]
 
@@ -575,7 +614,15 @@ def test_build_summary_and_command_detail_split_selected_data(tmp_path, monkeypa
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
     submitted = read_json(
-        runner.invoke(app, ["submit", "[worker_question] split payload coverage"])
+        runner.invoke(
+            app,
+            [
+                "submit",
+                "--workspace-dir",
+                str(tmp_path),
+                "[worker_question] split payload coverage",
+            ],
+        )
     )
     command_id = submitted["id"]
     read_json(runner.invoke(app, ["run", "--command-id", command_id]))
@@ -590,6 +637,36 @@ def test_build_summary_and_command_detail_split_selected_data(tmp_path, monkeypa
     assert detail["command"]["id"] == command_id
     assert detail["tasks"]["items"]
     assert detail["questions"]["items"][0]["command_id"] == command_id
+    assert "output_log" in detail["agent_runs"]["items"][0]
+
+
+def test_build_command_detail_includes_result_artifacts(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+    submitted = read_json(
+        runner.invoke(
+            app,
+            [
+                "submit",
+                "--mode",
+                "planning",
+                "--workspace-dir",
+                str(tmp_path),
+                "detail artifacts planning",
+            ],
+        )
+    )
+    command_id = submitted["id"]
+    read_json(runner.invoke(app, ["run", "--command-id", command_id]))
+
+    detail = build_command_detail(tmp_path, command_id)
+
+    assert [item["metadata"]["section_key"] for item in detail["artifacts"]["items"]] == [
+        "plan",
+        "design_direction",
+        "task_breakdown",
+    ]
+    assert detail["artifacts"]["items"][0]["body"]
 
 
 def test_engine_loop_reports_background_errors_in_summary_snapshot(tmp_path, monkeypatch):
@@ -626,52 +703,52 @@ def test_structured_cli_backends_build_commands_and_handle_failures(tmp_path, mo
 
     codex_runs = []
 
-    def fake_codex_run(command, cwd, env, text, capture_output, check, timeout):
-        codex_runs.append((command, cwd, env))
-        output_path = Path(command[command.index("--output-last-message") + 1])
-        output_path.write_text(json.dumps({"decision": "complete"}), encoding="utf-8")
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
+    def fake_stream(self, command, workspace_root, env, **kwargs):
+        codex_runs.append((command, workspace_root, env, kwargs))
+        if command[0] == "codex":
+            output_path = Path(command[command.index("--output-last-message") + 1])
+            output_path.write_text(json.dumps({"decision": "complete"}), encoding="utf-8")
+            return 0, "", ""
+        return (
+            0,
+            json.dumps({"decision": "approve", "summary": "ok", "findings": []}),
+            "",
+        )
 
-    monkeypatch.setattr(service_module.subprocess, "run", fake_codex_run)
+    monkeypatch.setattr(StructuredCliBackend, "_run_streaming_process", fake_stream)
     codex_backend = StructuredCliBackend(
         RuntimeBackend.CODEX,
         model="gpt-test",
-        auto_approve_agent_actions=False,
+        approval_mode=ApprovalMode.MANUAL,
         timeout_seconds=30,
         runtime_home=runtime_home,
     )
     codex_payload = codex_backend._run_codex("hello", {"type": "object"}, tmp_path)
-    codex_command, codex_cwd, codex_env = codex_runs[0]
+    codex_command, codex_cwd, codex_env, codex_kwargs = codex_runs[0]
     assert codex_payload == {"decision": "complete"}
     assert codex_command[:2] == ["codex", "exec"]
     assert "--model" in codex_command
     assert "--full-auto" in codex_command
-    assert codex_cwd == str(tmp_path)
+    assert codex_cwd == tmp_path
     assert codex_env["HOME"] == str(runtime_home)
+    assert codex_kwargs["agent_run_id"] is None
 
-    def fake_claude_run(command, cwd, env, text, capture_output, check, timeout):
-        assert "--dangerously-skip-permissions" in command
-        return SimpleNamespace(
-            returncode=0,
-            stdout=json.dumps({"decision": "approve", "summary": "ok", "findings": []}),
-            stderr="",
-        )
-
-    monkeypatch.setattr(service_module.subprocess, "run", fake_claude_run)
     claude_backend = StructuredCliBackend(
         RuntimeBackend.CLAUDE,
         model="opus-test",
-        auto_approve_agent_actions=True,
+        approval_mode=ApprovalMode.AUTO,
         timeout_seconds=30,
         runtime_home=runtime_home,
     )
     claude_payload = claude_backend._run_claude("review", {"type": "object"}, tmp_path)
     assert claude_payload["decision"] == "approve"
+    claude_command = codex_runs[1][0]
+    assert "--dangerously-skip-permissions" in claude_command
 
     monkeypatch.setattr(
-        service_module.subprocess,
-        "run",
-        lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout="", stderr="boom"),
+        StructuredCliBackend,
+        "_run_streaming_process",
+        lambda self, *args, **kwargs: (1, "", "boom"),
     )
     with pytest.raises(RuntimeError, match="boom"):
         codex_backend._run_codex("broken", {"type": "object"}, tmp_path)
@@ -681,9 +758,110 @@ def test_structured_cli_backends_build_commands_and_handle_failures(tmp_path, mo
         StructuredCliBackend(
             RuntimeBackend.INHERIT,
             model="",
-            auto_approve_agent_actions=False,
+            approval_mode=ApprovalMode.MANUAL,
             timeout_seconds=30,
         )._run_structured("prompt", {}, str(tmp_path))
+
+
+def test_manual_agent_runs_capture_logs_and_expose_them_in_detail_payload(tmp_path, monkeypatch):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    settings.roles["implementer"].runtime = RuntimeBackend.CODEX
+    initialize_database(settings.db_path)
+    monkeypatch.setattr(
+        service_module, "backend_for", lambda *args, **kwargs: service_module.MockBackend()
+    )
+
+    command = submit_direct(
+        tmp_path,
+        settings,
+        goal="manual approval log coverage",
+        workflow_mode=WorkflowMode.IMPLEMENTATION,
+        approval_mode=ApprovalMode.MANUAL,
+        priority=Priority.HIGH,
+    )
+
+    tick_once(settings.db_path, command_id=command.id, settings=settings, repo_root=tmp_path)
+    tick_once(settings.db_path, command_id=command.id, settings=settings, repo_root=tmp_path)
+    approval = tick_once(
+        settings.db_path, command_id=command.id, settings=settings, repo_root=tmp_path
+    )
+    assert approval.action == "approval_required"
+
+    pending_runs = [
+        run
+        for run in list_agent_runs(settings.db_path, command_id=command.id)
+        if run.state.value == "pending_approval"
+    ]
+    assert pending_runs
+    assert "waiting for operator approval" in pending_runs[0].output_log
+    assert "prompt:" in pending_runs[0].output_log
+
+    approve_agent_runs_batch(settings.db_path, command.id, role_name="implementer")
+
+    for _ in range(20):
+        tick_once(settings.db_path, command_id=command.id, settings=settings, repo_root=tmp_path)
+        current = service_module.get_command(settings.db_path, command.id)
+        if current.stage in {CommandStage.DONE, CommandStage.FAILED}:
+            break
+    else:
+        raise AssertionError("command did not finish")
+
+    completed_runs = list_agent_runs(settings.db_path, command_id=command.id)
+    assert any("mock worker started" in run.output_log for run in completed_runs)
+    assert any("mock worker completed" in run.output_log for run in completed_runs)
+
+    detail = build_command_detail(tmp_path, command.id)
+    assert any(
+        "output_log" in item and item["output_log"] for item in detail["agent_runs"]["items"]
+    )
+
+
+def test_request_stop_and_resume_round_trip_for_running_command(tmp_path):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    initialize_database(settings.db_path)
+
+    command = submit_direct(
+        tmp_path,
+        settings,
+        goal="stop and resume coverage",
+        workflow_mode=WorkflowMode.RESEARCH,
+        priority=Priority.HIGH,
+    )
+
+    first = tick_once(
+        settings.db_path, command_id=command.id, settings=settings, repo_root=tmp_path
+    )
+    second = tick_once(
+        settings.db_path, command_id=command.id, settings=settings, repo_root=tmp_path
+    )
+    assert first.action == "planning_started"
+    assert second.action == "tasks_planned"
+
+    stopped = service_module.request_command_stop(settings.db_path, command.id)
+    assert stopped.stop_requested is True
+    assert stopped.resume_stage == CommandStage.RUNNING
+
+    paused = tick_once(
+        settings.db_path, command_id=command.id, settings=settings, repo_root=tmp_path
+    )
+    assert paused.action == "command_paused"
+    current = service_module.get_command(settings.db_path, command.id)
+    assert current.stage == CommandStage.PAUSED
+    assert current.resume_stage == CommandStage.RUNNING
+
+    resumed = service_module.resume_command(settings.db_path, command.id)
+    assert resumed.stage == CommandStage.RUNNING
+    assert resumed.resume_stage is None
+
+    final = service_module.run_engine(
+        settings.db_path,
+        command_id=command.id,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+    assert final["final_command"]["stage"] == CommandStage.DONE.value
 
 
 def test_service_mode_helpers_and_context_payload_cover_inference_paths(tmp_path):
@@ -805,13 +983,12 @@ def test_service_task_creation_validation_and_selection_rules(tmp_path):
     init_repo_config(tmp_path)
     settings = load_config(tmp_path)
     initialize_database(settings.db_path)
-    command = submit_command(
-        settings.db_path,
+    command = submit_direct(
+        tmp_path,
+        settings,
         goal="implement validation",
         workflow_mode=WorkflowMode.IMPLEMENTATION,
         priority=Priority.HIGH,
-        settings=settings,
-        repo_root=tmp_path,
     )
 
     with connect(settings.db_path) as conn:
@@ -921,13 +1098,12 @@ def test_service_waiting_question_answer_validation_and_terminal_noops(tmp_path)
     init_repo_config(tmp_path)
     settings = load_config(tmp_path)
     initialize_database(settings.db_path)
-    command = submit_command(
-        settings.db_path,
+    command = submit_direct(
+        tmp_path,
+        settings,
         goal="waiting question validation",
         workflow_mode=WorkflowMode.RESEARCH,
         priority=Priority.HIGH,
-        settings=settings,
-        repo_root=tmp_path,
     )
 
     with connect(settings.db_path) as conn:
@@ -981,13 +1157,12 @@ def test_service_append_instruction_and_list_helpers_validate_errors(tmp_path):
     init_repo_config(tmp_path)
     settings = load_config(tmp_path)
     initialize_database(settings.db_path)
-    command = submit_command(
-        settings.db_path,
+    command = submit_direct(
+        tmp_path,
+        settings,
         goal="append validation",
         workflow_mode=WorkflowMode.RESEARCH,
         priority=Priority.HIGH,
-        settings=settings,
-        repo_root=tmp_path,
     )
 
     with pytest.raises(ValueError, match="Instruction body must not be blank."):
@@ -1004,13 +1179,12 @@ def test_append_instruction_rejects_terminal_commands(tmp_path):
     init_repo_config(tmp_path)
     settings = load_config(tmp_path)
     initialize_database(settings.db_path)
-    command = submit_command(
-        settings.db_path,
+    command = submit_direct(
+        tmp_path,
+        settings,
         goal="append validation complete",
         workflow_mode=WorkflowMode.RESEARCH,
         priority=Priority.HIGH,
-        settings=settings,
-        repo_root=tmp_path,
     )
 
     with connect(settings.db_path) as conn:
@@ -1024,20 +1198,37 @@ def test_append_instruction_rejects_terminal_commands(tmp_path):
         append_instruction(settings.db_path, command.id, "Follow this up.")
 
 
+def test_submit_command_defaults_to_auto_approval_mode(tmp_path):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    initialize_database(settings.db_path)
+
+    command = submit_direct(
+        tmp_path,
+        settings,
+        goal="default approval mode",
+        workflow_mode=WorkflowMode.RESEARCH,
+        priority=Priority.MEDIUM,
+    )
+
+    assert command.approval_mode == ApprovalMode.AUTO
+    stored = service_module.get_command(settings.db_path, command.id)
+    assert stored.approval_mode == ApprovalMode.AUTO
+
+
 def test_agent_run_approval_and_denial_flow(tmp_path, monkeypatch):
     init_repo_config(tmp_path)
     settings = load_config(tmp_path)
     settings.roles["planner"].runtime = RuntimeBackend.CODEX
-    settings.auto_approve_agent_actions = False
     initialize_database(settings.db_path)
 
-    command = submit_command(
-        settings.db_path,
+    command = submit_direct(
+        tmp_path,
+        settings,
         goal="approval path",
         workflow_mode=WorkflowMode.PLANNING,
+        approval_mode=ApprovalMode.MANUAL,
         priority=Priority.HIGH,
-        settings=settings,
-        repo_root=tmp_path,
     )
 
     tick_once(settings.db_path, command_id=command.id, settings=settings, repo_root=tmp_path)
@@ -1069,13 +1260,13 @@ def test_agent_run_approval_and_denial_flow(tmp_path, monkeypatch):
     assert done.action == "command_completed"
     assert done.command.stage == CommandStage.DONE
 
-    denied_command = submit_command(
-        settings.db_path,
+    denied_command = submit_direct(
+        tmp_path,
+        settings,
         goal="denial path",
         workflow_mode=WorkflowMode.PLANNING,
+        approval_mode=ApprovalMode.MANUAL,
         priority=Priority.HIGH,
-        settings=settings,
-        repo_root=tmp_path,
     )
     tick_once(settings.db_path, command_id=denied_command.id, settings=settings, repo_root=tmp_path)
     denied_outcome = tick_once(
@@ -1095,16 +1286,15 @@ def test_parallel_implementation_surfaces_multiple_pending_agent_approvals(tmp_p
     settings = load_config(tmp_path)
     settings.roles["implementer"].runtime = RuntimeBackend.CODEX
     settings.roles["implementer"].count = 2
-    settings.auto_approve_agent_actions = False
     initialize_database(settings.db_path)
 
-    command = submit_command(
-        settings.db_path,
+    command = submit_direct(
+        tmp_path,
+        settings,
         goal="[parallel] implement with multiple approvals",
         workflow_mode=WorkflowMode.IMPLEMENTATION,
+        approval_mode=ApprovalMode.MANUAL,
         priority=Priority.HIGH,
-        settings=settings,
-        repo_root=tmp_path,
     )
 
     tick_once(settings.db_path, command_id=command.id, settings=settings, repo_root=tmp_path)
@@ -1136,13 +1326,12 @@ def test_service_dispatch_failure_and_verification_bypass_paths(tmp_path):
     init_repo_config(tmp_path)
     settings = load_config(tmp_path)
     initialize_database(settings.db_path)
-    command = submit_command(
-        settings.db_path,
+    command = submit_direct(
+        tmp_path,
+        settings,
         goal="dispatch failure",
         workflow_mode=WorkflowMode.IMPLEMENTATION,
         priority=Priority.HIGH,
-        settings=settings,
-        repo_root=tmp_path,
     )
 
     with connect(settings.db_path) as conn:
@@ -1215,13 +1404,12 @@ def test_service_dispatch_failure_and_verification_bypass_paths(tmp_path):
     assert outcome.action == "dispatch_failed"
     assert outcome.command.stage == CommandStage.FAILED
 
-    verifying_command = submit_command(
-        settings.db_path,
+    verifying_command = submit_direct(
+        tmp_path,
+        settings,
         goal="verification bypass",
         workflow_mode=WorkflowMode.REVIEW,
         priority=Priority.HIGH,
-        settings=settings,
-        repo_root=tmp_path,
     )
     with connect(settings.db_path) as conn:
         conn.execute(
@@ -1245,7 +1433,6 @@ def test_reduce_planning_failure_implicit_gate_and_backend_selection(tmp_path, m
     settings = load_config(tmp_path)
     settings.roles["planner"].runtime = RuntimeBackend.CODEX
     settings.roles["reviewer"].runtime = RuntimeBackend.CLAUDE
-    settings.auto_approve_agent_actions = True
     initialize_database(settings.db_path)
 
     structured = backend_for(
@@ -1285,13 +1472,12 @@ def test_reduce_planning_failure_implicit_gate_and_backend_selection(tmp_path, m
         == "MockBackend"
     )
 
-    failing_command = submit_command(
-        settings.db_path,
+    failing_command = submit_direct(
+        tmp_path,
+        settings,
         goal="planner failure",
         workflow_mode=WorkflowMode.IMPLEMENTATION,
         priority=Priority.HIGH,
-        settings=settings,
-        repo_root=tmp_path,
     )
     with connect(settings.db_path) as conn:
         conn.execute(
@@ -1314,13 +1500,12 @@ def test_reduce_planning_failure_implicit_gate_and_backend_selection(tmp_path, m
     assert failed.action == "planning_failed"
     assert failed.command.stage == CommandStage.FAILED
 
-    complete_command = submit_command(
-        settings.db_path,
+    complete_command = submit_direct(
+        tmp_path,
+        settings,
         goal="implicit tester gate",
         workflow_mode=WorkflowMode.IMPLEMENTATION,
         priority=Priority.HIGH,
-        settings=settings,
-        repo_root=tmp_path,
     )
     with connect(settings.db_path) as conn:
         conn.execute(
@@ -1347,13 +1532,12 @@ def test_reduce_planning_failure_implicit_gate_and_backend_selection(tmp_path, m
     assert implicit_gate.action == "tasks_planned"
     assert implicit_gate.tasks[0].capability == "tester"
 
-    review_command = submit_command(
-        settings.db_path,
+    review_command = submit_direct(
+        tmp_path,
+        settings,
         goal="review complete",
         workflow_mode=WorkflowMode.REVIEW,
         priority=Priority.HIGH,
-        settings=settings,
-        repo_root=tmp_path,
     )
     with connect(settings.db_path) as conn:
         conn.execute(
@@ -1382,13 +1566,12 @@ def test_reduce_planning_failure_implicit_gate_and_backend_selection(tmp_path, m
     assert review_gate.action == "verification_started"
     assert review_gate.command.stage == CommandStage.VERIFYING
 
-    planning_command = submit_command(
-        settings.db_path,
+    planning_command = submit_direct(
+        tmp_path,
+        settings,
         goal="planning final response",
         workflow_mode=WorkflowMode.PLANNING,
         priority=Priority.HIGH,
-        settings=settings,
-        repo_root=tmp_path,
     )
     with connect(settings.db_path) as conn:
         conn.execute(
@@ -1416,14 +1599,23 @@ def test_reduce_planning_failure_implicit_gate_and_backend_selection(tmp_path, m
     )
     assert planned.action == "command_completed"
     assert planned.command.stage == CommandStage.DONE
+    artifacts = list_artifacts(settings.db_path, command_id=planning_command.id)
+    assert [artifact.metadata["section_key"] for artifact in artifacts] == [
+        "plan",
+        "design_direction",
+        "task_breakdown",
+    ]
+    assert artifacts[0].metadata["format"] == "markdown"
+    assert "Goal: planning final response" in artifacts[0].body
+    assert "Plan is ready." in artifacts[0].body
+    assert artifacts[2].body.strip() == "- No tasks were recorded."
 
-    failure_command = submit_command(
-        settings.db_path,
+    failure_command = submit_direct(
+        tmp_path,
+        settings,
         goal="planner fail result",
         workflow_mode=WorkflowMode.RESEARCH,
         priority=Priority.HIGH,
-        settings=settings,
-        repo_root=tmp_path,
     )
     with connect(settings.db_path) as conn:
         conn.execute(

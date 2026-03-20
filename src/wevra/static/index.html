@@ -1106,6 +1106,7 @@
         id: 'ID',
         mode: 'Mode',
         stage: 'Stage',
+        workingDirectory: 'Working Directory',
         priority: 'Priority',
         goal: 'Goal',
         key: 'key',
@@ -1172,6 +1173,7 @@
         id: 'ID',
         mode: 'モード',
         stage: '状態',
+        workingDirectory: '作業ディレクトリ',
         priority: '優先度',
         goal: '依頼内容',
         key: 'キー',
@@ -1726,6 +1728,7 @@
             <div><strong>${escapeHtml(t('id'))}:</strong> ${escapeHtml(command.id)}</div>
             <div><strong>${escapeHtml(t('mode'))}:</strong> ${escapeHtml(modeLabel(command.effective_mode || command.workflow_mode))}</div>
             <div><strong>${escapeHtml(t('stage'))}:</strong> ${escapeHtml(stageLabel(command.stage))}</div>
+            <div><strong>${escapeHtml(t('workingDirectory'))}:</strong> ${escapeHtml(command.workspace_root)}</div>
           </div>
         </div>
         ${command?.final_response ? `

@@ -3,6 +3,7 @@ import threading
 from contextlib import contextmanager
 from urllib import request
 
+import pytest
 from playwright.sync_api import expect, sync_playwright
 from typer.testing import CliRunner
 
@@ -30,10 +31,10 @@ def post_json(url: str, payload: dict):
 
 
 @contextmanager
-def browser_page():
+def browser_page(viewport=None):
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
-        page = browser.new_page(viewport={"width": 1600, "height": 1080})
+        page = browser.new_page(viewport=viewport or {"width": 1600, "height": 1080})
         page.set_default_timeout(15000)
         try:
             yield page
@@ -126,3 +127,142 @@ def test_dashboard_browser_append_instruction_in_japanese_locale(tmp_path, monke
         expect(page.locator("#viewResultBtn")).to_be_enabled()
         page.locator("#tasksTab").click()
         expect(page.locator("#tasksList")).to_contain_text("append_followup")
+
+
+@pytest.mark.parametrize(
+    ("mode", "goal", "expect_reviews"),
+    [
+        ("research", "investigate the current architecture", False),
+        ("review", "review the existing changes", True),
+        ("planning", "design a rollout plan", False),
+    ],
+)
+def test_dashboard_browser_workflow_modes_complete_from_ui(
+    tmp_path, monkeypatch, mode, goal, expect_reviews
+):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    with dashboard_server(tmp_path) as base_url, browser_page() as page:
+        page.goto(base_url)
+
+        page.locator("#workflowMode").select_option(mode)
+        page.locator("#goal").fill(goal)
+        page.locator("#submitBtn").click()
+
+        expect(page.locator("#viewResultBtn")).to_be_enabled()
+        expect(page.locator("#openAppendBtn")).to_be_disabled()
+        page.locator("#reviewsTab").click()
+        if expect_reviews:
+            expect(page.locator("#reviewsList .card")).to_have_count(2)
+        else:
+            expect(page.locator("#reviewsList")).to_contain_text("No reviews yet.")
+
+
+def test_dashboard_browser_selection_language_switch_and_working_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    workspace_a = (tmp_path / "workspace-a").resolve()
+    workspace_b = (tmp_path / "workspace-b").resolve()
+    first = read_json(
+        runner.invoke(
+            app,
+            [
+                "submit",
+                "--mode",
+                "research",
+                "--workspace-root",
+                str(workspace_a),
+                "investigate the current architecture",
+            ],
+        )
+    )
+    second = read_json(
+        runner.invoke(
+            app,
+            [
+                "submit",
+                "--mode",
+                "review",
+                "--workspace-root",
+                str(workspace_b),
+                "review the existing changes",
+            ],
+        )
+    )
+    read_json(runner.invoke(app, ["run", "--command-id", first["id"]]))
+    read_json(runner.invoke(app, ["run", "--command-id", second["id"]]))
+
+    with dashboard_server(tmp_path) as base_url, browser_page() as page:
+        page.goto(base_url)
+
+        expect(page.locator("#commandsList .command-item")).to_have_count(2)
+        page.locator("#languageSelect").select_option("ja")
+        expect(page.locator("#submitBtn")).to_have_text("依頼を投入")
+
+        page.locator(f'[data-command-id="{second["id"]}"]').click()
+        expect(page.locator("#commandDetail")).to_contain_text("作業ディレクトリ")
+        expect(page.locator("#commandDetail")).to_contain_text(str(workspace_b))
+
+        page.locator("#tasksTab").click()
+        expect(page.locator("#tasksList")).to_contain_text("Collect review context")
+        page.locator("#activityTab").click()
+        expect(page.locator("#instructionsList")).to_contain_text("追加指示はありません。")
+
+
+def test_dashboard_browser_state_classes_and_result_modal_close(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    queued = read_json(runner.invoke(app, ["submit", "queued request"]))
+    running = read_json(runner.invoke(app, ["submit", "[parallel] running request"]))
+    waiting = read_json(runner.invoke(app, ["submit", "[worker_question] waiting request"]))
+
+    read_json(runner.invoke(app, ["tick", "--command-id", running["id"]]))
+    read_json(runner.invoke(app, ["tick", "--command-id", running["id"]]))
+    read_json(runner.invoke(app, ["run", "--command-id", waiting["id"]]))
+
+    with dashboard_server(tmp_path) as base_url, browser_page() as page:
+        page.goto(base_url)
+
+        queued_class = page.locator(f'[data-command-id="{queued["id"]}"]').get_attribute("class")
+        running_class = page.locator(f'[data-command-id="{running["id"]}"]').get_attribute("class")
+        waiting_class = page.locator(f'[data-command-id="{waiting["id"]}"]').get_attribute("class")
+        assert "queued-state" in queued_class
+        assert "running-state" in running_class
+        assert "attention" in waiting_class
+
+        page.locator(f'[data-command-id="{running["id"]}"]').click()
+        expect(page.locator("#viewResultBtn")).to_be_disabled()
+
+        read_json(runner.invoke(app, ["run", "--command-id", running["id"]]))
+        page.locator("#refreshBtn").click()
+        expect(page.locator("#viewResultBtn")).to_be_enabled()
+        page.locator("#viewResultBtn").click()
+        expect(page.locator("#resultModal")).to_be_visible()
+        page.locator("#closeResultBtn").click()
+        expect(page.locator("#resultModal")).not_to_be_visible()
+
+
+def test_dashboard_browser_mobile_question_flow(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    with (
+        dashboard_server(tmp_path) as base_url,
+        browser_page({"width": 390, "height": 844}) as page,
+    ):
+        page.goto(f"{base_url}/?lang=ja")
+
+        expect(page.locator("#goal")).to_be_visible()
+        expect(page.locator("#submitBtn")).to_have_text("依頼を投入")
+        page.locator("#goal").fill("[worker_question] mobile browser flow")
+        page.locator("#submitBtn").click()
+
+        expect(page.locator("#questionAlert")).to_be_visible()
+        page.locator("#questionAlertAnswer").fill("モバイルから継続してください。")
+        page.locator("#questionAlertSubmit").click()
+
+        expect(page.locator("#questionAlert")).not_to_be_visible()
+        expect(page.locator("#viewResultBtn")).to_be_enabled()

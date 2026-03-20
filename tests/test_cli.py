@@ -8,8 +8,9 @@ from typer.testing import CliRunner
 
 import wevra.service as service_module
 from wevra.cli import app
+from wevra.config import load_config
 from wevra.dashboard import create_server
-from wevra.models import PlannerDecision, PlannerOutput, RuntimeBackend, WorkflowMode
+from wevra.models import ApprovalMode, PlannerDecision, PlannerOutput, RuntimeBackend, WorkflowMode
 from wevra.service import StructuredCliBackend
 
 
@@ -35,6 +36,20 @@ def post_json(url: str, payload: dict):
 def get_json(url: str):
     with request.urlopen(url) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def submit_job(tmp_path, *args):
+    return read_json(runner.invoke(app, ["submit", "--workspace-dir", str(tmp_path), *args]))
+
+
+def tick_job(tmp_path, command_id):
+    settings = load_config(tmp_path)
+    return service_module.tick_once(
+        settings.db_path,
+        command_id=command_id,
+        settings=settings,
+        repo_root=tmp_path,
+    ).model_dump(mode="json")
 
 
 def test_init_creates_config_and_db(tmp_path, monkeypatch):
@@ -74,7 +89,7 @@ def test_runtime_home_overrides_are_applied_to_external_clis(tmp_path, monkeypat
     backend = StructuredCliBackend(
         RuntimeBackend.CODEX,
         model="",
-        auto_approve_agent_actions=False,
+        approval_mode=ApprovalMode.MANUAL,
         timeout_seconds=30,
         runtime_home=runtime_home,
     )
@@ -91,7 +106,7 @@ def test_run_happy_path_completes_command(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
 
-    submitted = read_json(runner.invoke(app, ["submit", "implement happy path"]))
+    submitted = submit_job(tmp_path, "implement happy path")
     command_id = submitted["id"]
 
     run_result = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
@@ -112,7 +127,7 @@ def test_worker_question_can_be_answered_and_resumed(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
 
-    submitted = read_json(runner.invoke(app, ["submit", "[worker_question] worker asks once"]))
+    submitted = submit_job(tmp_path, "[worker_question] worker asks once")
     command_id = submitted["id"]
 
     blocked = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
@@ -134,7 +149,7 @@ def test_parallel_plan_creates_dependency_graph(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
 
-    submitted = read_json(runner.invoke(app, ["submit", "[parallel] split the work"]))
+    submitted = submit_job(tmp_path, "[parallel] split the work")
     command_id = submitted["id"]
 
     completed = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
@@ -153,9 +168,7 @@ def test_research_mode_skips_final_review(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
 
-    submitted = read_json(
-        runner.invoke(app, ["submit", "--mode", "research", "investigate the current architecture"])
-    )
+    submitted = submit_job(tmp_path, "--mode", "research", "investigate the current architecture")
     command_id = submitted["id"]
 
     completed = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
@@ -174,9 +187,7 @@ def test_review_mode_runs_review_without_tester_gate(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
 
-    submitted = read_json(
-        runner.invoke(app, ["submit", "--mode", "review", "review the existing changes"])
-    )
+    submitted = submit_job(tmp_path, "--mode", "review", "review the existing changes")
     command_id = submitted["id"]
 
     completed = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
@@ -201,7 +212,7 @@ def test_auto_mode_infers_non_implementation_flows(tmp_path, monkeypatch):
     ]
 
     for goal, expected_mode, expected_capabilities, expected_review_count in cases:
-        submitted = read_json(runner.invoke(app, ["submit", goal]))
+        submitted = submit_job(tmp_path, goal)
         command_id = submitted["id"]
 
         completed = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
@@ -219,9 +230,7 @@ def test_planning_mode_stops_after_plan_output(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
 
-    submitted = read_json(
-        runner.invoke(app, ["submit", "--mode", "planning", "design a rollout plan"])
-    )
+    submitted = submit_job(tmp_path, "--mode", "planning", "design a rollout plan")
     command_id = submitted["id"]
 
     completed = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
@@ -239,9 +248,7 @@ def test_planner_question_can_be_answered_and_resumed(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
 
-    submitted = read_json(
-        runner.invoke(app, ["submit", "[planner_question] clarify before planning"])
-    )
+    submitted = submit_job(tmp_path, "[planner_question] clarify before planning")
     command_id = submitted["id"]
 
     blocked = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
@@ -264,11 +271,8 @@ def test_worker_replan_question_cancels_current_task_before_replanning(tmp_path,
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
 
-    submitted = read_json(
-        runner.invoke(
-            app,
-            ["submit", "--mode", "implementation", "[worker_replan] replan during execution"],
-        )
+    submitted = submit_job(
+        tmp_path, "--mode", "implementation", "[worker_replan] replan during execution"
     )
     command_id = submitted["id"]
 
@@ -293,12 +297,12 @@ def test_append_instruction_replans_after_current_batch(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
 
-    submitted = read_json(runner.invoke(app, ["submit", "[parallel] build the first pass"]))
+    submitted = submit_job(tmp_path, "[parallel] build the first pass")
     command_id = submitted["id"]
 
-    read_json(runner.invoke(app, ["tick", "--command-id", command_id]))
-    read_json(runner.invoke(app, ["tick", "--command-id", command_id]))
-    batch = read_json(runner.invoke(app, ["tick", "--command-id", command_id]))
+    tick_job(tmp_path, command_id)
+    tick_job(tmp_path, command_id)
+    batch = tick_job(tmp_path, command_id)
     assert batch["command"]["stage"] == "running"
 
     before_append = read_json(runner.invoke(app, ["tasks", "--command-id", command_id]))
@@ -312,7 +316,7 @@ def test_append_instruction_replans_after_current_batch(tmp_path, monkeypatch):
     )
     assert appended["command"]["replan_requested"] is True
 
-    replan = read_json(runner.invoke(app, ["tick", "--command-id", command_id]))
+    replan = tick_job(tmp_path, command_id)
     assert replan["action"] == "replanning_requested"
     assert replan["command"]["stage"] == "replanning"
 
@@ -322,7 +326,7 @@ def test_append_instruction_replans_after_current_batch(tmp_path, monkeypatch):
     )
     assert integration_pending["state"] == "pending"
 
-    replanned = read_json(runner.invoke(app, ["tick", "--command-id", command_id]))
+    replanned = tick_job(tmp_path, command_id)
     assert replanned["command"]["stage"] == "running"
 
     after_replan = read_json(runner.invoke(app, ["tasks", "--command-id", command_id]))
@@ -338,7 +342,7 @@ def test_append_instruction_while_waiting_question_resolves_old_question(tmp_pat
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
 
-    submitted = read_json(runner.invoke(app, ["submit", "[worker_question] append while blocked"]))
+    submitted = submit_job(tmp_path, "[worker_question] append while blocked")
     command_id = submitted["id"]
 
     blocked = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
@@ -378,7 +382,7 @@ def test_worker_failure_creates_retry_task_and_recovers(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
 
-    submitted = read_json(runner.invoke(app, ["submit", "[worker_fail] recover after one failure"]))
+    submitted = submit_job(tmp_path, "[worker_fail] recover after one failure")
     command_id = submitted["id"]
 
     completed = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
@@ -396,16 +400,11 @@ def test_review_changes_in_implementation_mode_reruns_tester_and_reviews(tmp_pat
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
 
-    submitted = read_json(
-        runner.invoke(
-            app,
-            [
-                "submit",
-                "--mode",
-                "implementation",
-                "[review_changes] rerun tests after review rework",
-            ],
-        )
+    submitted = submit_job(
+        tmp_path,
+        "--mode",
+        "implementation",
+        "[review_changes] rerun tests after review rework",
     )
     command_id = submitted["id"]
 
@@ -426,9 +425,7 @@ def test_review_fail_marks_command_failed(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
 
-    submitted = read_json(
-        runner.invoke(app, ["submit", "--mode", "implementation", "[review_fail] fail in review"])
-    )
+    submitted = submit_job(tmp_path, "--mode", "implementation", "[review_fail] fail in review")
     command_id = submitted["id"]
 
     failed = read_json(runner.invoke(app, ["run", "--command-id", command_id]))
@@ -443,7 +440,7 @@ def test_review_fail_marks_command_failed(tmp_path, monkeypatch):
 def test_dashboard_api_answers_question_and_resumes(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
-    read_json(runner.invoke(app, ["submit", "[worker_question] answer from dashboard"]))
+    submit_job(tmp_path, "[worker_question] answer from dashboard")
     read_json(runner.invoke(app, ["run"]))
 
     server = create_server(tmp_path, 0)
@@ -478,12 +475,12 @@ def test_dashboard_api_answers_question_and_resumes(tmp_path, monkeypatch):
 def test_dashboard_api_appends_instruction_and_replans(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
-    submitted = read_json(runner.invoke(app, ["submit", "[parallel] dashboard append path"]))
+    submitted = submit_job(tmp_path, "[parallel] dashboard append path")
     command_id = submitted["id"]
 
-    read_json(runner.invoke(app, ["tick", "--command-id", command_id]))
-    read_json(runner.invoke(app, ["tick", "--command-id", command_id]))
-    read_json(runner.invoke(app, ["tick", "--command-id", command_id]))
+    tick_job(tmp_path, command_id)
+    tick_job(tmp_path, command_id)
+    tick_job(tmp_path, command_id)
 
     server = create_server(tmp_path, 0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -497,14 +494,17 @@ def test_dashboard_api_appends_instruction_and_replans(tmp_path, monkeypatch):
         assert appended["ok"] is True
         assert appended["command"]["replan_requested"] is True
 
-        result = post_json(
-            f"http://{host}:{port}/api/commands/run",
-            {"command_id": command_id, "max_steps": 20},
-        )
-        assert result["ok"] is True
-        assert result["result"]["final_command"]["stage"] == "done"
-
-        detail = get_json(f"http://{host}:{port}/api/commands/{command_id}/detail")
+        deadline = time.time() + 5
+        detail = None
+        while time.time() < deadline:
+            detail = get_json(f"http://{host}:{port}/api/commands/{command_id}/detail")
+            command = get_json(f"http://{host}:{port}/api/snapshot")["commands"]["items"][0]
+            if command["stage"] == "done":
+                break
+            time.sleep(0.1)
+        assert detail is not None
+        snapshot = get_json(f"http://{host}:{port}/api/snapshot")
+        assert snapshot["commands"]["items"][0]["stage"] == "done"
         assert any(item["command_id"] == command_id for item in detail["instructions"]["items"])
         assert any(task["task_key"] == "append_followup" for task in detail["tasks"]["items"])
     finally:
@@ -534,10 +534,17 @@ def test_cli_batch_approve_agent_runs(tmp_path, monkeypatch):
 
     monkeypatch.setattr(service_module, "backend_for", lambda *args, **kwargs: CompletingPlanner())
 
-    command = read_json(runner.invoke(app, ["submit", "--mode", "planning", "cli batch approval"]))
-    first_tick = read_json(runner.invoke(app, ["tick", "--command-id", command["id"]]))
+    command = submit_job(
+        tmp_path,
+        "--mode",
+        "planning",
+        "--approval-mode",
+        "manual",
+        "cli batch approval",
+    )
+    first_tick = tick_job(tmp_path, command["id"])
     assert first_tick["action"] == "planning_started"
-    approval_tick = read_json(runner.invoke(app, ["tick", "--command-id", command["id"]]))
+    approval_tick = tick_job(tmp_path, command["id"])
     assert approval_tick["action"] == "approval_required"
 
     agent_runs = read_json(runner.invoke(app, ["agent-runs", "--command-id", command["id"]]))

@@ -10,7 +10,7 @@ from wevra import __version__
 from wevra.config import init_repo_config, load_config
 from wevra.dashboard import build_snapshot, dashboard_status, start_dashboard, stop_dashboard
 from wevra.db import initialize_database
-from wevra.models import Priority, RuntimeBackend, WorkflowMode
+from wevra.models import ApprovalMode, Priority, RuntimeBackend, WorkflowMode
 from wevra.service import (
     approve_agent_run,
     approve_agent_runs_batch,
@@ -26,7 +26,6 @@ from wevra.service import (
     list_tasks,
     run_engine,
     submit_command,
-    tick_once,
 )
 
 
@@ -118,18 +117,6 @@ def status() -> None:
     )
 
 
-@app.command("init-db")
-def init_db(
-    db_path: Optional[Path] = typer.Option(
-        None, help="Optional path to the SQLite runtime database."
-    ),
-) -> None:
-    """Initialize the runtime database."""
-    target = resolve_db_path(db_path)
-    initialize_database(target)
-    typer.echo(f"initialized: {target}")
-
-
 @app.command("submit")
 def submit(
     goal: str = typer.Argument(..., help="Command goal to submit into the runtime."),
@@ -138,11 +125,20 @@ def submit(
         "--mode",
         help="Workflow mode: auto, implementation, research, review, or planning.",
     ),
+    approval_mode: ApprovalMode = typer.Option(
+        ApprovalMode.AUTO,
+        "--approval-mode",
+        help="Agent approval mode: auto or manual.",
+    ),
     priority: Priority = typer.Option(Priority.HIGH, help="Priority assigned to the command."),
     backend: Optional[RuntimeBackend] = typer.Option(
         None, help="Optional backend override for this command."
     ),
-    workspace_root: Optional[Path] = typer.Option(None, help="Optional workspace root override."),
+    workspace_root: Path = typer.Option(
+        ...,
+        "--workspace-dir",
+        help="Working directory for this job.",
+    ),
     db_path: Optional[Path] = typer.Option(
         None, help="Optional path to the SQLite runtime database."
     ),
@@ -153,6 +149,7 @@ def submit(
         resolve_db_path(db_path),
         goal=goal,
         workflow_mode=workflow_mode,
+        approval_mode=approval_mode,
         priority=priority,
         backend=backend,
         workspace_root=workspace_root,
@@ -375,20 +372,6 @@ def events(
             ]
         }
     )
-
-
-@app.command("tick")
-def tick(
-    command_id: Optional[str] = typer.Option(None, help="Optional command identifier to target."),
-    db_path: Optional[Path] = typer.Option(
-        None, help="Optional path to the SQLite runtime database."
-    ),
-) -> None:
-    """Advance the engine by one deterministic step."""
-    outcome = tick_once(
-        resolve_db_path(db_path), command_id=command_id, settings=settings(), repo_root=repo_root()
-    )
-    print_json(outcome.model_dump(mode="json"))
 
 
 @app.command("run")

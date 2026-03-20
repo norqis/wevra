@@ -12,16 +12,19 @@ CREATE TABLE IF NOT EXISTS commands (
     goal TEXT NOT NULL,
     stage TEXT NOT NULL,
     workflow_mode TEXT NOT NULL DEFAULT 'auto',
+    approval_mode TEXT NOT NULL DEFAULT 'auto',
     effective_mode TEXT,
     priority TEXT NOT NULL,
     backend TEXT NOT NULL DEFAULT 'inherit',
     workspace_root TEXT NOT NULL DEFAULT '.',
+    resume_stage TEXT,
     final_response TEXT,
     failure_reason TEXT,
     question_state TEXT NOT NULL DEFAULT 'none',
     planning_attempts INTEGER NOT NULL DEFAULT 0,
     run_count INTEGER NOT NULL DEFAULT 0,
     replan_requested INTEGER NOT NULL DEFAULT 0,
+    stop_requested INTEGER NOT NULL DEFAULT 0,
     version INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -93,6 +96,7 @@ CREATE TABLE IF NOT EXISTS artifacts (
     kind TEXT NOT NULL,
     uri TEXT NOT NULL,
     metadata_json TEXT NOT NULL DEFAULT '{}',
+    body TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
 );
 
@@ -121,6 +125,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     approval_required INTEGER NOT NULL DEFAULT 0,
     prompt_excerpt TEXT,
     output_summary TEXT,
+    output_log TEXT NOT NULL DEFAULT '',
     error TEXT,
     created_at TEXT NOT NULL,
     started_at TEXT,
@@ -141,9 +146,11 @@ CREATE INDEX IF NOT EXISTS idx_agent_runs_state ON agent_runs(state, created_at)
 
 def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(str(db_path), timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
+    conn.execute("PRAGMA busy_timeout = 10000;")
+    conn.execute("PRAGMA journal_mode = WAL;")
     return conn
 
 
@@ -157,11 +164,14 @@ def initialize_database(db_path: Path) -> Path:
     with connect(db_path) as conn:
         conn.executescript(SCHEMA)
         ensure_column(conn, "commands", "workflow_mode", "TEXT NOT NULL DEFAULT 'auto'")
+        ensure_column(conn, "commands", "approval_mode", "TEXT NOT NULL DEFAULT 'auto'")
         ensure_column(conn, "commands", "effective_mode", "TEXT")
         ensure_column(conn, "commands", "backend", "TEXT NOT NULL DEFAULT 'inherit'")
         ensure_column(conn, "commands", "workspace_root", "TEXT NOT NULL DEFAULT '.'")
+        ensure_column(conn, "commands", "resume_stage", "TEXT")
         ensure_column(conn, "commands", "failure_reason", "TEXT")
         ensure_column(conn, "commands", "replan_requested", "INTEGER NOT NULL DEFAULT 0")
+        ensure_column(conn, "commands", "stop_requested", "INTEGER NOT NULL DEFAULT 0")
         ensure_column(conn, "tasks", "task_key", "TEXT NOT NULL DEFAULT ''")
         ensure_column(conn, "tasks", "plan_order", "INTEGER NOT NULL DEFAULT 1")
         ensure_column(conn, "tasks", "error", "TEXT")
@@ -205,6 +215,7 @@ def initialize_database(db_path: Path) -> Path:
                 approval_required INTEGER NOT NULL DEFAULT 0,
                 prompt_excerpt TEXT,
                 output_summary TEXT,
+                output_log TEXT NOT NULL DEFAULT '',
                 error TEXT,
                 created_at TEXT NOT NULL,
                 started_at TEXT,
@@ -213,6 +224,8 @@ def initialize_database(db_path: Path) -> Path:
             )
             """
         )
+        ensure_column(conn, "artifacts", "body", "TEXT NOT NULL DEFAULT ''")
         ensure_column(conn, "agent_runs", "resume_stage", "TEXT NOT NULL DEFAULT 'running'")
+        ensure_column(conn, "agent_runs", "output_log", "TEXT NOT NULL DEFAULT ''")
         conn.commit()
     return db_path

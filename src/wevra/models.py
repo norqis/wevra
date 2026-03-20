@@ -27,6 +27,11 @@ class WorkflowMode(str, Enum):
     PLANNING = "planning"
 
 
+class ApprovalMode(str, Enum):
+    AUTO = "auto"
+    MANUAL = "manual"
+
+
 class CommandStage(str, Enum):
     QUEUED = "queued"
     PLANNING = "planning"
@@ -35,6 +40,7 @@ class CommandStage(str, Enum):
     WAITING_QUESTION = "waiting_question"
     VERIFYING = "verifying"
     REPLANNING = "replanning"
+    PAUSED = "paused"
     DONE = "done"
     FAILED = "failed"
 
@@ -98,10 +104,12 @@ class CommandRecord(BaseModel):
     goal: str
     stage: CommandStage
     workflow_mode: WorkflowMode = WorkflowMode.AUTO
+    approval_mode: ApprovalMode = ApprovalMode.AUTO
     effective_mode: Optional[WorkflowMode] = None
     priority: Priority
     backend: RuntimeBackend
     workspace_root: str
+    resume_stage: Optional[CommandStage] = None
     created_at: str
     updated_at: str
     final_response: Optional[str] = None
@@ -110,6 +118,7 @@ class CommandRecord(BaseModel):
     planning_attempts: int = 0
     run_count: int = 0
     replan_requested: bool = False
+    stop_requested: bool = False
     version: int = 1
 
 
@@ -167,6 +176,17 @@ class InstructionRecord(BaseModel):
     created_at: str
 
 
+class ArtifactRecord(BaseModel):
+    id: str
+    command_id: str
+    task_id: Optional[str] = None
+    kind: str
+    uri: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    body: str = ""
+    created_at: str
+
+
 class AgentRunRecord(BaseModel):
     id: str
     command_id: str
@@ -183,6 +203,7 @@ class AgentRunRecord(BaseModel):
     approval_required: bool = False
     prompt_excerpt: Optional[str] = None
     output_summary: Optional[str] = None
+    output_log: str = ""
     error: Optional[str] = None
     created_at: str
     started_at: Optional[str] = None

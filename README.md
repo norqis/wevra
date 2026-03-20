@@ -4,18 +4,18 @@
 
 Wevra is a local workflow engine for structured AI work.
 
-It takes a request, breaks it into tracked steps, runs the work through the right mode, pauses when user input is needed, and keeps the flow inside the engine instead of inside a long-lived AI chat.
-With a single request, Wevra can carry work from planning and implementation through tests and final review.
+It takes a job, breaks it into tracked steps, runs the work through the right mode, pauses when user input is needed, and keeps the flow inside the engine instead of inside a long-lived AI chat.
+With a single job, Wevra can carry work from planning and implementation through tests and final review.
 
-Wevra can run a request in these modes:
+Wevra can run a job in these execution modes:
 
-| Mode | Use it for |
+| Mode | Description |
 | --- | --- |
-| `auto` | Let Wevra choose the best workflow for the request. |
-| `implementation` | Build, change, or fix something with tests and final review. |
-| `research` | Investigate, compare, and return a written conclusion. |
-| `review` | Inspect the current workspace or changes and return findings. |
-| `planning` | Produce a plan or task breakdown without carrying the work through implementation. |
+| `auto` | Resolves the job into the most suitable mode before execution begins. Ambiguous requests fall back to `implementation`. |
+| `implementation` | Breaks the work into tracked tasks, runs implementation, executes the existing test suite, and finishes with final review. |
+| `research` | Runs investigation and analysis work, then returns a written markdown result without entering implementation, test, or final review gates. |
+| `review` | Collects the necessary context for review work and carries the job through the final reviewer pass. |
+| `planning` | Produces a structured planning result with separate plan, design direction, and task breakdown sections without moving into implementation. |
 
 ![English dashboard screenshot](docs/images/dashboard-en.png)
 
@@ -31,57 +31,54 @@ python3 -m venv .venv
 
 `wevra init` creates local config files such as `wevra.ini`, `agents.ini`, and `.env`.
 
-No separate SQLite install is required.
-
 ## Configure Wevra
 
-After `./wevra init`, adjust the generated local config files as needed:
+After `./wevra init`, adjust the generated local config files if needed:
 
-- `wevra.ini`: working directory, dashboard host and port, notifications, runtime defaults, and an optional CLI `HOME` override
+- `wevra.ini`: dashboard port, notifications, runtime defaults, and an optional CLI `HOME` override
 - `agents.ini`: which runtime and model each role should use
 - `.env`: local secrets such as `DISCORD_WEBHOOK_URL`
 
-If the defaults already fit your environment, you can skip this step and start Wevra immediately.
-
 ## Quick Start
 
-After the initial setup, start Wevra like this:
+After the initial setup:
 
 ```bash
 ./wevra start
 ```
 
-Then open the local dashboard at `http://127.0.0.1:43861` and submit a request.
+Then open the local dashboard at `http://127.0.0.1:43861` and create a job.
 
 ## Dashboard
 
-The dashboard is the default way to use Wevra.
-
 From the dashboard you can:
 
-- submit a new request
+- create a new job from the top-right submit modal
+- choose the execution mode, approval mode, backend override, and working directory for each job
 - watch progress in real time
 - answer questions when the flow pauses
-- inspect tasks, reviews, agent runs, and final results
+- stop an active job after the current step finishes, then resume it later
+- inspect tasks, reviews, live agent logs, and final results
+- open result sections in the dashboard and download the active section as `.md`
 - approve or deny individual agent actions when external runtimes need operator approval
-- approve all pending agent actions for the current request, or approve one role at a time
+- approve all pending agent actions for the current job, or approve one role at a time
 - append follow-up instructions to active work
-
-Everything in the dashboard can also be driven from the CLI when you want to script or automate it.
 
 ## CLI Examples
 
-Run an implementation request:
+The same actions are available from the CLI when you want to script or automate them.
+
+Run an implementation job:
 
 ```bash
-./wevra submit --mode implementation "Implement a planner-backed workflow"
+./wevra submit --mode implementation --workspace-dir /path/to/worktree "Implement a planner-backed workflow"
 ./wevra run
 ```
 
-Run a research request:
+Run a research job:
 
 ```bash
-./wevra submit --mode research "Investigate the current architecture and summarize the tradeoffs"
+./wevra submit --mode research --workspace-dir /path/to/worktree "Investigate the current architecture and summarize the tradeoffs"
 ./wevra run
 ```
 
@@ -93,7 +90,7 @@ Answer a question:
 ./wevra run
 ```
 
-Append an instruction to an active request:
+Append an instruction to an active job:
 
 ```bash
 ./wevra append <command-id> "Keep the current work, but also add a final follow-up pass."
@@ -103,20 +100,22 @@ Append an instruction to an active request:
 Inspect or resolve pending agent approvals from the CLI:
 
 ```bash
+./wevra submit --mode implementation --approval-mode manual --workspace-dir /path/to/worktree "Implement a planner-backed workflow"
+./wevra run --command-id <command-id>
 ./wevra agent-runs --command-id <command-id>
 ./wevra approve-agent-run <agent-run-id>
 ./wevra approve-agent-runs <command-id> --role implementer
-./wevra deny-agent-run <agent-run-id> "Do not run external tools for this request."
+./wevra deny-agent-run <agent-run-id> "Do not run external tools for this job."
 ```
 
 ## How It Works
 
-1. Submit a request from the CLI or the dashboard.
-2. Wevra breaks the request into the work needed for the selected mode.
+1. Create a job from the CLI or the dashboard.
+2. Wevra breaks the job into the work needed for the selected mode.
 3. Work runs in order, with safe parallel execution where possible.
 4. If clarification is needed, Wevra pauses and asks the user.
 5. If agent actions require operator approval, Wevra pauses and waits in the `Agents` tab until each run is allowed or denied.
-   You can also approve the whole request, or a whole role such as `implementer`, in one action.
+   You can also approve the whole job, or a whole role such as `implementer`, in one action.
 6. In `implementation` mode, Wevra runs the existing test suite and then the final review pass.
 7. Work is only complete when the final review passes.
 
@@ -142,10 +141,8 @@ Controls runtime, UI, and notification behavior.
 
 | Key | Default | Purpose |
 | --- | --- | --- |
-| `runtime.working_dir` | `.` | Workspace root used for execution. |
 | `runtime.db_path` | `.wevra/wevra.db` | SQLite database path. |
 | `runtime.language` | `en` | Default language for the runtime. |
-| `runtime.auto_approve_agent_actions` | `false` | When `true`, external agent runs execute without asking for approval in the dashboard. When `false`, Wevra surfaces per-agent allow/deny controls in the `Agents` tab. |
 | `runtime.agent_timeout_seconds` | `1800` | Maximum time to wait for a Codex or Claude structured response before failing the run. |
 | `runtime.home` | empty | Optional `HOME` override used when launching external CLIs such as Codex or Claude. |
 | `ui.auto_start` | `true` | Starts the dashboard when `wevra start` runs. |
@@ -167,8 +164,8 @@ Controls which runtime and model each role uses.
 
 | Section | Keys | Purpose |
 | --- | --- | --- |
-| `coordinator` | `runtime`, `model` | Runtime and model for request intake and flow coordination. |
-| `planner` | `runtime`, `model` | Runtime and model for breaking a request into work. |
+| `coordinator` | `runtime`, `model` | Runtime and model for job intake and flow coordination. |
+| `planner` | `runtime`, `model` | Runtime and model for breaking a job into work. |
 | `investigation` | `runtime`, `model` | Runtime and model for research tasks. |
 | `analyst` | `runtime`, `model` | Runtime and model for analysis and synthesis tasks. |
 | `tester` | `runtime`, `model` | Runtime and model for running the test pass. |
@@ -179,7 +176,7 @@ Supported `runtime` values are `mock`, `codex`, and `claude`.
 
 `mock` is for demos, local development, CI, and flow verification. It does not perform real implementation or review work through Codex or Claude. Before using Wevra for real work, switch roles such as `planner`, `implementer`, and `reviewer` to `codex` or `claude`.
 
-When a role uses `codex` or `claude` and `runtime.auto_approve_agent_actions = false`, Wevra does not leave the inner CLI prompt on screen. Instead, it pauses the workflow and asks for an explicit allow/deny decision in the dashboard `Agents` tab, where you can also allow the whole selected request or one role at a time.
+Approval is chosen per job from the dashboard or CLI. Use `auto` when you want Codex or Claude runs to proceed without an operator step, or `manual` when you want Wevra to pause in the `Agents` tab and wait for allow or deny decisions.
 
 ### `.env`
 

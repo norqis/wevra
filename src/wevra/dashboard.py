@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import mimetypes
 import os
 import signal
 import subprocess
@@ -19,13 +20,14 @@ from urllib.parse import urlparse
 
 from wevra.config import AppConfig, LOOPBACK_HOST, load_config
 from wevra.db import connect, initialize_database
-from wevra.models import CommandStage, Priority, RuntimeBackend, WorkflowMode
+from wevra.models import ApprovalMode, CommandStage, Priority, RuntimeBackend, WorkflowMode
 from wevra.service import (
     answer_question,
     approve_agent_run,
     approve_agent_runs_batch,
     append_instruction,
     deny_agent_run,
+    list_artifacts,
     list_commands,
     list_events,
     list_instructions,
@@ -33,7 +35,8 @@ from wevra.service import (
     list_questions,
     list_reviews,
     list_tasks,
-    run_engine,
+    request_command_stop,
+    resume_command,
     submit_command,
     tick_once,
 )
@@ -71,7 +74,6 @@ def build_runtime_metadata(
         "working_dir": str(settings.working_dir),
         "language": settings.ui_language or settings.language,
         "dashboard_url": dashboard_url(settings),
-        "auto_approve_agent_actions": settings.auto_approve_agent_actions,
         "roles": summarize_roles(settings),
         "engine_owner": owner or "manual",
         "engine_state": engine_state or {"status": "running", "last_error": None},
@@ -85,6 +87,32 @@ def build_runtime_metadata(
 
 def read_static_html() -> str:
     return resources.files("wevra").joinpath("static/index.html").read_text(encoding="utf-8")
+
+
+def read_packaged_static_bytes(relative_path: str) -> tuple[bytes, str]:
+    static_root = resources.files("wevra").joinpath("static")
+    current = static_root
+    for part in Path(relative_path).parts:
+        if part in {"", ".", ".."}:
+            raise FileNotFoundError(relative_path)
+        current = current.joinpath(part)
+    data = current.read_bytes()
+    mime_type = mimetypes.guess_type(relative_path)[0] or "application/octet-stream"
+    return data, mime_type
+
+
+def read_repo_image_bytes(repo_root: Path, relative_name: str) -> tuple[bytes, str]:
+    if "/" in relative_name or "\\" in relative_name or relative_name in {"", ".", ".."}:
+        raise FileNotFoundError(relative_name)
+    target = (repo_root / "docs" / "images" / relative_name).resolve()
+    docs_root = (repo_root / "docs" / "images").resolve()
+    if docs_root not in target.parents:
+        raise FileNotFoundError(relative_name)
+    if target.exists():
+        data = target.read_bytes()
+        mime_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+        return data, mime_type
+    return read_packaged_static_bytes(relative_name)
 
 
 def summarize_roles(settings: AppConfig) -> list[dict[str, Any]]:
@@ -139,7 +167,8 @@ def build_snapshot(repo_root: Path, settings: Optional[AppConfig] = None) -> dic
     active_commands = [
         command
         for command in commands
-        if command["stage"] not in {CommandStage.DONE.value, CommandStage.FAILED.value}
+        if command["stage"]
+        not in {CommandStage.DONE.value, CommandStage.FAILED.value, CommandStage.PAUSED.value}
     ]
 
     payload = {
@@ -201,6 +230,7 @@ def build_command_detail_tokens(db_path: Path) -> Dict[str, str]:
                     COALESCE((SELECT MAX(updated_at) FROM reviews WHERE command_id = c.id), ''),
                     COALESCE((SELECT MAX(updated_at) FROM agent_runs WHERE command_id = c.id), ''),
                     COALESCE((SELECT MAX(created_at) FROM instructions WHERE command_id = c.id), ''),
+                    COALESCE((SELECT MAX(created_at) FROM artifacts WHERE command_id = c.id), ''),
                     COALESCE((SELECT MAX(created_at) FROM events WHERE stream_type = 'command' AND stream_id = c.id), '')
                 ) AS detail_token
             FROM commands c
@@ -236,7 +266,8 @@ def build_summary_snapshot(
     active_commands = [
         command
         for command in commands
-        if command["stage"] not in {CommandStage.DONE.value, CommandStage.FAILED.value}
+        if command["stage"]
+        not in {CommandStage.DONE.value, CommandStage.FAILED.value, CommandStage.PAUSED.value}
     ]
 
     payload = {
@@ -287,6 +318,10 @@ def build_command_detail(
         agent_run.model_dump(mode="json")
         for agent_run in list_agent_runs(settings.db_path, command_id)
     ]
+    artifacts = [
+        artifact.model_dump(mode="json")
+        for artifact in list_artifacts(settings.db_path, command_id)
+    ]
     instructions = [
         instruction.model_dump(mode="json")
         for instruction in list_instructions(settings.db_path, command_id)
@@ -303,6 +338,7 @@ def build_command_detail(
         "questions": {"items": questions},
         "reviews": {"items": reviews},
         "agent_runs": {"items": agent_runs},
+        "artifacts": {"items": artifacts},
         "instructions": {"items": instructions},
         "events": events,
     }
@@ -348,6 +384,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def send_bytes(self, status: HTTPStatus, body: bytes, mime_type: str) -> None:
+        self.send_response(status.value)
+        self.send_header("Content-Type", mime_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def read_json_body(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0") or "0")
         raw = self.rfile.read(length) if length > 0 else b"{}"
@@ -359,6 +402,24 @@ class DashboardHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/":
             self.send_html(HTTPStatus.OK, read_static_html())
+            return
+        if parsed.path.startswith("/static/"):
+            try:
+                body, mime_type = read_packaged_static_bytes(parsed.path.removeprefix("/static/"))
+            except FileNotFoundError:
+                self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
+                return
+            self.send_bytes(HTTPStatus.OK, body, mime_type)
+            return
+        if parsed.path.startswith("/docs-images/"):
+            try:
+                body, mime_type = read_repo_image_bytes(
+                    self.repo_root, parsed.path.removeprefix("/docs-images/")
+                )
+            except FileNotFoundError:
+                self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
+                return
+            self.send_bytes(HTTPStatus.OK, body, mime_type)
             return
         if parsed.path == "/api/snapshot":
             with self.state_lock:
@@ -403,15 +464,29 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 or WorkflowMode.AUTO.value
             )
             priority = Priority(str(payload.get("priority", Priority.HIGH.value)))
+            approval_mode = ApprovalMode(
+                str(payload.get("approval_mode", ApprovalMode.AUTO.value)).strip()
+                or ApprovalMode.AUTO.value
+            )
             backend_raw = str(payload.get("backend", "")).strip().lower()
             backend = RuntimeBackend(backend_raw) if backend_raw else None
+            workspace_root_raw = str(payload.get("workspace_root", "")).strip()
+            if not workspace_root_raw:
+                self.send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"ok": False, "error": "workspace_root_required"},
+                )
+                return
+            workspace_root = Path(workspace_root_raw).expanduser()
             with self.state_lock:
                 command = submit_command(
                     self.settings.db_path,
                     goal=goal,
                     workflow_mode=workflow_mode,
+                    approval_mode=approval_mode,
                     priority=priority,
                     backend=backend,
+                    workspace_root=workspace_root,
                     settings=self.settings,
                     repo_root=self.repo_root,
                 )
@@ -442,18 +517,28 @@ class DashboardHandler(BaseHTTPRequestHandler):
             )
             return
 
-        if parsed.path == "/api/commands/run":
-            command_id = str(payload.get("command_id", "")).strip() or None
-            max_steps = int(payload.get("max_steps", 100) or 100)
-            with self.state_lock:
-                result = run_engine(
-                    self.settings.db_path,
-                    command_id=command_id,
-                    max_steps=max_steps,
-                    settings=self.settings,
-                    repo_root=self.repo_root,
+        if parsed.path == "/api/commands/stop":
+            command_id = str(payload.get("command_id", "")).strip()
+            if not command_id:
+                self.send_json(
+                    HTTPStatus.BAD_REQUEST, {"ok": False, "error": "command_id_required"}
                 )
-            self.send_json(HTTPStatus.OK, {"ok": True, "result": result})
+                return
+            with self.state_lock:
+                command = request_command_stop(self.settings.db_path, command_id=command_id)
+            self.send_json(HTTPStatus.OK, {"ok": True, "command": command.model_dump(mode="json")})
+            return
+
+        if parsed.path == "/api/commands/resume":
+            command_id = str(payload.get("command_id", "")).strip()
+            if not command_id:
+                self.send_json(
+                    HTTPStatus.BAD_REQUEST, {"ok": False, "error": "command_id_required"}
+                )
+                return
+            with self.state_lock:
+                command = resume_command(self.settings.db_path, command_id=command_id)
+            self.send_json(HTTPStatus.OK, {"ok": True, "command": command.model_dump(mode="json")})
             return
 
         if parsed.path == "/api/questions/answer":

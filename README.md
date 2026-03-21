@@ -53,16 +53,13 @@ Then open the local dashboard at `http://127.0.0.1:43861` and create a job.
 
 From the dashboard you can:
 
-- create a new job from the top-right submit modal
-- choose the execution mode, approval mode, backend override, and working directory for each job
-- watch progress in real time
-- answer questions when the flow pauses
-- stop an active job after the current step finishes, then resume it later
-- inspect tasks, reviews, live agent logs, and final results
-- open result sections in the dashboard and download the active section as `.md`
-- approve or deny individual agent actions when external runtimes need operator approval
-- approve all pending agent actions for the current job, or approve one role at a time
+- start a new job and choose its execution mode, approval style, AI, working directory, and optional dependencies
+- watch progress, tasks, reviews, live agent logs, and results in real time
+- answer questions and approve or deny agent actions when work pauses
+- pause a running job at a safe boundary and resume it later
+- run independent jobs in parallel when their workspaces do not overlap
 - append follow-up instructions to active work
+- open structured result sections in the dashboard and download the current section as `.md`
 
 ## CLI Examples
 
@@ -111,13 +108,15 @@ Inspect or resolve pending agent approvals from the CLI:
 ## How It Works
 
 1. Create a job from the CLI or the dashboard.
-2. Wevra breaks the job into the work needed for the selected mode.
-3. Work runs in order, with safe parallel execution where possible.
-4. If clarification is needed, Wevra pauses and asks the user.
-5. If agent actions require operator approval, Wevra pauses and waits in the `Agents` tab until each run is allowed or denied.
+2. Set a working directory, and add job dependencies when work must wait for earlier jobs to finish.
+3. Wevra breaks the job into the work needed for the selected mode.
+4. Top-level jobs stay serial by default. Independent jobs can opt into safe parallel execution when their workspaces do not overlap.
+5. If clarification is needed, Wevra pauses and asks the user.
+6. If agent actions require operator approval, Wevra pauses and waits in the `Agents` tab until each run is allowed or denied.
    You can also approve the whole job, or a whole role such as `implementer`, in one action.
-6. In `implementation` mode, Wevra runs the existing test suite and then the final review pass.
-7. Work is only complete when the final review passes.
+7. If a dependency fails, the blocked job stays out of execution until you ignore the dependency or cancel the job from the overview.
+8. In `implementation` mode, Wevra runs the existing test suite and then the final review pass.
+9. Work is only complete when the final review passes.
 
 You can also manage the dashboard from the CLI:
 

@@ -58,9 +58,31 @@ STAGE_RANK = {
     CommandStage.WAITING_APPROVAL.value: 4,
     CommandStage.WAITING_QUESTION.value: 5,
     CommandStage.PAUSED.value: 6,
-    CommandStage.QUEUED.value: 7,
-    CommandStage.DONE.value: 8,
-    CommandStage.FAILED.value: 9,
+    CommandStage.CANCELED.value: 7,
+    CommandStage.QUEUED.value: 8,
+    CommandStage.DONE.value: 9,
+    CommandStage.FAILED.value: 10,
+}
+
+TERMINAL_COMMAND_STAGES = {
+    CommandStage.DONE.value,
+    CommandStage.FAILED.value,
+    CommandStage.PAUSED.value,
+    CommandStage.CANCELED.value,
+}
+
+PARALLEL_STAGE_RANK = {
+    CommandStage.QUEUED.value: 0,
+    CommandStage.PLANNING.value: 1,
+    CommandStage.REPLANNING.value: 2,
+    CommandStage.RUNNING.value: 3,
+    CommandStage.VERIFYING.value: 4,
+    CommandStage.WAITING_APPROVAL.value: 5,
+    CommandStage.WAITING_QUESTION.value: 6,
+    CommandStage.PAUSED.value: 7,
+    CommandStage.CANCELED.value: 8,
+    CommandStage.DONE.value: 9,
+    CommandStage.FAILED.value: 10,
 }
 
 MODE_KEYWORDS = {
@@ -105,6 +127,24 @@ def resolve_settings(
     if settings is not None:
         return settings
     return load_config((repo_root or Path.cwd()).resolve())
+
+
+def command_order_key(command: CommandRecord) -> tuple[int, str]:
+    return (PRIORITY_RANK[command.priority.value], command.created_at)
+
+
+def normalized_workspace_root(value: str | Path) -> str:
+    return str(Path(value).expanduser().resolve())
+
+
+def workspace_roots_overlap(left: str | Path, right: str | Path) -> bool:
+    left_root = normalized_workspace_root(left)
+    right_root = normalized_workspace_root(right)
+    try:
+        common = os.path.commonpath([left_root, right_root])
+    except ValueError:
+        return False
+    return common == left_root or common == right_root
 
 
 def requested_mode(command: CommandRecord) -> WorkflowMode:
@@ -178,8 +218,10 @@ def mode_prompt_guidance(mode: WorkflowMode) -> str:
         return (
             "This is planning mode. Focus on design, decomposition, or spec work. "
             "Do not assume implementation, testing, or final review are required. "
-            "When you return COMPLETE, write final_response as markdown with sections titled "
-            "'Plan', 'Design Direction', and 'Task Breakdown'."
+            "When you return COMPLETE, write final_response as markdown with exactly three top-level sections, "
+            "in this order: '## Plan', '## Design Direction', and '## Task Breakdown'. "
+            "Do not write any prose before the first heading or add extra top-level sections. "
+            "Under 'Task Breakdown', use an ordered list with actionable steps."
         )
     return (
         "This is auto mode. Infer whether the request is best handled as implementation, research, review, or planning, "
@@ -306,8 +348,13 @@ def format_agent_log_line(message: str, *, channel: Optional[str] = None) -> str
 
 def command_from_row(row) -> CommandRecord:
     payload = dict(row)
+    payload["allow_parallel"] = bool(payload.get("allow_parallel", 0))
     payload["replan_requested"] = bool(payload.get("replan_requested", 0))
     payload["stop_requested"] = bool(payload.get("stop_requested", 0))
+    payload.setdefault("depends_on", [])
+    payload.setdefault("blocking_dependency_ids", [])
+    payload.setdefault("dependency_state", "none")
+    payload.setdefault("can_ignore_dependencies", False)
     return CommandRecord.model_validate(payload)
 
 
@@ -631,6 +678,73 @@ def list_approved_agent_runs_for_command(conn, command_id: str) -> List[AgentRun
         (command_id, AgentRunState.APPROVED.value),
     ).fetchall()
     return [agent_run_from_row(row) for row in rows]
+
+
+def command_dependency_map(conn) -> Dict[str, List[str]]:
+    rows = conn.execute(
+        """
+        SELECT command_id, depends_on_command_id
+        FROM command_dependencies
+        ORDER BY command_id ASC, depends_on_command_id ASC
+        """
+    ).fetchall()
+    mapping: Dict[str, List[str]] = {}
+    for row in rows:
+        mapping.setdefault(row["command_id"], []).append(row["depends_on_command_id"])
+    return mapping
+
+
+def attach_command_dependencies(
+    commands: Sequence[CommandRecord],
+    dep_map: Dict[str, List[str]],
+) -> List[CommandRecord]:
+    return [
+        command.model_copy(update={"depends_on": dep_map.get(command.id, [])})
+        for command in commands
+    ]
+
+
+def enrich_command_dependency_state(commands: Sequence[CommandRecord]) -> List[CommandRecord]:
+    by_id = {command.id: command for command in commands}
+    enriched: List[CommandRecord] = []
+    for command in commands:
+        depends_on = list(command.depends_on)
+        blocking_ids: List[str] = []
+        dependency_state = "none"
+        can_ignore = False
+        if depends_on:
+            waiting_ids: List[str] = []
+            failed_ids: List[str] = []
+            for dependency_id in depends_on:
+                dependency = by_id.get(dependency_id)
+                if dependency is None:
+                    failed_ids.append(dependency_id)
+                    continue
+                if dependency.stage == CommandStage.DONE:
+                    continue
+                if dependency.stage in {CommandStage.FAILED, CommandStage.CANCELED}:
+                    failed_ids.append(dependency_id)
+                else:
+                    waiting_ids.append(dependency_id)
+            if failed_ids:
+                dependency_state = "failed"
+                blocking_ids = failed_ids
+                can_ignore = True
+            elif waiting_ids:
+                dependency_state = "waiting"
+                blocking_ids = waiting_ids
+            else:
+                dependency_state = "ready"
+        enriched.append(
+            command.model_copy(
+                update={
+                    "dependency_state": dependency_state,
+                    "blocking_dependency_ids": blocking_ids,
+                    "can_ignore_dependencies": can_ignore,
+                }
+            )
+        )
+    return enriched
 
 
 def dependency_map_for_command(conn, command_id: str) -> Dict[str, List[str]]:
@@ -2039,6 +2153,8 @@ def submit_command(
     approval_mode: ApprovalMode = ApprovalMode.AUTO,
     backend: Optional[RuntimeBackend] = None,
     workspace_root: Optional[Path] = None,
+    depends_on_command_ids: Sequence[str] = (),
+    allow_parallel: bool = False,
     settings: Optional[AppConfig] = None,
     repo_root: Optional[Path] = None,
 ) -> CommandRecord:
@@ -2049,17 +2165,26 @@ def submit_command(
 
     command_id = new_id("cmd")
     now = utc_now()
-    resolved_root = str(workspace_root.resolve())
+    resolved_root = normalized_workspace_root(workspace_root)
     selected_backend = backend or RuntimeBackend.INHERIT
 
     with connect(db_path) as conn:
+        existing_rows = conn.execute("SELECT id FROM commands").fetchall()
+        existing_ids = {row["id"] for row in existing_rows}
+        unique_dependencies = []
+        for dependency_id in depends_on_command_ids:
+            if not dependency_id or dependency_id in unique_dependencies:
+                continue
+            if dependency_id not in existing_ids:
+                raise ValueError(f"Unknown dependency command: {dependency_id}")
+            unique_dependencies.append(dependency_id)
         conn.execute(
             """
             INSERT INTO commands (
-                id, goal, stage, workflow_mode, approval_mode, effective_mode, priority, backend, workspace_root, resume_stage, final_response, failure_reason,
+                id, goal, stage, workflow_mode, approval_mode, effective_mode, priority, backend, workspace_root, allow_parallel, resume_stage, final_response, failure_reason,
                 question_state, planning_attempts, run_count, replan_requested, stop_requested, version, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 command_id,
@@ -2071,6 +2196,7 @@ def submit_command(
                 priority.value,
                 selected_backend.value,
                 resolved_root,
+                int(bool(allow_parallel and not unique_dependencies)),
                 None,
                 None,
                 None,
@@ -2084,6 +2210,14 @@ def submit_command(
                 now,
             ),
         )
+        if unique_dependencies:
+            conn.executemany(
+                """
+                INSERT INTO command_dependencies (command_id, depends_on_command_id)
+                VALUES (?, ?)
+                """,
+                [(command_id, dependency_id) for dependency_id in unique_dependencies],
+            )
         append_event(
             conn,
             "command",
@@ -2096,11 +2230,16 @@ def submit_command(
                 "priority": priority.value,
                 "backend": selected_backend.value,
                 "workspace_root": resolved_root,
+                "allow_parallel": bool(allow_parallel and not unique_dependencies),
+                "depends_on_command_ids": unique_dependencies,
             },
         )
         conn.commit()
-        row = conn.execute("SELECT * FROM commands WHERE id = ?", (command_id,)).fetchone()
-        return command_from_row(row)
+        rows = conn.execute("SELECT * FROM commands").fetchall()
+        commands = [command_from_row(row) for row in rows]
+        commands = attach_command_dependencies(commands, command_dependency_map(conn))
+        commands = enrich_command_dependency_state(commands)
+        return next(command for command in commands if command.id == command_id)
 
 
 def create_instruction_record(conn, command_id: str, body: str) -> InstructionRecord:
@@ -2137,7 +2276,7 @@ def append_instruction(
         if command_row is None:
             raise ValueError(f"Unknown command: {command_id}")
         command = command_from_row(command_row)
-        if command.stage in {CommandStage.DONE, CommandStage.FAILED}:
+        if command.stage in {CommandStage.DONE, CommandStage.FAILED, CommandStage.CANCELED}:
             raise ValueError(f"Cannot append instructions to a terminal command: {command_id}")
         instruction = create_instruction_record(conn, command.id, instruction_body)
 
@@ -2289,7 +2428,7 @@ def request_command_stop(db_path: Path, command_id: str) -> CommandRecord:
         if row is None:
             raise ValueError(f"Unknown command: {command_id}")
         command = command_from_row(row)
-        if command.stage in {CommandStage.DONE, CommandStage.FAILED}:
+        if command.stage in {CommandStage.DONE, CommandStage.FAILED, CommandStage.CANCELED}:
             raise ValueError(f"Cannot stop a terminal command: {command_id}")
         if command.stage == CommandStage.PAUSED:
             return command
@@ -2317,8 +2456,7 @@ def request_command_stop(db_path: Path, command_id: str) -> CommandRecord:
             {"stage": command.stage.value},
         )
         conn.commit()
-        refreshed = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
-        return command_from_row(refreshed)
+        return get_command(db_path, command.id)
 
 
 def resume_command(db_path: Path, command_id: str) -> CommandRecord:
@@ -2347,22 +2485,127 @@ def resume_command(db_path: Path, command_id: str) -> CommandRecord:
             {"resume_stage": resume_stage.value},
         )
         conn.commit()
-        refreshed = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
-        return command_from_row(refreshed)
+        return get_command(db_path, command.id)
+
+
+def ignore_command_dependencies(db_path: Path, command_id: str) -> CommandRecord:
+    initialize_database(db_path)
+    with connect(db_path) as conn:
+        row = conn.execute("SELECT * FROM commands WHERE id = ?", (command_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"Unknown command: {command_id}")
+        command = command_from_row(row)
+        if command.stage in {CommandStage.DONE, CommandStage.FAILED, CommandStage.CANCELED}:
+            raise ValueError(f"Cannot ignore dependencies for a terminal command: {command_id}")
+        dep_ids = command_dependency_map(conn).get(command_id, [])
+        if not dep_ids:
+            return get_command(db_path, command_id)
+        conn.execute("DELETE FROM command_dependencies WHERE command_id = ?", (command_id,))
+        update_command(conn, command_id, allow_parallel=0)
+        append_event(
+            conn,
+            "command",
+            command_id,
+            "command_dependencies_ignored",
+            {"ignored_dependency_ids": dep_ids},
+        )
+        conn.commit()
+        return get_command(db_path, command_id)
+
+
+def cancel_command(db_path: Path, command_id: str, reason: Optional[str] = None) -> CommandRecord:
+    initialize_database(db_path)
+    with connect(db_path) as conn:
+        row = conn.execute("SELECT * FROM commands WHERE id = ?", (command_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"Unknown command: {command_id}")
+        command = command_from_row(row)
+        if command.stage in {CommandStage.DONE, CommandStage.FAILED, CommandStage.CANCELED}:
+            raise ValueError(f"Cannot cancel a terminal command: {command_id}")
+        conn.execute(
+            """
+            UPDATE tasks
+            SET state = ?, error = COALESCE(error, ?), updated_at = ?
+            WHERE command_id = ? AND state IN (?, ?, ?)
+            """,
+            (
+                TaskState.CANCELED.value,
+                reason or "Canceled by operator.",
+                utc_now(),
+                command_id,
+                TaskState.PENDING.value,
+                TaskState.RUNNING.value,
+                TaskState.BLOCKED.value,
+            ),
+        )
+        conn.execute(
+            """
+            UPDATE questions
+            SET state = ?, updated_at = ?
+            WHERE command_id = ? AND state IN (?, ?)
+            """,
+            (
+                QuestionState.RESOLVED.value,
+                utc_now(),
+                command_id,
+                QuestionState.OPEN.value,
+                QuestionState.ANSWERED.value,
+            ),
+        )
+        conn.execute(
+            """
+            UPDATE agent_runs
+            SET state = ?, error = COALESCE(error, ?), finished_at = COALESCE(finished_at, ?), updated_at = ?
+            WHERE command_id = ? AND state IN (?, ?, ?)
+            """,
+            (
+                AgentRunState.DENIED.value,
+                reason or "Canceled by operator.",
+                utc_now(),
+                utc_now(),
+                command_id,
+                AgentRunState.PENDING_APPROVAL.value,
+                AgentRunState.APPROVED.value,
+                AgentRunState.RUNNING.value,
+            ),
+        )
+        update_command(
+            conn,
+            command_id,
+            stage=CommandStage.CANCELED.value,
+            resume_stage=None,
+            stop_requested=0,
+            final_response=None,
+            failure_reason=reason or "Canceled by operator.",
+        )
+        append_event(
+            conn,
+            "command",
+            command_id,
+            "command_canceled",
+            {"reason": reason or "Canceled by operator."},
+        )
+        conn.commit()
+        return get_command(db_path, command_id)
 
 
 def get_command(db_path: Path, command_id: str) -> Optional[CommandRecord]:
     initialize_database(db_path)
     with connect(db_path) as conn:
-        row = conn.execute("SELECT * FROM commands WHERE id = ?", (command_id,)).fetchone()
-        return command_from_row(row) if row else None
+        rows = conn.execute("SELECT * FROM commands").fetchall()
+        commands = [command_from_row(row) for row in rows]
+        commands = attach_command_dependencies(commands, command_dependency_map(conn))
+        commands = enrich_command_dependency_state(commands)
+        return next((command for command in commands if command.id == command_id), None)
 
 
 def list_commands(db_path: Path) -> List[CommandRecord]:
     initialize_database(db_path)
     with connect(db_path) as conn:
         rows = conn.execute("SELECT * FROM commands").fetchall()
-    commands = [command_from_row(row) for row in rows]
+        commands = [command_from_row(row) for row in rows]
+        commands = attach_command_dependencies(commands, command_dependency_map(conn))
+        commands = enrich_command_dependency_state(commands)
     return sorted(
         commands,
         key=lambda command: (
@@ -2484,33 +2727,80 @@ def approved_agent_run_ready(conn, command_id: str) -> bool:
     return row is not None
 
 
+def command_dependencies_ready(command: CommandRecord) -> bool:
+    return command.dependency_state in {"none", "ready"}
+
+
+def command_can_join_parallel_frontier(command: CommandRecord) -> bool:
+    return command.allow_parallel and not command.depends_on
+
+
+def command_is_blocked_by_operator(command: CommandRecord, conn) -> bool:
+    if command.stage == CommandStage.WAITING_QUESTION and not answered_question_ready(
+        conn, command.id
+    ):
+        return True
+    if command.stage == CommandStage.WAITING_APPROVAL and not approved_agent_run_ready(
+        conn, command.id
+    ):
+        return True
+    return False
+
+
+def build_parallel_frontier(commands: Sequence[CommandRecord]) -> List[CommandRecord]:
+    if not commands:
+        return []
+    ordered = sorted(commands, key=command_order_key)
+    head = ordered[0]
+    frontier = [head]
+    if not command_can_join_parallel_frontier(head):
+        return frontier
+    for command in ordered[1:]:
+        if not command_can_join_parallel_frontier(command):
+            break
+        if any(
+            workspace_roots_overlap(command.workspace_root, other.workspace_root)
+            for other in frontier
+        ):
+            break
+        frontier.append(command)
+    return frontier
+
+
 def select_actionable_command(conn, command_id: Optional[str]) -> Optional[CommandRecord]:
     if command_id:
-        row = conn.execute("SELECT * FROM commands WHERE id = ?", (command_id,)).fetchone()
-        return command_from_row(row) if row else None
+        rows = conn.execute("SELECT * FROM commands").fetchall()
+        commands = [command_from_row(row) for row in rows]
+        commands = attach_command_dependencies(commands, command_dependency_map(conn))
+        commands = enrich_command_dependency_state(commands)
+        return next((command for command in commands if command.id == command_id), None)
 
     rows = conn.execute(
-        "SELECT * FROM commands WHERE stage NOT IN (?, ?, ?)",
-        (CommandStage.DONE.value, CommandStage.FAILED.value, CommandStage.PAUSED.value),
+        "SELECT * FROM commands WHERE stage NOT IN (?, ?, ?, ?)",
+        (
+            CommandStage.DONE.value,
+            CommandStage.FAILED.value,
+            CommandStage.PAUSED.value,
+            CommandStage.CANCELED.value,
+        ),
     ).fetchall()
     commands = [command_from_row(row) for row in rows]
+    commands = attach_command_dependencies(commands, command_dependency_map(conn))
+    commands = enrich_command_dependency_state(commands)
+    frontier = build_parallel_frontier(commands)
     actionable = []
-    for command in commands:
-        if command.stage == CommandStage.WAITING_QUESTION and not answered_question_ready(
-            conn, command.id
-        ):
+    for command in frontier:
+        if not command_dependencies_ready(command):
             continue
-        if command.stage == CommandStage.WAITING_APPROVAL and not approved_agent_run_ready(
-            conn, command.id
-        ):
+        if command_is_blocked_by_operator(command, conn):
             continue
         actionable.append(command)
     if not actionable:
         return None
     actionable.sort(
         key=lambda command: (
+            PARALLEL_STAGE_RANK[command.stage.value],
             PRIORITY_RANK[command.priority.value],
-            STAGE_RANK[command.stage.value],
             command.created_at,
         )
     )
@@ -3715,6 +4005,13 @@ def tick_once(
         if command is None:
             return TickOutcome(action="no_op", note="no actionable commands")
 
+        if not command_dependencies_ready(command):
+            return TickOutcome(
+                action="blocked",
+                command=command,
+                note="waiting on command dependencies",
+            )
+
         if command.stop_requested:
             paused = pause_command_record(conn, command, note="paused at next checkpoint")
             return TickOutcome(
@@ -3796,7 +4093,11 @@ def run_engine(
             "dispatch_failed",
         }:
             break
-        if outcome.command and outcome.command.stage in {CommandStage.DONE, CommandStage.FAILED}:
+        if outcome.command and outcome.command.stage in {
+            CommandStage.DONE,
+            CommandStage.FAILED,
+            CommandStage.CANCELED,
+        }:
             break
     final_command = get_command(db_path, last_command_id) if last_command_id else None
     return {

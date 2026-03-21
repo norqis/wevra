@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import typer
 
@@ -16,6 +16,8 @@ from wevra.service import (
     approve_agent_runs_batch,
     answer_question,
     append_instruction,
+    cancel_command,
+    ignore_command_dependencies,
     deny_agent_run,
     get_command,
     list_agent_runs,
@@ -134,6 +136,16 @@ def submit(
     backend: Optional[RuntimeBackend] = typer.Option(
         None, help="Optional backend override for this command."
     ),
+    depends_on: List[str] = typer.Option(
+        None,
+        "--depends-on",
+        help="Run this job after the selected job id completes. Repeat to add multiple dependencies.",
+    ),
+    allow_parallel: bool = typer.Option(
+        False,
+        "--parallel",
+        help="Allow this job to run in parallel when it has no dependencies and its workspace does not overlap.",
+    ),
     workspace_root: Path = typer.Option(
         ...,
         "--workspace-dir",
@@ -153,6 +165,8 @@ def submit(
         priority=priority,
         backend=backend,
         workspace_root=workspace_root,
+        depends_on_command_ids=depends_on or [],
+        allow_parallel=allow_parallel,
         settings=config,
         repo_root=repo_root(),
     )
@@ -180,6 +194,33 @@ def append(
             "instruction": appended.model_dump(mode="json"),
             "command": command.model_dump(mode="json"),
         }
+    )
+
+
+@app.command("ignore-dependencies")
+def ignore_dependencies_command(
+    command_id: str = typer.Argument(..., help="Job identifier."),
+    db_path: Optional[Path] = typer.Option(
+        None, help="Optional path to the SQLite runtime database."
+    ),
+) -> None:
+    """Ignore command-level dependencies for a blocked job."""
+    print_json(
+        ignore_command_dependencies(resolve_db_path(db_path), command_id).model_dump(mode="json")
+    )
+
+
+@app.command("cancel")
+def cancel_command_cli(
+    command_id: str = typer.Argument(..., help="Job identifier."),
+    reason: Optional[str] = typer.Argument(None, help="Optional cancel reason."),
+    db_path: Optional[Path] = typer.Option(
+        None, help="Optional path to the SQLite runtime database."
+    ),
+) -> None:
+    """Cancel a queued or blocked job."""
+    print_json(
+        cancel_command(resolve_db_path(db_path), command_id, reason=reason).model_dump(mode="json")
     )
 
 

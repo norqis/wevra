@@ -4,6 +4,8 @@
 
 Wevra is an orchestration engine for AI jobs.
 
+It is built for AI job workflows with approval gates, dependencies, and a live dashboard for Codex and Claude Code.
+
 With a single job, Wevra can carry work from planning and implementation through tests and final review.
 
 ![English dashboard walkthrough](docs/images/dashboard-flow-en-live.gif)

@@ -699,7 +699,8 @@ def attach_command_dependencies(
     dep_map: Dict[str, List[str]],
 ) -> List[CommandRecord]:
     return [
-        command.model_copy(update={"depends_on": dep_map.get(command.id, [])}) for command in commands
+        command.model_copy(update={"depends_on": dep_map.get(command.id, [])})
+        for command in commands
     ]
 
 
@@ -2735,9 +2736,13 @@ def command_can_join_parallel_frontier(command: CommandRecord) -> bool:
 
 
 def command_is_blocked_by_operator(command: CommandRecord, conn) -> bool:
-    if command.stage == CommandStage.WAITING_QUESTION and not answered_question_ready(conn, command.id):
+    if command.stage == CommandStage.WAITING_QUESTION and not answered_question_ready(
+        conn, command.id
+    ):
         return True
-    if command.stage == CommandStage.WAITING_APPROVAL and not approved_agent_run_ready(conn, command.id):
+    if command.stage == CommandStage.WAITING_APPROVAL and not approved_agent_run_ready(
+        conn, command.id
+    ):
         return True
     return False
 
@@ -2753,7 +2758,10 @@ def build_parallel_frontier(commands: Sequence[CommandRecord]) -> List[CommandRe
     for command in ordered[1:]:
         if not command_can_join_parallel_frontier(command):
             break
-        if any(workspace_roots_overlap(command.workspace_root, other.workspace_root) for other in frontier):
+        if any(
+            workspace_roots_overlap(command.workspace_root, other.workspace_root)
+            for other in frontier
+        ):
             break
         frontier.append(command)
     return frontier

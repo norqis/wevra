@@ -205,7 +205,9 @@ def ignore_dependencies_command(
     ),
 ) -> None:
     """Ignore command-level dependencies for a blocked job."""
-    print_json(ignore_command_dependencies(resolve_db_path(db_path), command_id).model_dump(mode="json"))
+    print_json(
+        ignore_command_dependencies(resolve_db_path(db_path), command_id).model_dump(mode="json")
+    )
 
 
 @app.command("cancel")
@@ -217,7 +219,9 @@ def cancel_command_cli(
     ),
 ) -> None:
     """Cancel a queued or blocked job."""
-    print_json(cancel_command(resolve_db_path(db_path), command_id, reason=reason).model_dump(mode="json"))
+    print_json(
+        cancel_command(resolve_db_path(db_path), command_id, reason=reason).model_dump(mode="json")
+    )
 
 
 @app.command("show")

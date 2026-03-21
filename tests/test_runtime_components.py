@@ -1349,7 +1349,12 @@ def test_ignore_dependencies_and_cancel_actions_for_failed_prerequisite(tmp_path
     with connect(settings.db_path) as conn:
         conn.execute(
             "UPDATE commands SET stage = ?, failure_reason = ?, updated_at = ? WHERE id = ?",
-            (CommandStage.FAILED.value, "dependency failed", service_module.utc_now(), dependency.id),
+            (
+                CommandStage.FAILED.value,
+                "dependency failed",
+                service_module.utc_now(),
+                dependency.id,
+            ),
         )
         conn.commit()
 

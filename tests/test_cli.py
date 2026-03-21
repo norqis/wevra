@@ -10,7 +10,16 @@ import wevra.service as service_module
 from wevra.cli import app
 from wevra.config import load_config
 from wevra.dashboard import create_server
-from wevra.models import ApprovalMode, PlannerDecision, PlannerOutput, RuntimeBackend, WorkflowMode
+from wevra.models import (
+    ApprovalMode,
+    CommandStage,
+    OperatorIssueKind,
+    PlannerDecision,
+    PlannerOutput,
+    Priority,
+    RuntimeBackend,
+    WorkflowMode,
+)
 from wevra.service import StructuredCliBackend
 
 
@@ -558,3 +567,82 @@ def test_cli_batch_approve_agent_runs(tmp_path, monkeypatch):
 
     completed = read_json(runner.invoke(app, ["run", "--command-id", command["id"]]))
     assert completed["final_command"]["stage"] == "done"
+
+
+def test_retry_operator_issue_cli_updates_job_stage_and_backend(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    submitted = submit_job(tmp_path, "--mode", "implementation", "recover this job")
+    settings = load_config(tmp_path)
+    with sqlite3.connect(settings.db_path) as conn:
+        conn.execute(
+            """
+            UPDATE commands
+            SET stage = ?, resume_stage = ?, operator_issue_kind = ?, operator_issue_detail = ?,
+                operator_issue_role_name = ?, operator_issue_runtime = ?, operator_issue_model = ?
+            WHERE id = ?
+            """,
+            (
+                CommandStage.WAITING_OPERATOR.value,
+                CommandStage.RUNNING.value,
+                OperatorIssueKind.PROVIDER_LIMIT.value,
+                "usage limit exceeded",
+                "implementer",
+                RuntimeBackend.CODEX.value,
+                "gpt-5.4",
+                submitted["id"],
+            ),
+        )
+        conn.commit()
+
+    retried = read_json(
+        runner.invoke(
+            app,
+            ["retry-operator-issue", submitted["id"], "--backend", RuntimeBackend.CLAUDE.value],
+        )
+    )
+    assert retried["stage"] == "running"
+    assert retried["backend"] == "claude"
+    assert "provider usage limit" in retried["resume_hint"]
+
+
+def test_cancel_with_repair_cli_creates_repair_job(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    submitted = submit_job(tmp_path, "--mode", "implementation", "repair this job")
+    settings = load_config(tmp_path)
+    with sqlite3.connect(settings.db_path) as conn:
+        conn.execute(
+            """
+            UPDATE commands
+            SET stage = ?, operator_issue_kind = ?, operator_issue_detail = ?,
+                operator_issue_role_name = ?, operator_issue_runtime = ?, operator_issue_model = ?
+            WHERE id = ?
+            """,
+            (
+                CommandStage.WAITING_OPERATOR.value,
+                OperatorIssueKind.PROVIDER_LIMIT.value,
+                "usage limit exceeded",
+                "implementer",
+                RuntimeBackend.CODEX.value,
+                "gpt-5.4",
+                submitted["id"],
+            ),
+        )
+        conn.commit()
+
+    outcome = read_json(
+        runner.invoke(
+            app,
+            [
+                "cancel-with-repair",
+                submitted["id"],
+                "Restore changes left by interrupted job: repair this job",
+            ],
+        )
+    )
+    assert outcome["canceled_command"]["stage"] == "canceled"
+    assert outcome["repair_command"]["priority"] == Priority.HIGH.value
+    assert outcome["repair_command"]["goal"].startswith("Restore changes left by interrupted job")

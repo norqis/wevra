@@ -16,6 +16,7 @@ from wevra.service import (
     approve_agent_runs_batch,
     answer_question,
     append_instruction,
+    cancel_command_with_repair,
     cancel_command,
     ignore_command_dependencies,
     deny_agent_run,
@@ -26,6 +27,7 @@ from wevra.service import (
     list_questions,
     list_reviews,
     list_tasks,
+    retry_operator_issue,
     run_engine,
     submit_command,
 )
@@ -221,6 +223,52 @@ def cancel_command_cli(
     """Cancel a queued or blocked job."""
     print_json(
         cancel_command(resolve_db_path(db_path), command_id, reason=reason).model_dump(mode="json")
+    )
+
+
+@app.command("retry-operator-issue")
+def retry_operator_issue_command(
+    command_id: str = typer.Argument(..., help="Job identifier."),
+    backend: Optional[RuntimeBackend] = typer.Option(
+        None,
+        help="Optionally retry with a different AI backend for this job.",
+    ),
+    db_path: Optional[Path] = typer.Option(
+        None, help="Optional path to the SQLite runtime database."
+    ),
+) -> None:
+    """Retry a recoverable operator issue for a job."""
+    print_json(
+        retry_operator_issue(
+            resolve_db_path(db_path), command_id=command_id, backend_override=backend
+        ).model_dump(mode="json")
+    )
+
+
+@app.command("cancel-with-repair")
+def cancel_with_repair_command(
+    command_id: str = typer.Argument(..., help="Job identifier."),
+    repair_goal: str = typer.Argument(
+        ..., help="Goal text for the repair job that should run next."
+    ),
+    db_path: Optional[Path] = typer.Option(
+        None, help="Optional path to the SQLite runtime database."
+    ),
+) -> None:
+    """Cancel an interrupted job and create a repair job."""
+    config = settings()
+    canceled, repair = cancel_command_with_repair(
+        resolve_db_path(db_path),
+        command_id=command_id,
+        repair_goal=repair_goal,
+        settings=config,
+        repo_root=repo_root(),
+    )
+    print_json(
+        {
+            "canceled_command": canceled.model_dump(mode="json"),
+            "repair_command": repair.model_dump(mode="json"),
+        }
     )
 
 

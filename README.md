@@ -2,9 +2,8 @@
 
 [日本語](README.ja.md)
 
-Wevra is a local workflow engine for structured AI work.
+Wevra is an orchestration engine for AI jobs.
 
-It takes a job, breaks it into tracked steps, runs the work through the right mode, pauses when user input is needed, and keeps the flow inside the engine instead of inside a long-lived AI chat.
 With a single job, Wevra can carry work from planning and implementation through tests and final review.
 
 Wevra can run a job in these execution modes:
@@ -17,7 +16,7 @@ Wevra can run a job in these execution modes:
 | `review` | Collects the necessary context for review work and carries the job through the final reviewer pass. |
 | `planning` | Produces a structured planning result with separate plan, design direction, and task breakdown sections without moving into implementation. |
 
-![English dashboard screenshot](docs/images/dashboard-en.png)
+![English dashboard walkthrough](docs/images/dashboard-flow-en-live.gif)
 
 ## Initial Setup
 
@@ -55,7 +54,7 @@ From the dashboard you can:
 
 - start a new job and choose its execution mode, approval style, AI, working directory, and optional dependencies
 - watch progress, tasks, reviews, live agent logs, and results in real time
-- answer questions and approve or deny agent actions when work pauses
+- answer questions, approve or deny agent actions, and recover interrupted AI runs
 - pause a running job at a safe boundary and resume it later
 - run independent jobs in parallel when their workspaces do not overlap
 - append follow-up instructions to active work
@@ -103,6 +102,14 @@ Inspect or resolve pending agent approvals from the CLI:
 ./wevra approve-agent-run <agent-run-id>
 ./wevra approve-agent-runs <command-id> --role implementer
 ./wevra deny-agent-run <agent-run-id> "Do not run external tools for this job."
+```
+
+Retry or repair an interrupted AI run:
+
+```bash
+./wevra retry-operator-issue <command-id>
+./wevra retry-operator-issue <command-id> --backend claude
+./wevra cancel-with-repair <command-id> "Restore changes left by interrupted job: planner rollout"
 ```
 
 ## How It Works
@@ -191,4 +198,4 @@ Stores local secrets and env values referenced by the config files.
 ./.venv/bin/pytest -q
 ```
 
-If you change the dashboard UI, refresh `docs/images/dashboard-en.png` and `docs/images/dashboard-ja.png` before opening a PR.
+If you change the dashboard UI, refresh `docs/images/dashboard-flow-en-live.gif` and `docs/images/dashboard-flow-ja-live.gif` before opening a PR.

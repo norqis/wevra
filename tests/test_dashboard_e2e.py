@@ -43,7 +43,8 @@ def wait_for_refresh_condition(page, predicate, refresh_selector="#refreshBtn", 
     last_error = None
     for _ in range(attempts):
         try:
-            if predicate():
+            result = predicate()
+            if result is None or result:
                 return
         except AssertionError as exc:
             last_error = exc
@@ -193,6 +194,109 @@ def test_dashboard_browser_planning_result_download_uses_japanese_section_name(
             page.locator("#downloadResultBtn").click()
         download = download_info.value
         assert download.suggested_filename == "planning_browser_result_タスク分解.md"
+
+
+def test_dashboard_browser_operator_issue_can_retry_with_another_ai(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    class SwitchablePlanner:
+        def plan(self, command, *args, **kwargs):
+            if command.backend == service_module.RuntimeBackend.CODEX:
+                raise service_module.AgentExecutionError(
+                    service_module.OperatorIssueKind.PROVIDER_LIMIT,
+                    "provider limit",
+                    detail="429 rate limit exceeded",
+                )
+            return service_module.PlannerOutput(
+                decision=service_module.PlannerDecision.COMPLETE,
+                workflow_mode=service_module.WorkflowMode.PLANNING,
+                final_response=(
+                    "## Plan\nContinue from the interrupted state.\n\n"
+                    "## Design Direction\nKeep the current files.\n\n"
+                    "## Task Breakdown\n1. Resume with the alternate AI."
+                ),
+            )
+
+    monkeypatch.setattr(service_module, "backend_for", lambda *args, **kwargs: SwitchablePlanner())
+
+    with dashboard_server(tmp_path) as base_url, browser_page() as page:
+        page.goto(base_url)
+
+        page.locator("#openSubmitBtn").click()
+        page.locator("#workflowMode").select_option("planning")
+        page.locator("#backend").select_option("codex")
+        page.locator("#workspaceRoot").fill(str(tmp_path))
+        page.locator("#goal").fill("operator issue retry")
+        page.locator("#submitBtn").click()
+
+        wait_for_refresh_condition(
+            page,
+            lambda: expect(page.locator("#commandDetail")).to_contain_text(
+                "The selected AI hit a usage limit"
+            ),
+        )
+        page.locator("#agentsTab").click()
+        expect(page.locator("#agentRunsList")).to_contain_text("429 rate limit exceeded")
+        page.locator("#overviewTab").click()
+        page.locator("#commandDetail").locator("[data-open-operator-resume]").click()
+        expect(page.locator("#operatorResumeModal")).to_be_visible()
+        expect(page.locator("#operatorResumeBackend")).to_have_value("codex")
+        page.locator("#operatorResumeBackend").select_option("claude")
+        page.locator("#operatorResumeBtn").click()
+
+        wait_for_refresh_condition(
+            page,
+            lambda: expect(page.locator("#viewResultBtn")).to_be_enabled(),
+        )
+        page.locator("#viewResultBtn").click()
+        expect(page.locator("#resultModalContent")).to_contain_text(
+            "Continue from the interrupted state."
+        )
+
+
+def test_dashboard_browser_operator_issue_cancel_with_repair_creates_new_job(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    class InterruptedPlanner:
+        def plan(self, *args, **kwargs):
+            raise service_module.AgentExecutionError(
+                service_module.OperatorIssueKind.PROVIDER_LIMIT,
+                "provider limit",
+                detail="usage limit exceeded",
+            )
+
+    monkeypatch.setattr(service_module, "backend_for", lambda *args, **kwargs: InterruptedPlanner())
+
+    with dashboard_server(tmp_path) as base_url, browser_page() as page:
+        page.goto(f"{base_url}/?lang=ja")
+
+        page.locator("#openSubmitBtn").click()
+        page.locator("#workflowMode").select_option("planning")
+        page.locator("#backend").select_option("codex")
+        page.locator("#workspaceRoot").fill(str(tmp_path))
+        page.locator("#goal").fill("修復対象ジョブ")
+        page.locator("#submitBtn").click()
+
+        wait_for_refresh_condition(
+            page,
+            lambda: expect(page.locator("#commandDetail")).to_contain_text(
+                "AI の利用上限に達しました"
+            ),
+        )
+        page.locator("#commandDetail").locator("[data-open-operator-cancel]").click()
+        expect(page.locator("#operatorIssueModal")).to_be_visible()
+        expect(page.locator("#operatorRepairChoiceTitle")).to_contain_text(
+            "中断したジョブの変更を元に戻す"
+        )
+        page.locator("#operatorRepairBtn").click()
+
+        wait_for_refresh_condition(
+            page,
+            lambda: expect(page.locator("#commandsList .command-item")).to_have_count(2),
+        )
+        expect(page.locator("#commandDetail")).to_contain_text("中断したジョブの変更を元に戻す")
 
 
 def test_dashboard_browser_submit_modal_manual_notice_and_workspace_root(tmp_path, monkeypatch):

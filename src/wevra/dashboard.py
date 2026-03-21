@@ -26,7 +26,9 @@ from wevra.service import (
     approve_agent_run,
     approve_agent_runs_batch,
     append_instruction,
+    cancel_command,
     deny_agent_run,
+    ignore_command_dependencies,
     list_artifacts,
     list_commands,
     list_events,
@@ -168,7 +170,12 @@ def build_snapshot(repo_root: Path, settings: Optional[AppConfig] = None) -> dic
         command
         for command in commands
         if command["stage"]
-        not in {CommandStage.DONE.value, CommandStage.FAILED.value, CommandStage.PAUSED.value}
+        not in {
+            CommandStage.DONE.value,
+            CommandStage.FAILED.value,
+            CommandStage.PAUSED.value,
+            CommandStage.CANCELED.value,
+        }
     ]
 
     payload = {
@@ -267,7 +274,12 @@ def build_summary_snapshot(
         command
         for command in commands
         if command["stage"]
-        not in {CommandStage.DONE.value, CommandStage.FAILED.value, CommandStage.PAUSED.value}
+        not in {
+            CommandStage.DONE.value,
+            CommandStage.FAILED.value,
+            CommandStage.PAUSED.value,
+            CommandStage.CANCELED.value,
+        }
     ]
 
     payload = {
@@ -470,6 +482,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             )
             backend_raw = str(payload.get("backend", "")).strip().lower()
             backend = RuntimeBackend(backend_raw) if backend_raw else None
+            depends_on_command_ids = [
+                str(item).strip()
+                for item in payload.get("depends_on_command_ids", [])
+                if str(item).strip()
+            ]
+            allow_parallel = bool(payload.get("allow_parallel", False))
             workspace_root_raw = str(payload.get("workspace_root", "")).strip()
             if not workspace_root_raw:
                 self.send_json(
@@ -478,18 +496,24 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 )
                 return
             workspace_root = Path(workspace_root_raw).expanduser()
-            with self.state_lock:
-                command = submit_command(
-                    self.settings.db_path,
-                    goal=goal,
-                    workflow_mode=workflow_mode,
-                    approval_mode=approval_mode,
-                    priority=priority,
-                    backend=backend,
-                    workspace_root=workspace_root,
-                    settings=self.settings,
-                    repo_root=self.repo_root,
-                )
+            try:
+                with self.state_lock:
+                    command = submit_command(
+                        self.settings.db_path,
+                        goal=goal,
+                        workflow_mode=workflow_mode,
+                        approval_mode=approval_mode,
+                        priority=priority,
+                        backend=backend,
+                        workspace_root=workspace_root,
+                        depends_on_command_ids=depends_on_command_ids,
+                        allow_parallel=allow_parallel,
+                        settings=self.settings,
+                        repo_root=self.repo_root,
+                    )
+            except ValueError as exc:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
+                return
             self.send_json(
                 HTTPStatus.CREATED, {"ok": True, "command": command.model_dump(mode="json")}
             )
@@ -526,6 +550,43 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             with self.state_lock:
                 command = request_command_stop(self.settings.db_path, command_id=command_id)
+            self.send_json(HTTPStatus.OK, {"ok": True, "command": command.model_dump(mode="json")})
+            return
+
+        if parsed.path == "/api/commands/cancel":
+            command_id = str(payload.get("command_id", "")).strip()
+            if not command_id:
+                self.send_json(
+                    HTTPStatus.BAD_REQUEST, {"ok": False, "error": "command_id_required"}
+                )
+                return
+            reason = str(payload.get("reason", "")).strip() or None
+            try:
+                with self.state_lock:
+                    command = cancel_command(
+                        self.settings.db_path, command_id=command_id, reason=reason
+                    )
+            except ValueError as exc:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
+                return
+            self.send_json(HTTPStatus.OK, {"ok": True, "command": command.model_dump(mode="json")})
+            return
+
+        if parsed.path == "/api/commands/ignore-dependencies":
+            command_id = str(payload.get("command_id", "")).strip()
+            if not command_id:
+                self.send_json(
+                    HTTPStatus.BAD_REQUEST, {"ok": False, "error": "command_id_required"}
+                )
+                return
+            try:
+                with self.state_lock:
+                    command = ignore_command_dependencies(
+                        self.settings.db_path, command_id=command_id
+                    )
+            except ValueError as exc:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
+                return
             self.send_json(HTTPStatus.OK, {"ok": True, "command": command.model_dump(mode="json")})
             return
 

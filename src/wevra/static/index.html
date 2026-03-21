@@ -94,9 +94,9 @@
     }
 
     .hero {
-      padding: 18px 20px;
+      padding: 10px 18px;
       display: grid;
-      gap: 10px;
+      gap: 4px;
       align-items: start;
     }
 
@@ -104,28 +104,40 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 16px;
+      gap: 14px;
     }
 
     .brand-lockup {
+      position: relative;
       display: inline-flex;
-      align-items: center;
-      gap: 0;
+      align-items: flex-start;
       min-width: 0;
+      padding-bottom: 14px;
     }
 
     .brand-name {
       font-family: var(--font-display);
-      font-size: clamp(28px, 3vw, 40px);
+      font-size: clamp(20px, 2vw, 26px);
       line-height: 1;
       letter-spacing: -0.04em;
       font-weight: 700;
     }
 
+    .brand-endpoint {
+      position: absolute;
+      left: 0;
+      bottom: 0;
+      color: rgba(239, 244, 255, 0.62);
+      font-size: 11px;
+      line-height: 1;
+      letter-spacing: 0.03em;
+      white-space: nowrap;
+    }
+
     .hero-controls {
       display: grid;
       justify-items: end;
-      gap: 8px;
+      gap: 4px;
       min-width: 0;
     }
 
@@ -133,39 +145,38 @@
       display: flex;
       align-items: center;
       gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      width: 100%;
+    }
+
+    .hero-control-row.status-row {
+      justify-content: flex-end;
+      gap: 8px;
     }
 
     .hero-control-row select {
       width: auto;
-      min-width: 126px;
-    }
-
-    .hero-control-label {
-      color: var(--muted);
-      font-size: 11px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      font-weight: 700;
+      min-width: 108px;
+      min-height: 34px;
     }
 
     .hero-status {
       text-align: right;
-      color: var(--muted);
-      font-size: 12px;
-      max-width: 420px;
+      color: rgba(239, 244, 255, 0.68);
+      font-size: 11px;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
     }
 
     .live-indicator {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      min-height: 40px;
-      padding: 0 12px;
-      border-radius: 999px;
-      border: 1px solid rgba(40, 215, 184, 0.24);
-      background: rgba(40, 215, 184, 0.08);
+      gap: 5px;
+      min-height: 0;
+      padding: 0;
       color: #b8ffef;
-      font-size: 11px;
+      font-size: 9px;
       font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
@@ -174,11 +185,22 @@
 
     .live-indicator::before {
       content: "";
-      width: 8px;
-      height: 8px;
+      width: 7px;
+      height: 7px;
       border-radius: 999px;
       background: var(--accent-2);
-      box-shadow: 0 0 0 5px rgba(40, 215, 184, 0.12);
+    }
+
+    .hero-control-row .secondary {
+      min-height: 32px;
+      padding: 7px 11px;
+      font-size: 11px;
+    }
+
+    #openSubmitBtn {
+      min-height: 36px;
+      padding: 8px 22px;
+      font-size: 14px;
     }
 
     .eyebrow {
@@ -225,7 +247,7 @@
 
     .modal-form {
       display: grid;
-      gap: 14px;
+      gap: 10px;
     }
 
     .modal-form .toolbar-controls {
@@ -234,18 +256,13 @@
         minmax(116px, max-content)
         minmax(92px, max-content)
         minmax(148px, max-content)
-        minmax(220px, 1fr);
+        minmax(220px, 1fr)
+        auto;
       justify-content: stretch;
     }
 
-    .modal-form .toolbar-controls .field-stack:last-child {
+    .modal-form .toolbar-controls .field-stack:nth-last-child(2) {
       min-width: 220px;
-    }
-
-    .modal-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 10px;
     }
 
     .toolbar-controls {
@@ -324,6 +341,15 @@
       justify-self: end;
     }
 
+    .modal-submit-inline {
+      min-height: 44px;
+      border-radius: 14px;
+      padding: 0 18px;
+      align-self: end;
+      justify-self: end;
+      white-space: nowrap;
+    }
+
     .toolbar-notice {
       display: none;
       gap: 6px;
@@ -342,6 +368,14 @@
       display: grid;
     }
 
+    .toolbar-notice.danger {
+      border-color: rgba(255, 132, 118, 0.32);
+      background:
+        linear-gradient(180deg, rgba(255, 132, 118, 0.16), rgba(255, 255, 255, 0.04)),
+        rgba(22, 11, 9, 0.92);
+      color: #ffd7cf;
+    }
+
     .toolbar-notice-title {
       font-size: 12px;
       font-weight: 700;
@@ -352,6 +386,103 @@
       color: rgba(255, 237, 199, 0.88);
       font-size: 12px;
       line-height: 1.45;
+    }
+
+    .toolbar-notice.danger .toolbar-notice-body {
+      color: rgba(255, 226, 220, 0.9);
+    }
+
+    .dependency-picker {
+      display: grid;
+      gap: 8px;
+      max-height: 168px;
+      overflow: auto;
+      padding: 10px;
+      border-radius: 16px;
+      border: 1px solid rgba(151, 176, 214, 0.14);
+      background: rgba(4, 8, 14, 0.48);
+    }
+
+    .dependency-empty {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .dependency-option {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(151, 176, 214, 0.12);
+      background: rgba(255, 255, 255, 0.03);
+      cursor: pointer;
+      transition: border-color 0.18s ease, background 0.18s ease;
+    }
+
+    .dependency-option:hover {
+      border-color: rgba(124, 156, 255, 0.28);
+      background: rgba(124, 156, 255, 0.08);
+    }
+
+    .dependency-option input {
+      width: 16px;
+      min-width: 16px;
+      height: 16px;
+      min-height: 16px;
+      margin-top: 2px;
+      padding: 0;
+      border-radius: 5px;
+      accent-color: #7c9cff;
+    }
+
+    .dependency-option-copy {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .dependency-option-title {
+      font-size: 13px;
+      color: var(--ink);
+      line-height: 1.35;
+    }
+
+    .dependency-option-meta {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.45;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .toggle-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 44px;
+      padding: 0 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(151, 176, 214, 0.14);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--ink);
+      font-size: 12px;
+      font-weight: 700;
+      align-self: end;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .toggle-chip input {
+      width: 16px;
+      min-width: 16px;
+      height: 16px;
+      min-height: 16px;
+      margin: 0;
+      padding: 0;
+      accent-color: #7c9cff;
     }
 
     .status-line {
@@ -421,6 +552,20 @@
       justify-content: space-between;
       gap: 12px;
       margin-bottom: 12px;
+    }
+
+    .panel-head-main {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .panel-head-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin-left: auto;
     }
 
     .panel-head h2 {
@@ -565,6 +710,39 @@
       background: rgba(85, 227, 142, 0.86);
     }
 
+    .command-item.done-state {
+      border-color: rgba(124, 156, 255, 0.24);
+      background: linear-gradient(180deg, rgba(124, 156, 255, 0.10), rgba(255, 255, 255, 0.02));
+    }
+
+    .command-item.done-state::before {
+      background: rgba(124, 156, 255, 0.82);
+    }
+
+    .command-item.failed-state,
+    .command-item.canceled-state {
+      border-color: rgba(255, 132, 118, 0.28);
+      background: linear-gradient(180deg, rgba(255, 132, 118, 0.10), rgba(255, 255, 255, 0.02));
+    }
+
+    .command-item.failed-state::before,
+    .command-item.canceled-state::before {
+      background: rgba(255, 132, 118, 0.82);
+    }
+
+    .command-item.dependency-failed {
+      border-color: rgba(255, 132, 118, 0.3);
+      background: linear-gradient(180deg, rgba(255, 132, 118, 0.08), rgba(255, 255, 255, 0.02));
+    }
+
+    .command-item.dependency-failed::before {
+      background: rgba(255, 132, 118, 0.8);
+    }
+
+    .command-item.dependency-waiting::before {
+      background: rgba(255, 191, 95, 0.64);
+    }
+
     .title {
       font-weight: 700;
       font-size: 14px;
@@ -590,10 +768,54 @@
       border: 1px solid rgba(151, 176, 214, 0.1);
     }
 
-    .pill.done, .pill.approve, .pill.completed, .pill.approved { color: var(--good); }
-    .pill.waiting_question, .pill.blocked, .pill.request_changes, .pill.waiting_approval, .pill.pending_approval { color: var(--warn); }
-    .pill.failed, .pill.fail, .pill.denied { color: var(--bad); }
-    .pill.running, .pill.planning, .pill.replanning, .pill.verifying { color: var(--accent-2); }
+    .pill.mode-pill,
+    .pill.kind-pill,
+    .pill.resolution-pill {
+      color: rgba(239, 244, 255, 0.9);
+    }
+
+    .pill.stage-pill.done,
+    .pill.review-pill.approve,
+    .pill.task-state-pill.done,
+    .pill.agent-state-pill.completed,
+    .pill.agent-state-pill.approved,
+    .pill.question-state-pill.answered,
+    .pill.question-state-pill.resolved {
+      color: var(--good);
+    }
+
+    .pill.stage-pill.waiting_question,
+    .pill.stage-pill.waiting_approval,
+    .pill.review-pill.request_changes,
+    .pill.task-state-pill.blocked,
+    .pill.agent-state-pill.pending_approval,
+    .pill.question-state-pill.open {
+      color: var(--warn);
+    }
+
+    .pill.stage-pill.failed,
+    .pill.review-pill.fail,
+    .pill.task-state-pill.failed,
+    .pill.agent-state-pill.failed,
+    .pill.agent-state-pill.denied {
+      color: var(--bad);
+    }
+
+    .pill.stage-pill.running,
+    .pill.stage-pill.planning,
+    .pill.stage-pill.replanning,
+    .pill.stage-pill.verifying,
+    .pill.task-state-pill.running,
+    .pill.agent-state-pill.running {
+      color: var(--accent-2);
+    }
+
+    .pill.stage-pill.queued,
+    .pill.stage-pill.paused,
+    .pill.task-state-pill.pending,
+    .pill.task-state-pill.canceled {
+      color: rgba(239, 244, 255, 0.76);
+    }
 
     .question-alert {
       display: none;
@@ -745,6 +967,163 @@
       font-family: var(--font-display);
     }
 
+    .overview-panel {
+      border: 1px solid rgba(151, 176, 214, 0.14);
+      border-radius: 22px;
+      background:
+        radial-gradient(circle at top right, rgba(124, 156, 255, 0.12), transparent 34%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+      padding: 18px;
+      display: grid;
+      gap: 16px;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.015);
+    }
+
+    .overview-panel-head {
+      display: grid;
+      gap: 18px;
+    }
+
+    .overview-copy {
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .overview-kicker {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .overview-title {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink);
+    }
+
+    .overview-path-shell {
+      display: grid;
+      gap: 6px;
+    }
+
+    .overview-path-label {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .overview-path {
+      border-radius: 14px;
+      border: 1px solid rgba(151, 176, 214, 0.12);
+      background: rgba(4, 8, 14, 0.48);
+      padding: 11px 12px;
+      color: rgba(239, 244, 255, 0.92);
+      font-size: 12px;
+      line-height: 1.5;
+      word-break: break-word;
+    }
+
+    .overview-facts {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0 22px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(151, 176, 214, 0.12);
+    }
+
+    .overview-fact {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+      padding: 14px 0;
+      border-bottom: 1px solid rgba(151, 176, 214, 0.10);
+    }
+
+    .overview-fact-wide {
+      grid-column: 1 / -1;
+    }
+
+    .overview-section {
+      display: grid;
+      gap: 10px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(151, 176, 214, 0.12);
+    }
+
+    .overview-section-head {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .overview-chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .overview-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 0 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(151, 176, 214, 0.12);
+      background: rgba(255, 255, 255, 0.04);
+      font-size: 12px;
+      color: var(--ink);
+    }
+
+    .overview-chip.warn {
+      border-color: rgba(255, 191, 95, 0.24);
+      background: rgba(255, 191, 95, 0.10);
+      color: #ffe7b7;
+    }
+
+    .overview-chip.bad {
+      border-color: rgba(255, 132, 118, 0.26);
+      background: rgba(255, 132, 118, 0.10);
+      color: #ffd7cf;
+    }
+
+    .overview-note {
+      color: rgba(239, 244, 255, 0.86);
+      font-size: 13px;
+      line-height: 1.6;
+      word-break: break-word;
+    }
+
+    .overview-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 4px;
+    }
+
+    .overview-fact-label {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .overview-fact-value {
+      color: var(--ink);
+      font-size: 14px;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+
     .detail-banner {
       grid-column: 1 / -1;
       border-radius: 16px;
@@ -776,7 +1155,7 @@
 
     .detail-grid {
       display: grid;
-      grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1fr);
+      grid-template-columns: 1fr;
       gap: 12px;
     }
 
@@ -1150,7 +1529,7 @@
     }
 
     .modal-body {
-      padding: 18px;
+      padding: 14px;
       overflow: auto;
       white-space: pre-wrap;
       word-break: break-word;
@@ -1163,6 +1542,33 @@
       display: flex;
       align-items: center;
       gap: 10px;
+    }
+
+    .icon-button {
+      min-height: 36px;
+      width: 36px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 12px;
+    }
+
+    .icon-button svg {
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .icon-button:disabled {
+      opacity: 0.42;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
     }
 
     .result-modal-body {
@@ -1210,16 +1616,98 @@
     }
 
     .result-markdown {
-      margin: 0;
       padding: 18px;
-      background: transparent;
-      border: 0;
-      border-radius: 0;
       min-height: 100%;
-      white-space: pre-wrap;
-      word-break: break-word;
       font-size: 13px;
       line-height: 1.68;
+      word-break: break-word;
+    }
+
+    .result-markdown > :first-child {
+      margin-top: 0;
+    }
+
+    .result-markdown > :last-child {
+      margin-bottom: 0;
+    }
+
+    .result-markdown p,
+    .result-markdown ul,
+    .result-markdown ol,
+    .result-markdown pre,
+    .result-markdown blockquote {
+      margin: 0 0 14px;
+    }
+
+    .result-markdown h1,
+    .result-markdown h2,
+    .result-markdown h3,
+    .result-markdown h4,
+    .result-markdown h5,
+    .result-markdown h6 {
+      margin: 0 0 10px;
+      color: var(--ink);
+      line-height: 1.3;
+    }
+
+    .result-markdown h1 { font-size: 22px; }
+    .result-markdown h2 { font-size: 18px; }
+    .result-markdown h3 { font-size: 15px; }
+
+    .result-markdown ul,
+    .result-markdown ol {
+      padding-left: 22px;
+    }
+
+    .result-markdown li + li {
+      margin-top: 6px;
+    }
+
+    .result-markdown code {
+      padding: 2px 6px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(151, 176, 214, 0.12);
+      font-size: 12px;
+    }
+
+    .result-markdown blockquote {
+      padding: 10px 14px;
+      border-left: 3px solid rgba(124, 156, 255, 0.42);
+      background: rgba(255, 255, 255, 0.025);
+      color: rgba(225, 233, 246, 0.9);
+    }
+
+    .review-card {
+      width: 100%;
+      text-align: left;
+      cursor: pointer;
+      appearance: none;
+      margin: 0;
+      font: inherit;
+      color: inherit;
+    }
+
+    .review-card:hover {
+      border-color: rgba(124, 156, 255, 0.34);
+      transform: translateY(-1px);
+    }
+
+    .review-card:focus-visible {
+      outline: 2px solid rgba(124, 156, 255, 0.65);
+      outline-offset: 2px;
+    }
+
+    .review-card-hint {
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .review-findings {
+      margin: 0;
+      padding-left: 20px;
+      display: grid;
+      gap: 6px;
     }
 
     pre {
@@ -1256,6 +1744,15 @@
       .agent-role-grid { grid-template-columns: 1fr; }
       .question-alert-shell {
         grid-template-columns: 1fr;
+      }
+      .overview-panel-head {
+        flex-direction: column;
+      }
+      .overview-facts {
+        grid-template-columns: 1fr;
+      }
+      .overview-fact {
+        padding: 12px 0;
       }
       .hero-topbar {
         display: grid;
@@ -1296,19 +1793,18 @@
       <div class="hero-topbar">
         <div class="brand-lockup">
           <div class="brand-name" id="heroTitle">Wevra</div>
+          <div class="brand-endpoint" id="listenEndpoint">127.0.0.1:43861</div>
         </div>
         <div class="hero-controls">
-          <div class="hero-control-row">
-            <span class="hero-control-label" id="languageLabel">Language</span>
+          <div class="hero-control-row status-row">
             <select id="languageSelect">
               <option value="en">English</option>
               <option value="ja">Japanese</option>
             </select>
+            <div class="hero-status" id="statusLine">Loading snapshot…</div>
             <div class="live-indicator" id="liveIndicator">Live</div>
             <button class="secondary" id="refreshBtn">Refresh</button>
-            <button class="primary" id="openSubmitBtn">New Job</button>
           </div>
-          <div class="hero-status" id="statusLine">Loading snapshot…</div>
         </div>
       </div>
     </section>
@@ -1316,8 +1812,12 @@
     <section class="grid">
       <aside class="panel queue-column">
         <div class="panel-head">
-          <h2 id="commandsHeading">Jobs</h2>
-          <span class="panel-badge" id="commandsBadge">Queue</span>
+          <div class="panel-head-main">
+            <h2 id="commandsHeading">Jobs</h2>
+          </div>
+          <div class="panel-head-actions">
+            <button class="primary" id="openSubmitBtn">New Job</button>
+          </div>
         </div>
         <div class="list" id="commandsList"></div>
       </aside>
@@ -1394,6 +1894,10 @@
             <label class="field-label" id="goalLabel" for="goal">Job Brief</label>
             <textarea id="goal" class="toolbar-input" placeholder="Describe the work you want Wevra to run."></textarea>
           </div>
+          <div class="field-stack">
+            <label class="field-label" id="dependsOnLabelText" for="dependencyOptions">Run After</label>
+            <div class="dependency-picker" id="dependencyOptions"></div>
+          </div>
           <div class="toolbar-controls">
             <div class="field-stack">
               <label class="field-label" id="workflowLabel" for="workflowMode">Execution Mode</label>
@@ -1429,13 +1933,19 @@
                 <option value="claude">claude</option>
               </select>
             </div>
+            <label class="toggle-chip" for="allowParallel">
+              <input id="allowParallel" type="checkbox" />
+              <span id="allowParallelLabel">Run In Parallel</span>
+            </label>
+            <button class="primary modal-submit-inline" id="submitBtn">Submit Job</button>
           </div>
           <div class="toolbar-notice" id="approvalModeNotice" aria-live="polite">
             <div class="toolbar-notice-title" id="approvalModeNoticeTitle">Manual approval is enabled</div>
             <div class="toolbar-notice-body" id="approvalModeNoticeBody">When manual approval is enabled, Wevra pauses before each external AI step and waits in the Agents tab until you allow or deny it.</div>
           </div>
-          <div class="modal-actions">
-            <button class="primary" id="submitBtn">Submit Job</button>
+          <div class="toolbar-notice danger" id="workspaceOverlapNotice" aria-live="polite">
+            <div class="toolbar-notice-title" id="workspaceOverlapNoticeTitle">Workspace overlap detected</div>
+            <div class="toolbar-notice-body" id="workspaceOverlapNoticeBody">This workspace overlaps with another job. Add a dependency before you run them in sequence.</div>
           </div>
         </div>
       </div>
@@ -1450,7 +1960,13 @@
           <h2 id="resultModalTitle" style="margin: 6px 0 0; font-size: 24px;">Result</h2>
         </div>
         <div class="modal-header-actions">
-          <button class="secondary" id="downloadResultBtn">Download .md</button>
+          <button class="secondary icon-button" id="downloadResultBtn" aria-label="Download markdown" title="Download markdown">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 4v10"></path>
+              <path d="m8 10 4 4 4-4"></path>
+              <path d="M5 18h14"></path>
+            </svg>
+          </button>
           <button class="secondary" id="closeResultBtn">Close</button>
         </div>
       </div>
@@ -1458,6 +1974,31 @@
         <div class="result-modal-tabs" id="resultModalTabs"></div>
         <div class="result-modal-content" id="resultModalContent">
           <pre class="result-markdown" id="resultModalBody">No result available yet.</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="reviewModal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="reviewModalTitle">
+      <div class="modal-header">
+        <div>
+          <div class="eyebrow" id="reviewModalEyebrow">Review Details</div>
+          <h2 id="reviewModalTitle" style="margin: 6px 0 0; font-size: 24px;">Review</h2>
+        </div>
+        <div class="modal-header-actions">
+          <button class="secondary" id="closeReviewBtn">Close</button>
+        </div>
+      </div>
+      <div class="modal-body" style="display:grid; gap: 14px;">
+        <div class="meta" id="reviewModalMeta"></div>
+        <div class="detail-card">
+          <h3 id="reviewModalSummaryHeading">Summary</h3>
+          <div class="result-markdown" id="reviewModalSummary">No review summary available.</div>
+        </div>
+        <div class="detail-card">
+          <h3 id="reviewModalFindingsHeading">Findings</h3>
+          <div id="reviewModalFindings" class="meta">No review findings were recorded.</div>
         </div>
       </div>
     </div>
@@ -1488,6 +2029,7 @@
       detailSnapshot: null,
       selectedCommandId: null,
       modalCommandId: null,
+      modalReviewId: null,
       currentTab: 'overview',
       localeOverride: new URLSearchParams(window.location.search).get('lang'),
       lastChecksum: null,
@@ -1500,12 +2042,14 @@
       answeringQuestionId: null,
       agentDecisionInFlight: null,
       commandControlInFlight: null,
+      dependencyActionInFlight: null,
       visibleQuestionId: null,
       questionDrafts: {},
       agentRoleTabByCommand: {},
       agentLogFollow: {},
       agentLogScrollTop: {},
-      resultSectionTabByCommand: {}
+      resultSectionTabByCommand: {},
+      dependencySelection: new Set()
     };
 
     const commandsListEl = document.getElementById('commandsList');
@@ -1517,6 +2061,7 @@
     const questionHistoryListEl = document.getElementById('questionHistoryList');
     const commandDetailEl = document.getElementById('commandDetail');
     const statusLineEl = document.getElementById('statusLine');
+    const listenEndpointEl = document.getElementById('listenEndpoint');
     const questionAlertEl = document.getElementById('questionAlert');
     const questionAlertBodyEl = document.getElementById('questionAlertBody');
     const submitModalEl = document.getElementById('submitModal');
@@ -1525,6 +2070,14 @@
     const resultModalTabsEl = document.getElementById('resultModalTabs');
     const resultModalContentEl = document.getElementById('resultModalContent');
     const downloadResultBtnEl = document.getElementById('downloadResultBtn');
+    const reviewModalEl = document.getElementById('reviewModal');
+    const reviewModalEyebrowEl = document.getElementById('reviewModalEyebrow');
+    const reviewModalTitleEl = document.getElementById('reviewModalTitle');
+    const reviewModalMetaEl = document.getElementById('reviewModalMeta');
+    const reviewModalSummaryHeadingEl = document.getElementById('reviewModalSummaryHeading');
+    const reviewModalSummaryEl = document.getElementById('reviewModalSummary');
+    const reviewModalFindingsHeadingEl = document.getElementById('reviewModalFindingsHeading');
+    const reviewModalFindingsEl = document.getElementById('reviewModalFindings');
     const appendModalEl = document.getElementById('appendModal');
     const appendModalInputEl = document.getElementById('appendModalInput');
     const workspaceTabsEl = document.getElementById('workspaceTabs');
@@ -1538,6 +2091,9 @@
     const priorityEl = document.getElementById('priority');
     const backendEl = document.getElementById('backend');
     const workspaceRootEl = document.getElementById('workspaceRoot');
+    const dependencyOptionsEl = document.getElementById('dependencyOptions');
+    const allowParallelEl = document.getElementById('allowParallel');
+    const workspaceOverlapNoticeEl = document.getElementById('workspaceOverlapNotice');
     const openAppendBtnEl = document.getElementById('openAppendBtn');
     const viewResultBtnEl = document.getElementById('viewResultBtn');
     const appendModalSubmitEl = document.getElementById('appendModalSubmit');
@@ -1661,9 +2217,224 @@
         .replaceAll("'", '&#39;');
     }
 
+    function renderInlineMarkdown(text) {
+      let escaped = escapeHtml(text || '');
+      const codeTokens = [];
+      escaped = escaped.replace(/`([^`]+)`/g, (_, code) => {
+        const token = `@@CODE_${codeTokens.length}@@`;
+        codeTokens.push(`<code>${code}</code>`);
+        return token;
+      });
+      escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      escaped = escaped.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+      escaped = escaped.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+      codeTokens.forEach((token, index) => {
+        escaped = escaped.replace(`@@CODE_${index}@@`, token);
+      });
+      return escaped;
+    }
+
+    function renderMarkdownToHtml(markdown, emptyMessage = t('noResultAvailable')) {
+      const source = String(markdown || '').replace(/\r\n?/g, '\n').trim();
+      if (!source) return `<p>${escapeHtml(emptyMessage)}</p>`;
+      const blocks = [];
+      let paragraph = [];
+      let listType = null;
+      let listItems = [];
+      let inCodeBlock = false;
+      let codeLines = [];
+
+      function flushParagraph() {
+        if (!paragraph.length) return;
+        blocks.push(`<p>${renderInlineMarkdown(paragraph.join(' '))}</p>`);
+        paragraph = [];
+      }
+
+      function flushList() {
+        if (!listType || !listItems.length) return;
+        const items = listItems.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join('');
+        blocks.push(`<${listType}>${items}</${listType}>`);
+        listType = null;
+        listItems = [];
+      }
+
+      function flushCodeBlock() {
+        if (!codeLines.length) return;
+        blocks.push(`<pre>${escapeHtml(codeLines.join('\n'))}</pre>`);
+        codeLines = [];
+      }
+
+      for (const rawLine of source.split('\n')) {
+        const line = rawLine.trimEnd();
+        if (inCodeBlock) {
+          if (/^\s*```/.test(line)) {
+            flushCodeBlock();
+            inCodeBlock = false;
+          } else {
+            codeLines.push(rawLine);
+          }
+          continue;
+        }
+        if (/^\s*```/.test(line)) {
+          flushParagraph();
+          flushList();
+          inCodeBlock = true;
+          codeLines = [];
+          continue;
+        }
+        if (!line.trim()) {
+          flushParagraph();
+          flushList();
+          continue;
+        }
+        const heading = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*$/);
+        if (heading) {
+          flushParagraph();
+          flushList();
+          const level = Math.min(heading[1].length, 6);
+          blocks.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+          continue;
+        }
+        const ordered = line.match(/^\s*\d+\.\s+(.+?)\s*$/);
+        if (ordered) {
+          flushParagraph();
+          if (listType && listType !== 'ol') flushList();
+          listType = 'ol';
+          listItems.push(ordered[1]);
+          continue;
+        }
+        const bullet = line.match(/^\s*[-*]\s+(.+?)\s*$/);
+        if (bullet) {
+          flushParagraph();
+          if (listType && listType !== 'ul') flushList();
+          listType = 'ul';
+          listItems.push(bullet[1]);
+          continue;
+        }
+        const quote = line.match(/^\s*>\s+(.+?)\s*$/);
+        if (quote) {
+          flushParagraph();
+          flushList();
+          blocks.push(`<blockquote>${renderInlineMarkdown(quote[1])}</blockquote>`);
+          continue;
+        }
+        flushList();
+        paragraph.push(line.trim());
+      }
+
+      if (inCodeBlock) flushCodeBlock();
+      flushParagraph();
+      flushList();
+      return blocks.join('') || `<p>${escapeHtml(emptyMessage)}</p>`;
+    }
+
     function displayGoal(goal) {
       const value = String(goal || '');
       return value.replace(/^(?:\[[^\]]+\]\s*)+/, '') || value;
+    }
+
+    function commandById(commandId) {
+      return state.summarySnapshot?.commands?.items?.find((item) => item.id === commandId) || null;
+    }
+
+    function commandTitle(command) {
+      return command ? displayGoal(command.goal) : '';
+    }
+
+    function executionStrategyLabel(command) {
+      return command?.allow_parallel ? t('parallelExecutionValue') : t('serialExecutionValue');
+    }
+
+    function dependencyTitle(commandId) {
+      return commandTitle(commandById(commandId)) || commandId;
+    }
+
+    function dependencyTitles(command) {
+      return (command?.depends_on || []).map((commandId) => dependencyTitle(commandId));
+    }
+
+    function selectedDependencyIds() {
+      return Array.from(
+        dependencyOptionsEl.querySelectorAll('input[type="checkbox"]:checked')
+      ).map((node) => node.value);
+    }
+
+    function nonTerminalCommands(commands) {
+      return (commands || []).filter((item) => !['done', 'failed', 'paused', 'canceled'].includes(item.stage));
+    }
+
+    function workspaceRootsOverlap(left, right) {
+      if (!left || !right) return false;
+      const normalizedLeft = String(left).replace(/\/+$/, '');
+      const normalizedRight = String(right).replace(/\/+$/, '');
+      return normalizedLeft === normalizedRight
+        || normalizedLeft.startsWith(`${normalizedRight}/`)
+        || normalizedRight.startsWith(`${normalizedLeft}/`);
+    }
+
+    function overlappingCommandsForWorkspace(workspaceRoot, selectedDependencies = []) {
+      if (!workspaceRoot) return [];
+      const dependencySet = new Set(selectedDependencies || []);
+      return nonTerminalCommands(state.summarySnapshot?.commands?.items || []).filter((command) => {
+        if (dependencySet.has(command.id)) return false;
+        return workspaceRootsOverlap(workspaceRoot, command.workspace_root);
+      });
+    }
+
+    function renderDependencyOptions() {
+      const commands = nonTerminalCommands(state.summarySnapshot?.commands?.items || []);
+      if (!commands.length) {
+        dependencyOptionsEl.innerHTML = `<div class="dependency-empty">${escapeHtml(t('noDependencyCandidates'))}</div>`;
+        return;
+      }
+      const selected = new Set(state.dependencySelection);
+      dependencyOptionsEl.innerHTML = commands.map((command) => `
+        <label class="dependency-option">
+          <input type="checkbox" value="${escapeHtml(command.id)}" ${selected.has(command.id) ? 'checked' : ''} />
+          <div class="dependency-option-copy">
+            <div class="dependency-option-title">${escapeHtml(commandTitle(command))}</div>
+            <div class="dependency-option-meta">
+              <span>${escapeHtml(stageLabel(command.stage))}</span>
+              <span>${escapeHtml(command.workspace_root)}</span>
+            </div>
+          </div>
+        </label>
+      `).join('');
+      dependencyOptionsEl.querySelectorAll('input[type="checkbox"]').forEach((node) => {
+        node.addEventListener('change', () => {
+          state.dependencySelection = new Set(selectedDependencyIds());
+          syncSubmitModalState();
+        });
+      });
+    }
+
+    function syncSubmitModalState() {
+      renderDependencyOptions();
+      const dependencyIds = selectedDependencyIds();
+      state.dependencySelection = new Set(dependencyIds);
+      const hasDependencies = dependencyIds.length > 0;
+      allowParallelEl.disabled = hasDependencies;
+      if (hasDependencies) {
+        allowParallelEl.checked = false;
+      }
+      const overlaps = !hasDependencies
+        ? overlappingCommandsForWorkspace(workspaceRootEl.value.trim(), dependencyIds)
+        : [];
+      const showOverlapNotice = overlaps.length > 0;
+      workspaceOverlapNoticeEl.classList.toggle('visible', showOverlapNotice);
+      if (showOverlapNotice) {
+        const wrapTitle = (title) => currentLocale() === 'ja' ? `「${title}」` : `"${title}"`;
+        const titles = overlaps.slice(0, 2).map((command) => wrapTitle(dependencyTitle(command.id)));
+        const suffix = overlaps.length > 2 ? ` ${t('andMoreSuffix')}` : '';
+        document.getElementById('workspaceOverlapNoticeBody').textContent = formatText(
+          t('workspaceOverlapNoticeBody'),
+          { jobs: `${titles.join('、')}${suffix}` }
+        );
+        allowParallelEl.checked = false;
+        allowParallelEl.disabled = true;
+      } else {
+        document.getElementById('workspaceOverlapNoticeBody').textContent = t('workspaceOverlapNoticeBody');
+      }
     }
 
     function sanitizeFileNamePart(value) {
@@ -1699,7 +2470,6 @@
       document.getElementById('activityTab').textContent = t('activity');
       document.getElementById('overviewTab').textContent = t('overview');
       document.getElementById('eventsHeading').textContent = t('eventsHeading');
-      document.getElementById('commandsBadge').textContent = t('commandsBadge');
       document.getElementById('submitBtn').textContent = t('submitBtn');
       document.getElementById('refreshBtn').textContent = t('refreshBtn');
       document.getElementById('closeResultBtn').textContent = t('closeResultBtn');
@@ -1709,10 +2479,10 @@
       document.getElementById('openSubmitBtn').textContent = t('openSubmitBtn');
       document.getElementById('closeSubmitBtn').textContent = t('closeSubmitBtn');
       document.getElementById('workspaceRootLabel').textContent = t('workspaceRootLabel');
+      document.getElementById('dependsOnLabelText').textContent = t('dependsOnLabelText');
       document.getElementById('submitModalEyebrow').textContent = t('submitModalEyebrow');
       document.getElementById('submitModalTitle').textContent = t('submitModalTitle');
       document.getElementById('appendModalSubmit').textContent = t('appendBtn');
-      document.getElementById('languageLabel').textContent = t('languageLabel');
       document.getElementById('liveIndicator').textContent = t('liveIndicator');
       document.getElementById('goalLabel').textContent = t('goalLabel');
       document.getElementById('workflowLabel').textContent = t('workflowLabel');
@@ -1721,9 +2491,18 @@
       document.getElementById('approvalModeNoticeBody').textContent = t('approvalModeNoticeBody');
       document.getElementById('priorityLabelText').textContent = t('priorityLabelText');
       document.getElementById('backendLabelText').textContent = t('backendLabelText');
+      document.getElementById('allowParallelLabel').textContent = t('allowParallelLabel');
       document.getElementById('resultModalEyebrow').textContent = t('resultModalEyebrow');
       document.getElementById('resultModalTitle').textContent = t('resultModalTitle');
-      document.getElementById('downloadResultBtn').textContent = t('downloadResult');
+      document.getElementById('downloadResultBtn').setAttribute('aria-label', t('downloadResultAria'));
+      document.getElementById('downloadResultBtn').setAttribute('title', t('downloadResultAria'));
+      document.getElementById('workspaceOverlapNoticeTitle').textContent = t('workspaceOverlapNoticeTitle');
+      document.getElementById('workspaceOverlapNoticeBody').textContent = t('workspaceOverlapNoticeBody');
+      document.getElementById('reviewModalEyebrow').textContent = t('reviewModalEyebrow');
+      document.getElementById('reviewModalTitle').textContent = t('reviewModalTitle');
+      document.getElementById('closeReviewBtn').textContent = t('closeReviewBtn');
+      document.getElementById('reviewModalSummaryHeading').textContent = t('reviewSummaryHeading');
+      document.getElementById('reviewModalFindingsHeading').textContent = t('reviewFindingsHeading');
       goalInputEl.placeholder = t('goalPlaceholder');
       workspaceRootEl.placeholder = t('workspaceRootPlaceholder');
       appendModalInputEl.placeholder = t('appendPlaceholder');
@@ -1746,14 +2525,24 @@
       document.querySelector('#backend option[value="mock"]').textContent = 'mock';
       document.querySelector('#backend option[value="codex"]').textContent = 'codex';
       document.querySelector('#backend option[value="claude"]').textContent = 'claude';
+      renderDependencyOptions();
+      syncSubmitModalState();
       if (!state.snapshot) {
         statusLineEl.textContent = t('loading');
+        listenEndpointEl.textContent = '';
       }
     }
 
-    function pill(value, formatter = (item) => item) {
+    function formatStatusTimestamp(value) {
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value || '';
+      const pad = (item) => String(item).padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+    }
+
+    function pill(value, formatter = (item) => item, scope = 'generic') {
       const klass = String(value || '').replace(/\s+/g, '_');
-      return `<span class="pill ${klass}">${escapeHtml(formatter(value || '-'))}</span>`;
+      return `<span class="pill ${scope}-pill ${klass}">${escapeHtml(formatter(value || '-'))}</span>`;
     }
 
     function setWorkspaceTab(tabName) {
@@ -1779,8 +2568,17 @@
     }
 
     function openSubmitModal() {
+      state.dependencySelection = new Set();
+      workspaceRootEl.value = '';
+      goalInputEl.value = '';
+      workflowModeEl.value = 'auto';
+      approvalModeEl.value = 'auto';
+      priorityEl.value = 'high';
+      backendEl.value = '';
+      allowParallelEl.checked = false;
       submitModalEl.classList.add('open');
       syncApprovalModeNotice();
+      syncSubmitModalState();
       queueMicrotask(() => workspaceRootEl.focus());
     }
 
@@ -1989,9 +2787,6 @@
           </button>
         `)
         .join('');
-      resultModalContentEl.innerHTML = activeSection
-        ? `<pre class="result-markdown" id="resultModalBody">${escapeHtml(activeSection.body || t('noResultAvailable'))}</pre>`
-        : `<pre class="result-markdown" id="resultModalBody">${escapeHtml(t('noResultAvailable'))}</pre>`;
       downloadResultBtnEl.disabled = !activeSection;
       downloadResultBtnEl.onclick = activeSection ? () => downloadResultSection(command, activeSection) : null;
       resultModalTabsEl.querySelectorAll('[data-result-tab]').forEach((node) => {
@@ -2000,6 +2795,33 @@
           renderResultModal(command);
         });
       });
+      resultModalContentEl.innerHTML = activeSection
+        ? `<div class="result-markdown" id="resultModalBody">${renderMarkdownToHtml(activeSection.body, t('noResultAvailable'))}</div>`
+        : `<div class="result-markdown" id="resultModalBody">${renderMarkdownToHtml('', t('noResultAvailable'))}</div>`;
+    }
+
+    function renderReviewModal(review) {
+      reviewModalEyebrowEl.textContent = `${t('reviewerLabel')} ${review.reviewer_slot}`;
+      reviewModalTitleEl.textContent = t('reviewModalTitle');
+      reviewModalMetaEl.innerHTML = `
+        ${pill(review.decision, reviewDecisionLabel, 'review')}
+        <span>${escapeHtml(review.summary || t('noReviewSummary'))}</span>
+      `;
+      reviewModalSummaryEl.innerHTML = renderMarkdownToHtml(review.summary || '', t('noReviewSummary'));
+      reviewModalFindingsEl.innerHTML = review.findings?.length
+        ? `<ul class="review-findings">${review.findings.map((finding) => `<li>${renderInlineMarkdown(finding)}</li>`).join('')}</ul>`
+        : `<div class="meta">${escapeHtml(t('noReviewFindings'))}</div>`;
+    }
+
+    function openReviewModal(review) {
+      state.modalReviewId = review.id;
+      renderReviewModal(review);
+      reviewModalEl.classList.add('open');
+    }
+
+    function closeReviewModal() {
+      state.modalReviewId = null;
+      reviewModalEl.classList.remove('open');
     }
 
     function composeSnapshot(summary, detail) {
@@ -2027,13 +2849,18 @@
 
     function composeStatusLine(summary) {
       if (!summary) return t('loading');
-      const listen = summary.runtime?.listen || {};
-      const parts = [`${t('updated')} ${summary.generated_at}`, t('listeningLocal'), `${listen.host}:${listen.port}`];
+      const parts = [formatStatusTimestamp(summary.generated_at)];
       const engineState = summary.runtime?.engine_state || {};
       if (engineState.status === 'error' && engineState.last_error) {
         parts.push(`${t('engineError')}: ${engineState.last_error}`);
       }
       return parts.join(' · ');
+    }
+
+    function composeListenEndpoint(summary) {
+      if (!summary) return '';
+      const listen = summary.runtime?.listen || {};
+      return listen.host && listen.port ? `${listen.host}:${listen.port}` : '';
     }
 
     function updateBusyState() {
@@ -2069,15 +2896,54 @@
       }
     }
 
+    async function submitDependencyAction(commandId, action) {
+      if (state.dependencyActionInFlight) return;
+      state.dependencyActionInFlight = commandId;
+      updateBusyState();
+      statusLineEl.textContent = action === 'ignore'
+        ? `${t('ignoringDependencies')} ${commandId}…`
+        : `${t('cancelingJob')} ${commandId}…`;
+      try {
+        const endpoint = action === 'ignore'
+          ? '/api/commands/ignore-dependencies'
+          : '/api/commands/cancel';
+        await api(endpoint, {
+          method: 'POST',
+          body: JSON.stringify({ command_id: commandId }),
+        });
+        await refreshSnapshot({ forceDetail: true });
+      } finally {
+        state.dependencyActionInFlight = null;
+        updateBusyState();
+      }
+    }
+
+    function commandSummaryText(command) {
+      if (command.dependency_state === 'failed' && command.blocking_dependency_ids?.length) {
+        return formatText(t('dependencyFailedRail'), { job: dependencyTitle(command.blocking_dependency_ids[0]) });
+      }
+      if (command.dependency_state === 'waiting' && command.blocking_dependency_ids?.length) {
+        return formatText(t('dependencyWaitingRail'), { job: dependencyTitle(command.blocking_dependency_ids[0]) });
+      }
+      if (command.allow_parallel) {
+        return t('parallelExecutionValue');
+      }
+      if (command.depends_on?.length) {
+        return formatText(t('dependencyChainRail'), { count: command.depends_on.length });
+      }
+      return stageLabel(command.stage);
+    }
+
     function renderCommands(snapshot) {
       const commands = snapshot.commands.items;
       const openQuestionCommands = new Set(snapshot.questions.open.map((question) => question.command_id));
       commandsListEl.innerHTML = commands.map((command) => `
-        <article class="command-item ${state.selectedCommandId === command.id ? 'selected' : ''} ${openQuestionCommands.has(command.id) ? 'attention' : ''} ${escapeHtml(command.stage)}-state" data-command-id="${command.id}">
+        <article class="command-item ${state.selectedCommandId === command.id ? 'selected' : ''} ${openQuestionCommands.has(command.id) ? 'attention' : ''} ${command.dependency_state === 'failed' ? 'dependency-failed' : ''} ${command.dependency_state === 'waiting' ? 'dependency-waiting' : ''} ${escapeHtml(command.stage)}-state" data-command-id="${command.id}">
           <div class="title">${escapeHtml(displayGoal(command.goal))}</div>
+          <div class="summary">${escapeHtml(commandSummaryText(command))}</div>
           <div class="meta">
-            ${pill(command.stage, stageLabel)}
-            ${pill(command.effective_mode || command.workflow_mode, modeLabel)}
+            ${pill(command.stage, stageLabel, 'stage')}
+            ${pill(command.effective_mode || command.workflow_mode, modeLabel, 'mode')}
           </div>
         </article>
       `).join('') || `<div class="meta">${escapeHtml(t('noCommands'))}</div>`;
@@ -2100,7 +2966,7 @@
           <div class="title">${escapeHtml(task.title)}</div>
           <div>${escapeHtml(task.description)}</div>
           <div class="meta">
-            ${pill(task.state, taskStateLabel)}
+            ${pill(task.state, taskStateLabel, 'task-state')}
             <span>${escapeHtml(capabilityLabel(task.capability))}</span>
             <span>${escapeHtml(t('key'))}: ${escapeHtml(task.task_key)}</span>
           </div>
@@ -2172,14 +3038,21 @@
       const selected = state.selectedCommandId;
       const reviews = snapshot.reviews.items.filter((review) => !selected || review.command_id === selected);
       reviewsListEl.innerHTML = reviews.map((review) => `
-        <article class="card">
+        <button type="button" class="card review-card" data-review-id="${escapeHtml(review.id)}">
           <div class="title">${escapeHtml(t('reviewerLabel'))} ${review.reviewer_slot}</div>
           <div>${escapeHtml(review.summary)}</div>
-          <div class="meta">
-            ${pill(review.decision, reviewDecisionLabel)}
+          <div class="meta review-card-hint">
+            ${pill(review.decision, reviewDecisionLabel, 'review')}
+            <span>${escapeHtml(t('reviewOpenDetail'))}</span>
           </div>
-        </article>
+        </button>
       `).join('') || `<div class="meta">${escapeHtml(t('noReviews'))}</div>`;
+      reviewsListEl.querySelectorAll('[data-review-id]').forEach((node) => {
+        node.addEventListener('click', () => {
+          const review = reviews.find((item) => item.id === node.dataset.reviewId);
+          if (review) openReviewModal(review);
+        });
+      });
     }
 
     async function submitAgentDecision(agentRunId, decision) {
@@ -2335,8 +3208,8 @@
                       <div class="agent-run-title-stack">
                         <div class="title">${escapeHtml(agentRun.title)}</div>
                         <div class="meta">
-                          ${pill(agentRun.state, agentRunStateLabel)}
-                          ${pill(agentRun.run_kind, agentRunKindLabel)}
+                          ${pill(agentRun.state, agentRunStateLabel, 'agent-state')}
+                          ${pill(agentRun.run_kind, agentRunKindLabel, 'kind')}
                           <span>${escapeHtml(runtimeText)}</span>
                         </div>
                       </div>
@@ -2401,7 +3274,7 @@
         .slice(0, 8);
       questionHistoryListEl.innerHTML = questionHistory.map((item) => `
         <article class="history-item">
-          <div class="title">${pill(item.state, questionStateLabel)} ${pill(item.resolution_mode, resolutionLabel)}</div>
+          <div class="title">${pill(item.state, questionStateLabel, 'question-state')} ${pill(item.resolution_mode, resolutionLabel, 'resolution')}</div>
           <div class="body">${escapeHtml(item.question)}</div>
           ${item.answer ? `<div class="meta"><strong>${escapeHtml(t('answerLabel'))}:</strong> ${escapeHtml(item.answer)}</div>` : ''}
         </article>
@@ -2454,10 +3327,16 @@
       const pendingApprovals = snapshot.agent_runs.pending.filter((item) => item.command_id === selected);
       const resultSections = resultSectionsForCommand(snapshot, command);
       const hasResult = resultSections.length > 0;
-      const appendLocked = Boolean(command?.final_response) || ['done', 'failed'].includes(command.stage);
-      const terminal = ['done', 'failed'].includes(command.stage);
+      const appendLocked = Boolean(command?.final_response) || ['done', 'failed', 'canceled'].includes(command.stage);
+      const terminal = ['done', 'failed', 'canceled'].includes(command.stage);
       const paused = command.stage === 'paused';
       const stopBusy = state.commandControlInFlight === command.id;
+      const dependencyTitlesList = (command.blocking_dependency_ids?.length
+        ? command.blocking_dependency_ids
+        : command.depends_on || []).map((commandId) => dependencyTitle(commandId));
+      const allDependencyTitles = dependencyTitles(command);
+      const dependencyBannerClass = command.dependency_state === 'failed' ? 'warn' : '';
+      const dependencyActionBusy = state.dependencyActionInFlight === command.id;
       if (terminal) {
         runControlBtnEl.textContent = t('stopJob');
         runControlBtnEl.disabled = true;
@@ -2482,20 +3361,28 @@
       openAppendBtnEl.disabled = appendLocked || state.appending;
 
       commandDetailEl.innerHTML = `
-        <div class="workspace-heading" style="grid-column: 1 / -1;">
-          <div style="display:grid; gap:8px;">
-            <h2 style="margin:0; font-size:15px;">${escapeHtml(t('selectedHeading'))}</h2>
-            <div class="workspace-goal">${escapeHtml(displayGoal(command.goal))}</div>
-          </div>
-          <div class="workspace-meta">
-            ${pill(command.effective_mode || command.workflow_mode, modeLabel)}
-            ${pill(command.stage, stageLabel)}
-          </div>
-        </div>
         ${pendingApprovals.length ? `
           <div class="detail-banner warn">
             <h3>${escapeHtml(t('approvalNeeded'))}</h3>
             <div class="body">${escapeHtml(t('approvalHelp'))}</div>
+          </div>
+        ` : ''}
+        ${command.dependency_state !== 'none' ? `
+          <div class="detail-banner ${escapeHtml(dependencyBannerClass)}">
+            <h3>${escapeHtml(
+              command.dependency_state === 'failed' ? t('dependencyFailedTitle') : t('dependencyWaitingTitle')
+            )}</h3>
+            <div class="body">${escapeHtml(
+              command.dependency_state === 'failed'
+                ? formatText(t('dependencyFailedBody'), { jobs: dependencyTitlesList.join(', ') })
+                : formatText(t('dependencyWaitingBody'), { jobs: dependencyTitlesList.join(', ') })
+            )}</div>
+            ${command.dependency_state === 'failed' ? `
+              <div class="overview-actions">
+                <button class="secondary" data-ignore-dependencies="${escapeHtml(command.id)}" ${dependencyActionBusy ? 'disabled' : ''}>${escapeHtml(t('ignoreDependenciesAction'))}</button>
+                <button class="deny" data-cancel-command="${escapeHtml(command.id)}" ${dependencyActionBusy ? 'disabled' : ''}>${escapeHtml(t('cancelJobAction'))}</button>
+              </div>
+            ` : ''}
           </div>
         ` : ''}
         ${command.failure_reason ? `
@@ -2504,25 +3391,63 @@
             <div class="body">${escapeHtml(command.failure_reason)}</div>
           </div>
         ` : ''}
-        <div class="detail-card">
-          <h3>${escapeHtml(t('overview'))}</h3>
-          <div class="detail-keyvals">
-            <div><strong>${escapeHtml(t('id'))}:</strong> ${escapeHtml(command.id)}</div>
-            <div><strong>${escapeHtml(t('mode'))}:</strong> ${escapeHtml(modeLabel(command.effective_mode || command.workflow_mode))}</div>
-            <div><strong>${escapeHtml(t('approvalMode'))}:</strong> ${escapeHtml(approvalModeLabel(command.approval_mode))}</div>
-            <div><strong>${escapeHtml(t('stage'))}:</strong> ${escapeHtml(stageLabel(command.stage))}</div>
-            <div><strong>${escapeHtml(t('workingDirectory'))}:</strong> ${escapeHtml(command.workspace_root)}</div>
-          </div>
-        </div>
-        ${hasResult ? `
-          <div class="detail-card">
-            <h3>${escapeHtml(t('result'))}</h3>
-            <div class="detail-keyvals">
-              <div>${escapeHtml(t('resultReady'))}</div>
+        <div class="overview-panel">
+          <div class="overview-panel-head">
+            <div class="overview-copy">
+              <div class="overview-kicker">${escapeHtml(t('overview'))}</div>
+              <h2 class="overview-title">${escapeHtml(displayGoal(command.goal))}</h2>
+              <div class="overview-path-shell">
+                <div class="overview-path-label">${escapeHtml(t('workingDirectory'))}</div>
+                <div class="overview-path">${escapeHtml(command.workspace_root)}</div>
+              </div>
+            </div>
+            <div class="workspace-meta">
+              ${pill(command.effective_mode || command.workflow_mode, modeLabel, 'mode')}
+              ${pill(command.stage, stageLabel, 'stage')}
             </div>
           </div>
-        ` : ''}
+          <div class="overview-facts">
+            <div class="overview-fact">
+              <div class="overview-fact-label">${escapeHtml(t('mode'))}</div>
+              <div class="overview-fact-value">${escapeHtml(modeLabel(command.effective_mode || command.workflow_mode))}</div>
+            </div>
+            <div class="overview-fact">
+              <div class="overview-fact-label">${escapeHtml(t('stage'))}</div>
+              <div class="overview-fact-value">${escapeHtml(stageLabel(command.stage))}</div>
+            </div>
+            <div class="overview-fact">
+              <div class="overview-fact-label">${escapeHtml(t('approvalMode'))}</div>
+              <div class="overview-fact-value">${escapeHtml(approvalModeLabel(command.approval_mode))}</div>
+            </div>
+            <div class="overview-fact">
+              <div class="overview-fact-label">${escapeHtml(t('executionStyle'))}</div>
+              <div class="overview-fact-value">${escapeHtml(executionStrategyLabel(command))}</div>
+            </div>
+            <div class="overview-fact overview-fact-wide">
+              <div class="overview-fact-label">${escapeHtml(t('id'))}</div>
+              <div class="overview-fact-value">${escapeHtml(command.id)}</div>
+            </div>
+          </div>
+          <div class="overview-section">
+            <div class="overview-section-head">${escapeHtml(t('dependencySectionTitle'))}</div>
+            ${allDependencyTitles.length ? `
+              <div class="overview-chip-row">
+                ${allDependencyTitles.map((title) => `
+                  <span class="overview-chip ${command.dependency_state === 'failed' ? 'bad' : command.dependency_state === 'waiting' ? 'warn' : ''}">${escapeHtml(title)}</span>
+                `).join('')}
+              </div>
+            ` : `
+              <div class="overview-note">${escapeHtml(t('noDependencies'))}</div>
+            `}
+          </div>
+        </div>
       `;
+      commandDetailEl.querySelectorAll('[data-ignore-dependencies]').forEach((node) => {
+        node.addEventListener('click', () => submitDependencyAction(node.dataset.ignoreDependencies, 'ignore'));
+      });
+      commandDetailEl.querySelectorAll('[data-cancel-command]').forEach((node) => {
+        node.addEventListener('click', () => submitDependencyAction(node.dataset.cancelCommand, 'cancel'));
+      });
       viewResultBtnEl.onclick = hasResult ? () => openResultModal(command) : null;
       openAppendBtnEl.onclick = appendLocked ? null : openAppendModal;
     }
@@ -2579,10 +3504,19 @@
           closeResultModal();
         }
       }
+      if (state.modalReviewId) {
+        const modalReview = snapshot.reviews.items.find((item) => item.id === state.modalReviewId);
+        if (modalReview && modalReview.command_id === state.selectedCommandId) {
+          renderReviewModal(modalReview);
+        } else {
+          closeReviewModal();
+        }
+      }
       setWorkspaceTab(state.currentTab);
       restoreScrollPositions(scrollPositions);
       updateBusyState();
       statusLineEl.textContent = composeStatusLine(state.summarySnapshot || snapshot);
+      listenEndpointEl.textContent = composeListenEndpoint(state.summarySnapshot || snapshot);
     }
 
     async function refreshSelectedDetail() {
@@ -2672,6 +3606,8 @@
       }
     });
     document.getElementById('approvalMode').addEventListener('change', syncApprovalModeNotice);
+    workspaceRootEl.addEventListener('input', syncSubmitModalState);
+    allowParallelEl.addEventListener('change', syncSubmitModalState);
     document.getElementById('submitBtn').addEventListener('click', async () => {
       if (state.submitting) return;
       const workspaceRoot = workspaceRootEl.value.trim();
@@ -2686,6 +3622,8 @@
       const approvalMode = approvalModeEl.value;
       const priority = priorityEl.value;
       const backend = backendEl.value;
+      const dependencyIds = selectedDependencyIds();
+      const allowParallel = allowParallelEl.checked && !dependencyIds.length;
       state.submitting = true;
       updateBusyState();
       statusLineEl.textContent = t('submitting');
@@ -2697,6 +3635,8 @@
           priority,
           backend,
           workspace_root: workspaceRoot,
+          depends_on_command_ids: dependencyIds,
+          allow_parallel: allowParallel,
         };
         const result = await api('/api/commands', {
           method: 'POST',
@@ -2705,6 +3645,8 @@
         state.selectedCommandId = result.command?.id || state.selectedCommandId;
         goalInputEl.value = '';
         workspaceRootEl.value = '';
+        allowParallelEl.checked = false;
+        state.dependencySelection = new Set();
         closeSubmitModal();
         await refreshSnapshot();
       } finally {
@@ -2735,12 +3677,16 @@
       }
     });
     document.getElementById('closeResultBtn').addEventListener('click', closeResultModal);
+    document.getElementById('closeReviewBtn').addEventListener('click', closeReviewModal);
     document.getElementById('closeAppendBtn').addEventListener('click', closeAppendModal);
     submitModalEl.addEventListener('click', (event) => {
       if (event.target === submitModalEl) closeSubmitModal();
     });
     resultModalEl.addEventListener('click', (event) => {
       if (event.target === resultModalEl) closeResultModal();
+    });
+    reviewModalEl.addEventListener('click', (event) => {
+      if (event.target === reviewModalEl) closeReviewModal();
     });
     appendModalEl.addEventListener('click', (event) => {
       if (event.target === appendModalEl) closeAppendModal();

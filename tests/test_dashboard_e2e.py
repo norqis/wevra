@@ -147,6 +147,10 @@ def test_dashboard_browser_planning_result_tabs_and_download(tmp_path, monkeypat
         expect(page.locator("#resultModalContent")).to_contain_text(
             "Primary planning task: Produce a structured execution plan"
         )
+        expect(page.locator("#resultModalContent pre")).to_have_count(0)
+        expect(page.locator("#resultModalContent ul li").first).to_contain_text(
+            "Goal: planning browser result"
+        )
 
         page.locator('#resultModalTabs [data-result-tab="task_breakdown"]').click()
         expect(page.locator("#resultModalContent")).to_contain_text(
@@ -216,6 +220,38 @@ def test_dashboard_browser_submit_modal_manual_notice_and_workspace_root(tmp_pat
         expect(page.locator("#commandDetail")).to_contain_text(str(workspace_root))
 
 
+def test_dashboard_browser_dependency_picker_and_overlap_warning(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    first_workspace = (tmp_path / "project").resolve()
+    nested_workspace = first_workspace / "public"
+
+    with dashboard_server(tmp_path) as base_url, browser_page() as page:
+        page.goto(f"{base_url}/?lang=ja")
+
+        page.locator("#openSubmitBtn").click()
+        page.locator("#workspaceRoot").fill(str(first_workspace))
+        page.locator("#goal").fill("先行ジョブ")
+        page.locator("#submitBtn").click()
+
+        page.locator("#openSubmitBtn").click()
+        expect(page.locator("#dependencyOptions")).to_contain_text("先行ジョブ")
+        page.locator("#workspaceRoot").fill(str(nested_workspace))
+        expect(page.locator("#workspaceOverlapNotice")).to_be_visible()
+        expect(page.locator("#workspaceOverlapNoticeBody")).to_contain_text("先行ジョブ")
+        expect(page.locator("#allowParallel")).to_be_disabled()
+
+        page.locator('#dependencyOptions input[type="checkbox"]').check()
+        expect(page.locator("#workspaceOverlapNotice")).not_to_be_visible()
+        expect(page.locator("#allowParallel")).to_be_disabled()
+        page.locator("#goal").fill("後続ジョブ")
+        page.locator("#submitBtn").click()
+
+        expect(page.locator("#commandDetail")).to_contain_text("依存ジョブ")
+        expect(page.locator("#commandDetail")).to_contain_text("先行ジョブ")
+
+
 def test_dashboard_browser_question_answer_survives_refresh_and_resumes(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
@@ -262,7 +298,7 @@ def test_dashboard_browser_stop_and_resume_from_workspace_actions(tmp_path, monk
         page.locator("#submitBtn").click()
 
         expect(page.locator("#questionAlert")).to_be_visible()
-        expect(page.locator("#runControlBtn")).to_have_text("停止")
+        expect(page.locator("#runControlBtn")).to_have_text("一時停止")
         page.locator("#runControlBtn").click()
 
         wait_for_refresh_condition(
@@ -272,7 +308,7 @@ def test_dashboard_browser_stop_and_resume_from_workspace_actions(tmp_path, monk
         page.locator("#runControlBtn").click()
         wait_for_refresh_condition(
             page,
-            lambda: page.locator("#runControlBtn").inner_text() == "停止",
+            lambda: page.locator("#runControlBtn").inner_text() == "一時停止",
         )
 
         page.locator("#questionAlertAnswer").fill("再開して進めてください。")
@@ -350,6 +386,64 @@ def test_dashboard_browser_workflow_modes_complete_from_ui(
             expect(page.locator("#reviewsList .card")).to_have_count(2)
         else:
             expect(page.locator("#reviewsList")).to_contain_text("No reviews yet.")
+
+
+def test_dashboard_browser_review_card_opens_detail_modal(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+    settings = load_config(tmp_path)
+
+    with dashboard_server(tmp_path) as base_url, browser_page() as page:
+        page.goto(base_url)
+
+        page.locator("#openSubmitBtn").click()
+        page.locator("#workflowMode").select_option("review")
+        page.locator("#workspaceRoot").fill(str(tmp_path))
+        page.locator("#goal").fill("[review_changes] review the existing changes")
+        page.locator("#submitBtn").click()
+
+        wait_for_python_condition(
+            lambda: any(review.findings for review in list_reviews(settings.db_path))
+        )
+        page.locator("#refreshBtn").click()
+        page.locator("#reviewsTab").click()
+        review_card = page.locator("#reviewsList .review-card").first
+        expect(review_card).to_be_visible()
+        expect(review_card).to_contain_text("View details")
+
+        review_card.click()
+        expect(page.locator("#reviewModal")).to_be_visible()
+        expect(page.locator("#reviewModalSummary")).to_contain_text("requested a follow-up pass")
+        expect(page.locator("#reviewModalFindings")).to_contain_text(
+            "Add a second implementation pass before completion."
+        )
+        page.locator("#closeReviewBtn").click()
+        expect(page.locator("#reviewModal")).not_to_be_visible()
+
+
+def test_dashboard_browser_mode_badge_uses_neutral_tone_in_command_rail(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    with dashboard_server(tmp_path) as base_url, browser_page() as page:
+        page.goto(f"{base_url}/?lang=ja")
+
+        page.locator("#openSubmitBtn").click()
+        page.locator("#workflowMode").select_option("planning")
+        page.locator("#workspaceRoot").fill(str(tmp_path))
+        page.locator("#goal").fill("planning badge color separation")
+        page.locator("#submitBtn").click()
+
+        rail_item = page.locator("#commandsList .command-item").first
+        expect(rail_item).to_be_visible()
+        stage_pill = rail_item.locator(".stage-pill").first
+        mode_pill = rail_item.locator(".mode-pill").first
+        expect(stage_pill).to_have_text("完了")
+        expect(mode_pill).to_contain_text("計画")
+
+        stage_color = stage_pill.evaluate("el => window.getComputedStyle(el).color")
+        mode_color = mode_pill.evaluate("el => window.getComputedStyle(el).color")
+        assert stage_color != mode_color
 
 
 def test_dashboard_browser_agents_tab_handles_manual_approval(tmp_path, monkeypatch):

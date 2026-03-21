@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS commands (
     priority TEXT NOT NULL,
     backend TEXT NOT NULL DEFAULT 'inherit',
     workspace_root TEXT NOT NULL DEFAULT '.',
+    allow_parallel INTEGER NOT NULL DEFAULT 0,
     resume_stage TEXT,
     final_response TEXT,
     failure_reason TEXT,
@@ -53,6 +54,12 @@ CREATE TABLE IF NOT EXISTS task_dependencies (
     task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
     depends_on_task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
     PRIMARY KEY (task_id, depends_on_task_id)
+);
+
+CREATE TABLE IF NOT EXISTS command_dependencies (
+    command_id TEXT NOT NULL REFERENCES commands(id) ON DELETE CASCADE,
+    depends_on_command_id TEXT NOT NULL REFERENCES commands(id) ON DELETE CASCADE,
+    PRIMARY KEY (command_id, depends_on_command_id)
 );
 
 CREATE TABLE IF NOT EXISTS questions (
@@ -135,6 +142,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
 
 CREATE INDEX IF NOT EXISTS idx_tasks_command_state ON tasks(command_id, state);
 CREATE INDEX IF NOT EXISTS idx_tasks_command_key ON tasks(command_id, task_key);
+CREATE INDEX IF NOT EXISTS idx_command_dependencies_command ON command_dependencies(command_id);
 CREATE INDEX IF NOT EXISTS idx_questions_command_state ON questions(command_id, state);
 CREATE INDEX IF NOT EXISTS idx_reviews_command ON reviews(command_id);
 CREATE INDEX IF NOT EXISTS idx_instructions_command ON instructions(command_id, created_at);
@@ -168,6 +176,7 @@ def initialize_database(db_path: Path) -> Path:
         ensure_column(conn, "commands", "effective_mode", "TEXT")
         ensure_column(conn, "commands", "backend", "TEXT NOT NULL DEFAULT 'inherit'")
         ensure_column(conn, "commands", "workspace_root", "TEXT NOT NULL DEFAULT '.'")
+        ensure_column(conn, "commands", "allow_parallel", "INTEGER NOT NULL DEFAULT 0")
         ensure_column(conn, "commands", "resume_stage", "TEXT")
         ensure_column(conn, "commands", "failure_reason", "TEXT")
         ensure_column(conn, "commands", "replan_requested", "INTEGER NOT NULL DEFAULT 0")
@@ -184,6 +193,15 @@ def initialize_database(db_path: Path) -> Path:
                 task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
                 depends_on_task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
                 PRIMARY KEY (task_id, depends_on_task_id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS command_dependencies (
+                command_id TEXT NOT NULL REFERENCES commands(id) ON DELETE CASCADE,
+                depends_on_command_id TEXT NOT NULL REFERENCES commands(id) ON DELETE CASCADE,
+                PRIMARY KEY (command_id, depends_on_command_id)
             )
             """
         )

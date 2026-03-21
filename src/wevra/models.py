@@ -41,6 +41,7 @@ class CommandStage(str, Enum):
     VERIFYING = "verifying"
     REPLANNING = "replanning"
     PAUSED = "paused"
+    CANCELED = "canceled"
     DONE = "done"
     FAILED = "failed"
 
@@ -109,6 +110,11 @@ class CommandRecord(BaseModel):
     priority: Priority
     backend: RuntimeBackend
     workspace_root: str
+    allow_parallel: bool = False
+    depends_on: List[str] = Field(default_factory=list)
+    dependency_state: str = "none"
+    blocking_dependency_ids: List[str] = Field(default_factory=list)
+    can_ignore_dependencies: bool = False
     resume_stage: Optional[CommandStage] = None
     created_at: str
     updated_at: str

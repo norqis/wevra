@@ -62,6 +62,7 @@ from wevra.service import (
     effective_mode,
     infer_mode_from_goal,
     infer_mode_from_specs,
+    ignore_command_dependencies,
     list_agent_runs,
     list_artifacts,
     list_instructions,
@@ -72,9 +73,12 @@ from wevra.service import (
     reduce_waiting_question,
     resolve_command_mode,
     resolve_settings,
+    select_actionable_command,
     select_ready_batch,
     submit_command,
     tick_once,
+    cancel_command,
+    workspace_roots_overlap,
 )
 
 
@@ -941,6 +945,11 @@ def test_service_mode_helpers_and_context_payload_cover_inference_paths(tmp_path
     assert resolved == WorkflowMode.REVIEW
     assert "implementation mode" in mode_prompt_guidance(WorkflowMode.IMPLEMENTATION)
     assert "auto mode" in mode_prompt_guidance(WorkflowMode.AUTO)
+    planning_guidance = mode_prompt_guidance(WorkflowMode.PLANNING)
+    assert "exactly three top-level sections" in planning_guidance
+    assert "## Plan" in planning_guidance
+    assert "## Design Direction" in planning_guidance
+    assert "## Task Breakdown" in planning_guidance
 
     specs = add_mode_control_tasks(
         WorkflowMode.IMPLEMENTATION,
@@ -1214,6 +1223,167 @@ def test_submit_command_defaults_to_auto_approval_mode(tmp_path):
     assert command.approval_mode == ApprovalMode.AUTO
     stored = service_module.get_command(settings.db_path, command.id)
     assert stored.approval_mode == ApprovalMode.AUTO
+
+
+def test_submit_command_persists_job_dependencies_and_parallel_flag(tmp_path):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    initialize_database(settings.db_path)
+
+    first = submit_direct(
+        tmp_path / "workspace-a",
+        settings,
+        goal="first job",
+        workflow_mode=WorkflowMode.RESEARCH,
+        priority=Priority.HIGH,
+    )
+    second = submit_command(
+        settings.db_path,
+        goal="second job",
+        workflow_mode=WorkflowMode.RESEARCH,
+        priority=Priority.MEDIUM,
+        workspace_root=tmp_path / "workspace-b",
+        depends_on_command_ids=[first.id],
+        allow_parallel=True,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+
+    stored = service_module.get_command(settings.db_path, second.id)
+    assert stored is not None
+    assert stored.depends_on == [first.id]
+    assert stored.allow_parallel is False
+    assert stored.dependency_state == "waiting"
+
+
+def test_serial_scheduler_keeps_later_jobs_waiting_when_head_is_blocked(tmp_path):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    initialize_database(settings.db_path)
+
+    first = submit_direct(
+        tmp_path / "workspace-a",
+        settings,
+        goal="first blocked job",
+        workflow_mode=WorkflowMode.RESEARCH,
+        priority=Priority.HIGH,
+    )
+    second = submit_command(
+        settings.db_path,
+        goal="second queued job",
+        workflow_mode=WorkflowMode.RESEARCH,
+        priority=Priority.HIGH,
+        workspace_root=tmp_path / "workspace-b",
+        settings=settings,
+        repo_root=tmp_path,
+    )
+
+    with connect(settings.db_path) as conn:
+        conn.execute(
+            "UPDATE commands SET stage = ?, updated_at = ? WHERE id = ?",
+            (CommandStage.WAITING_APPROVAL.value, service_module.utc_now(), first.id),
+        )
+        conn.commit()
+        assert select_actionable_command(conn, None) is None
+
+    queued = service_module.get_command(settings.db_path, second.id)
+    assert queued is not None
+    assert queued.stage == CommandStage.QUEUED
+
+
+def test_parallel_jobs_can_start_when_workspaces_do_not_overlap(tmp_path):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    initialize_database(settings.db_path)
+
+    first = submit_command(
+        settings.db_path,
+        goal="parallel first",
+        workflow_mode=WorkflowMode.PLANNING,
+        priority=Priority.HIGH,
+        workspace_root=tmp_path / "workspace-a",
+        allow_parallel=True,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+    second = submit_command(
+        settings.db_path,
+        goal="parallel second",
+        workflow_mode=WorkflowMode.PLANNING,
+        priority=Priority.HIGH,
+        workspace_root=tmp_path / "workspace-b",
+        allow_parallel=True,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+
+    first_tick = tick_once(settings.db_path, settings=settings, repo_root=tmp_path)
+    assert first_tick.command.id == first.id
+    second_tick = tick_once(settings.db_path, settings=settings, repo_root=tmp_path)
+    assert second_tick.command.id == second.id
+
+
+def test_ignore_dependencies_and_cancel_actions_for_failed_prerequisite(tmp_path):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    initialize_database(settings.db_path)
+
+    dependency = submit_direct(
+        tmp_path / "workspace-a",
+        settings,
+        goal="failing dependency",
+        workflow_mode=WorkflowMode.RESEARCH,
+        priority=Priority.HIGH,
+    )
+    blocked = submit_command(
+        settings.db_path,
+        goal="blocked job",
+        workflow_mode=WorkflowMode.RESEARCH,
+        priority=Priority.MEDIUM,
+        workspace_root=tmp_path / "workspace-b",
+        depends_on_command_ids=[dependency.id],
+        settings=settings,
+        repo_root=tmp_path,
+    )
+
+    with connect(settings.db_path) as conn:
+        conn.execute(
+            "UPDATE commands SET stage = ?, failure_reason = ?, updated_at = ? WHERE id = ?",
+            (CommandStage.FAILED.value, "dependency failed", service_module.utc_now(), dependency.id),
+        )
+        conn.commit()
+
+    failed_view = service_module.get_command(settings.db_path, blocked.id)
+    assert failed_view is not None
+    assert failed_view.dependency_state == "failed"
+    assert failed_view.can_ignore_dependencies is True
+
+    ignored = ignore_command_dependencies(settings.db_path, blocked.id)
+    assert ignored.depends_on == []
+    assert ignored.dependency_state == "none"
+
+    canceled_source = submit_command(
+        settings.db_path,
+        goal="cancel me",
+        workflow_mode=WorkflowMode.RESEARCH,
+        priority=Priority.MEDIUM,
+        workspace_root=tmp_path / "workspace-c",
+        settings=settings,
+        repo_root=tmp_path,
+    )
+    canceled = cancel_command(settings.db_path, canceled_source.id, reason="Not needed anymore.")
+    assert canceled.stage == CommandStage.CANCELED
+    assert canceled.failure_reason == "Not needed anymore."
+
+
+def test_workspace_overlap_detects_ancestor_and_exact_matches(tmp_path):
+    base = (tmp_path / "project").resolve()
+    child = base / "public"
+    sibling = (tmp_path / "other").resolve()
+    assert workspace_roots_overlap(base, child)
+    assert workspace_roots_overlap(child, base)
+    assert workspace_roots_overlap(base, base)
+    assert not workspace_roots_overlap(base, sibling)
 
 
 def test_agent_run_approval_and_denial_flow(tmp_path, monkeypatch):

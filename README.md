@@ -6,6 +6,10 @@ Wevra is an orchestration engine for AI jobs.
 
 With a single job, Wevra can carry work from planning and implementation through tests and final review.
 
+![English dashboard walkthrough](docs/images/dashboard-flow-en-live.gif)
+
+## Wevra Features
+
 Wevra can run a job in these execution modes:
 
 | Mode | Description |
@@ -16,7 +20,16 @@ Wevra can run a job in these execution modes:
 | `review` | Collects the necessary context for review work and carries the job through the final reviewer pass. |
 | `planning` | Produces a structured planning result with separate plan, design direction, and task breakdown sections without moving into implementation. |
 
-![English dashboard walkthrough](docs/images/dashboard-flow-en-live.gif)
+Also:
+
+- question handling with pause-and-resume flow
+- interrupted AI recovery with runtime switching
+- explicit dependencies and safe parallel execution for independent workspaces
+- operator approval gates for risky agent actions
+- browser-based dashboard for daily operation
+- follow-up instructions that can be appended while active work is in progress
+- structured markdown results with in-dashboard viewing and download
+- live visibility into tasks, reviews, agents, and results
 
 ## Initial Setup
 

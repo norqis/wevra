@@ -19,8 +19,16 @@ CREATE TABLE IF NOT EXISTS commands (
     workspace_root TEXT NOT NULL DEFAULT '.',
     allow_parallel INTEGER NOT NULL DEFAULT 0,
     resume_stage TEXT,
+    resume_hint TEXT,
     final_response TEXT,
     failure_reason TEXT,
+    operator_issue_kind TEXT,
+    operator_issue_detail TEXT,
+    operator_issue_agent_run_id TEXT,
+    operator_issue_task_id TEXT,
+    operator_issue_role_name TEXT,
+    operator_issue_runtime TEXT,
+    operator_issue_model TEXT,
     question_state TEXT NOT NULL DEFAULT 'none',
     planning_attempts INTEGER NOT NULL DEFAULT 0,
     run_count INTEGER NOT NULL DEFAULT 0,
@@ -44,6 +52,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     input_payload TEXT NOT NULL DEFAULT '{}',
     output_payload TEXT,
     error TEXT,
+    operator_issue_kind TEXT,
     attempt_count INTEGER NOT NULL DEFAULT 0,
     assigned_run_id TEXT,
     created_at TEXT NOT NULL,
@@ -178,12 +187,21 @@ def initialize_database(db_path: Path) -> Path:
         ensure_column(conn, "commands", "workspace_root", "TEXT NOT NULL DEFAULT '.'")
         ensure_column(conn, "commands", "allow_parallel", "INTEGER NOT NULL DEFAULT 0")
         ensure_column(conn, "commands", "resume_stage", "TEXT")
+        ensure_column(conn, "commands", "resume_hint", "TEXT")
         ensure_column(conn, "commands", "failure_reason", "TEXT")
+        ensure_column(conn, "commands", "operator_issue_kind", "TEXT")
+        ensure_column(conn, "commands", "operator_issue_detail", "TEXT")
+        ensure_column(conn, "commands", "operator_issue_agent_run_id", "TEXT")
+        ensure_column(conn, "commands", "operator_issue_task_id", "TEXT")
+        ensure_column(conn, "commands", "operator_issue_role_name", "TEXT")
+        ensure_column(conn, "commands", "operator_issue_runtime", "TEXT")
+        ensure_column(conn, "commands", "operator_issue_model", "TEXT")
         ensure_column(conn, "commands", "replan_requested", "INTEGER NOT NULL DEFAULT 0")
         ensure_column(conn, "commands", "stop_requested", "INTEGER NOT NULL DEFAULT 0")
         ensure_column(conn, "tasks", "task_key", "TEXT NOT NULL DEFAULT ''")
         ensure_column(conn, "tasks", "plan_order", "INTEGER NOT NULL DEFAULT 1")
         ensure_column(conn, "tasks", "error", "TEXT")
+        ensure_column(conn, "tasks", "operator_issue_kind", "TEXT")
         ensure_column(conn, "tasks", "attempt_count", "INTEGER NOT NULL DEFAULT 0")
         ensure_column(conn, "questions", "resume_stage", "TEXT NOT NULL DEFAULT 'planning'")
         ensure_column(conn, "reviews", "reviewer_slot", "INTEGER NOT NULL DEFAULT 1")

@@ -21,11 +21,13 @@ from urllib.parse import urlparse
 from wevra.config import AppConfig, LOOPBACK_HOST, load_config
 from wevra.db import connect, initialize_database
 from wevra.models import ApprovalMode, CommandStage, Priority, RuntimeBackend, WorkflowMode
+from wevra.runtime_registry import runtime_label, runtime_option_payload
 from wevra.service import (
     answer_question,
     approve_agent_run,
     approve_agent_runs_batch,
     append_instruction,
+    cancel_command_with_repair,
     cancel_command,
     deny_agent_run,
     ignore_command_dependencies,
@@ -38,6 +40,7 @@ from wevra.service import (
     list_reviews,
     list_tasks,
     request_command_stop,
+    retry_operator_issue,
     resume_command,
     submit_command,
     tick_once,
@@ -77,6 +80,10 @@ def build_runtime_metadata(
         "language": settings.ui_language or settings.language,
         "dashboard_url": dashboard_url(settings),
         "roles": summarize_roles(settings),
+        "runtime_options": runtime_option_payload(include_mock=True, include_inherit=True),
+        "switchable_runtime_options": runtime_option_payload(
+            include_mock=False, include_inherit=False
+        ),
         "engine_owner": owner or "manual",
         "engine_state": engine_state or {"status": "running", "last_error": None},
         "listen": {
@@ -124,6 +131,7 @@ def summarize_roles(settings: AppConfig) -> list[dict[str, Any]]:
             {
                 "name": name,
                 "runtime": role.runtime.value,
+                "runtime_label": runtime_label(role.runtime),
                 "model": role.model,
                 "count": role.count,
             }
@@ -600,6 +608,59 @@ class DashboardHandler(BaseHTTPRequestHandler):
             with self.state_lock:
                 command = resume_command(self.settings.db_path, command_id=command_id)
             self.send_json(HTTPStatus.OK, {"ok": True, "command": command.model_dump(mode="json")})
+            return
+
+        if parsed.path == "/api/commands/retry-operator-issue":
+            command_id = str(payload.get("command_id", "")).strip()
+            if not command_id:
+                self.send_json(
+                    HTTPStatus.BAD_REQUEST, {"ok": False, "error": "command_id_required"}
+                )
+                return
+            backend_raw = str(payload.get("backend", "")).strip().lower()
+            backend = RuntimeBackend(backend_raw) if backend_raw else None
+            try:
+                with self.state_lock:
+                    command = retry_operator_issue(
+                        self.settings.db_path,
+                        command_id=command_id,
+                        backend_override=backend,
+                    )
+            except ValueError as exc:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
+                return
+            self.send_json(HTTPStatus.OK, {"ok": True, "command": command.model_dump(mode="json")})
+            return
+
+        if parsed.path == "/api/commands/cancel-with-repair":
+            command_id = str(payload.get("command_id", "")).strip()
+            repair_goal = str(payload.get("repair_goal", "")).strip()
+            if not command_id or not repair_goal:
+                self.send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"ok": False, "error": "command_id_and_repair_goal_required"},
+                )
+                return
+            try:
+                with self.state_lock:
+                    canceled, repair = cancel_command_with_repair(
+                        self.settings.db_path,
+                        command_id=command_id,
+                        repair_goal=repair_goal,
+                        settings=self.settings,
+                        repo_root=self.repo_root,
+                    )
+            except ValueError as exc:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
+                return
+            self.send_json(
+                HTTPStatus.OK,
+                {
+                    "ok": True,
+                    "canceled_command": canceled.model_dump(mode="json"),
+                    "repair_command": repair.model_dump(mode="json"),
+                },
+            )
             return
 
         if parsed.path == "/api/questions/answer":

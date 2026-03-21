@@ -690,7 +690,17 @@
       box-shadow: inset 0 0 0 1px rgba(255, 191, 95, 0.08);
     }
 
+    .command-item.waiting_operator-state {
+      border-color: rgba(255, 191, 95, 0.38);
+      background: linear-gradient(180deg, rgba(255, 191, 95, 0.12), rgba(255, 255, 255, 0.02));
+      box-shadow: inset 0 0 0 1px rgba(255, 191, 95, 0.08);
+    }
+
     .command-item.waiting_approval-state::before {
+      background: rgba(255, 191, 95, 0.86);
+    }
+
+    .command-item.waiting_operator-state::before {
       background: rgba(255, 191, 95, 0.86);
     }
 
@@ -786,6 +796,7 @@
 
     .pill.stage-pill.waiting_question,
     .pill.stage-pill.waiting_approval,
+    .pill.stage-pill.waiting_operator,
     .pill.review-pill.request_changes,
     .pill.task-state-pill.blocked,
     .pill.agent-state-pill.pending_approval,
@@ -1109,6 +1120,21 @@
       margin-top: 4px;
     }
 
+    .operator-actions {
+      align-items: center;
+    }
+
+    .operator-switcher {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .operator-switcher select {
+      min-width: 170px;
+    }
+
     .overview-fact-label {
       color: var(--muted);
       font-size: 10px;
@@ -1151,6 +1177,46 @@
       word-break: break-word;
       font-size: 12px;
       line-height: 1.5;
+    }
+
+    .operator-issue-meta {
+      color: rgba(239, 244, 255, 0.82);
+      font-size: 12px;
+      line-height: 1.45;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .operator-issue-details {
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      padding-top: 8px;
+    }
+
+    .operator-issue-details summary {
+      cursor: pointer;
+      color: rgba(255, 255, 255, 0.82);
+      font-size: 12px;
+      font-weight: 700;
+      list-style: none;
+    }
+
+    .operator-issue-details summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .operator-issue-details pre {
+      margin: 10px 0 0;
+      padding: 12px;
+      border-radius: 14px;
+      background: rgba(4, 8, 14, 0.52);
+      border: 1px solid rgba(151, 176, 214, 0.12);
+      color: rgba(239, 244, 255, 0.88);
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
 
     .detail-grid {
@@ -1397,6 +1463,11 @@
       box-shadow: inset 0 0 0 1px rgba(255, 191, 95, 0.08);
     }
 
+    .agent-run-card.issue-focus {
+      border-color: rgba(255, 191, 95, 0.38);
+      box-shadow: inset 0 0 0 1px rgba(255, 191, 95, 0.12);
+    }
+
     .agent-run-head {
       display: flex;
       justify-content: space-between;
@@ -1607,6 +1678,43 @@
       color: var(--ink);
     }
 
+    .choice-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .choice-card {
+      border: 1px solid rgba(151, 176, 214, 0.12);
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.02));
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .choice-card.warn {
+      border-color: rgba(255, 191, 95, 0.24);
+      background: linear-gradient(180deg, rgba(255, 191, 95, 0.10), rgba(255, 255, 255, 0.02));
+    }
+
+    .choice-card h3 {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    .choice-card p {
+      margin: 0;
+      color: rgba(239, 244, 255, 0.86);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .choice-card .actions {
+      justify-content: flex-start;
+    }
+
     .result-modal-content {
       min-height: 320px;
       border-radius: 16px;
@@ -1784,6 +1892,9 @@
       .modal-form .toolbar-controls {
         grid-template-columns: 1fr;
       }
+      .choice-grid {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 </head>
@@ -1928,9 +2039,9 @@
               <label class="field-label" id="backendLabelText" for="backend">Backend</label>
               <select id="backend">
                 <option value="">config default</option>
-                <option value="mock">mock</option>
-                <option value="codex">codex</option>
-                <option value="claude">claude</option>
+                <option value="mock">Mock</option>
+                <option value="codex">Codex</option>
+                <option value="claude">Claude Code</option>
               </select>
             </div>
             <label class="toggle-chip" for="allowParallel">
@@ -2022,6 +2133,59 @@
     </div>
   </div>
 
+  <div class="modal-backdrop" id="operatorIssueModal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="operatorIssueModalTitle">
+      <div class="modal-header">
+        <div>
+          <div class="eyebrow" id="operatorIssueModalEyebrow">Interrupted job</div>
+          <h2 id="operatorIssueModalTitle" style="margin: 6px 0 0; font-size: 24px;">What should happen next?</h2>
+        </div>
+        <button class="secondary" id="closeOperatorIssueBtn">Cancel</button>
+      </div>
+      <div class="modal-body" style="display:grid; gap: 14px;">
+        <div class="meta" id="operatorIssueModalContext">This job stopped partway through.</div>
+        <div class="choice-grid">
+          <article class="choice-card warn">
+            <h3 id="operatorRepairChoiceTitle">Restore changes left by the interrupted job</h3>
+            <p id="operatorRepairChoiceBody">Create a repair job that tries to clean up the partial changes.</p>
+            <div class="actions">
+              <button class="primary" id="operatorRepairBtn">Create repair job</button>
+            </div>
+          </article>
+          <article class="choice-card">
+            <h3 id="operatorPlainCancelTitle">Cancel without repair</h3>
+            <p id="operatorPlainCancelBody">The working directory may still contain partial changes.</p>
+            <div class="actions">
+              <button class="deny" id="operatorPlainCancelBtn">Cancel job now</button>
+            </div>
+          </article>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="operatorResumeModal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="operatorResumeModalTitle">
+      <div class="modal-header">
+        <div>
+          <div class="eyebrow" id="operatorResumeModalEyebrow">Resume job</div>
+          <h2 id="operatorResumeModalTitle" style="margin: 6px 0 0; font-size: 24px;">Choose AI</h2>
+        </div>
+        <button class="secondary" id="closeOperatorResumeBtn">Cancel</button>
+      </div>
+      <div class="modal-body" style="display:grid; gap: 14px;">
+        <div class="meta" id="operatorResumeModalContext">Choose which AI should continue this interrupted job.</div>
+        <div class="field-stack">
+          <label class="field-label" id="operatorResumeBackendLabel" for="operatorResumeBackend">AI</label>
+          <select id="operatorResumeBackend"></select>
+        </div>
+        <div class="actions" style="justify-content: flex-end;">
+          <button class="primary" id="operatorResumeBtn">Resume</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     const state = {
       snapshot: null,
@@ -2043,13 +2207,17 @@
       agentDecisionInFlight: null,
       commandControlInFlight: null,
       dependencyActionInFlight: null,
+      operatorIssueActionInFlight: null,
+      operatorIssueModalCommandId: null,
+      operatorResumeModalCommandId: null,
       visibleQuestionId: null,
       questionDrafts: {},
       agentRoleTabByCommand: {},
       agentLogFollow: {},
       agentLogScrollTop: {},
       resultSectionTabByCommand: {},
-      dependencySelection: new Set()
+      dependencySelection: new Set(),
+      operatorRetryBackendByCommand: {}
     };
 
     const commandsListEl = document.getElementById('commandsList');
@@ -2080,6 +2248,18 @@
     const reviewModalFindingsEl = document.getElementById('reviewModalFindings');
     const appendModalEl = document.getElementById('appendModal');
     const appendModalInputEl = document.getElementById('appendModalInput');
+    const operatorIssueModalEl = document.getElementById('operatorIssueModal');
+    const operatorIssueModalTitleEl = document.getElementById('operatorIssueModalTitle');
+    const operatorIssueModalContextEl = document.getElementById('operatorIssueModalContext');
+    const closeOperatorIssueBtnEl = document.getElementById('closeOperatorIssueBtn');
+    const operatorRepairBtnEl = document.getElementById('operatorRepairBtn');
+    const operatorPlainCancelBtnEl = document.getElementById('operatorPlainCancelBtn');
+    const operatorResumeModalEl = document.getElementById('operatorResumeModal');
+    const operatorResumeModalTitleEl = document.getElementById('operatorResumeModalTitle');
+    const operatorResumeModalContextEl = document.getElementById('operatorResumeModalContext');
+    const operatorResumeBackendEl = document.getElementById('operatorResumeBackend');
+    const closeOperatorResumeBtnEl = document.getElementById('closeOperatorResumeBtn');
+    const operatorResumeBtnEl = document.getElementById('operatorResumeBtn');
     const workspaceTabsEl = document.getElementById('workspaceTabs');
     const openSubmitBtnEl = document.getElementById('openSubmitBtn');
     const closeSubmitBtnEl = document.getElementById('closeSubmitBtn');
@@ -2206,6 +2386,14 @@
       if (locale !== 'ja' && metadata.title_en) return metadata.title_en;
       const keyed = metadata.section_key || section.key || 'result';
       return localizeValue('result_section_labels', keyed);
+    }
+
+    function operatorIssueTitle(kind) {
+      return localizeValue('operator_issue_titles', kind || 'default');
+    }
+
+    function operatorIssueBody(kind) {
+      return localizeValue('operator_issue_bodies', kind || 'default');
     }
 
     function escapeHtml(value) {
@@ -2446,6 +2634,88 @@
         .slice(0, 80);
     }
 
+    function runtimeOptions(includeMock = true) {
+      const options = state.summarySnapshot?.runtime?.runtime_options
+        || state.snapshot?.runtime?.runtime_options
+        || [];
+      return options.filter((option) => includeMock || option.value !== 'mock');
+    }
+
+    function switchableRuntimeOptions() {
+      const options = state.summarySnapshot?.runtime?.switchable_runtime_options
+        || state.snapshot?.runtime?.switchable_runtime_options
+        || [];
+      return options.length ? options : runtimeOptions(false);
+    }
+
+    function runtimeOptionLabel(value) {
+      const option = runtimeOptions(true).find((item) => item.value === value);
+      return option?.label || value || '';
+    }
+
+    function operatorIssueRuntimeText(command) {
+      if (!command) return '';
+      const runtime = command.operator_issue_runtime || command.backend || '';
+      const label = runtimeOptionLabel(runtime);
+      return command.operator_issue_model ? `${label} / ${command.operator_issue_model}` : String(label);
+    }
+
+    function availableOperatorRetryBackends(command) {
+      const currentRuntime = String(command?.operator_issue_runtime || command?.backend || '').toLowerCase();
+      const switchable = switchableRuntimeOptions().map((option) => option.value);
+      if (!switchable.length) return currentRuntime ? [currentRuntime] : [];
+      if (switchable.includes(currentRuntime)) {
+        return [currentRuntime, ...switchable.filter((runtime) => runtime !== currentRuntime)];
+      }
+      return switchable;
+    }
+
+    function selectedOperatorRetryBackend(command) {
+      if (!command) return '';
+      const options = availableOperatorRetryBackends(command);
+      const stored = state.operatorRetryBackendByCommand[command.id];
+      if (stored && options.includes(stored)) return stored;
+      const currentRuntime = String(command?.operator_issue_runtime || command?.backend || '').toLowerCase();
+      const fallback = options.includes(currentRuntime) ? currentRuntime : (options[0] || '');
+      state.operatorRetryBackendByCommand[command.id] = fallback;
+      return fallback;
+    }
+
+    function buildRepairGoal(command) {
+      const title = displayGoal(command?.goal || command?.id || 'job');
+      return currentLocale() === 'ja'
+        ? `中断したジョブの変更を元に戻す: ${title}`
+        : `Restore changes left by interrupted job: ${title}`;
+    }
+
+    function operatorIssueBannerMarkup(command) {
+      if (!command || command.stage !== 'waiting_operator' || !command.operator_issue_kind) return '';
+      const busy = state.operatorIssueActionInFlight === command.id;
+      const runtimeText = operatorIssueRuntimeText(command);
+      const detailMarkup = command.operator_issue_detail ? `
+        <details class="operator-issue-details">
+          <summary>${escapeHtml(t('operatorIssueDetailToggle'))}</summary>
+          <pre>${escapeHtml(command.operator_issue_detail)}</pre>
+        </details>
+      ` : '';
+      return `
+        <div class="detail-banner warn">
+          <h3>${escapeHtml(operatorIssueTitle(command.operator_issue_kind))}</h3>
+          <div class="body">${escapeHtml(operatorIssueBody(command.operator_issue_kind))}</div>
+          ${runtimeText ? `
+            <div class="operator-issue-meta">
+              <span><strong>${escapeHtml(t('operatorIssueCurrentAi'))}:</strong> ${escapeHtml(runtimeText)}</span>
+            </div>
+          ` : ''}
+          ${detailMarkup}
+          <div class="overview-actions operator-actions">
+            <button class="primary" data-open-operator-resume="${escapeHtml(command.id)}" ${busy ? 'disabled' : ''}>${escapeHtml(t('operatorIssueRetry'))}</button>
+            <button class="deny" data-open-operator-cancel="${escapeHtml(command.id)}" ${busy ? 'disabled' : ''}>${escapeHtml(t('operatorIssueCancel'))}</button>
+          </div>
+        </div>
+      `;
+    }
+
     async function api(url, options = {}) {
       const response = await fetch(url, {
         headers: { 'Content-Type': 'application/json' },
@@ -2498,6 +2768,22 @@
       document.getElementById('downloadResultBtn').setAttribute('title', t('downloadResultAria'));
       document.getElementById('workspaceOverlapNoticeTitle').textContent = t('workspaceOverlapNoticeTitle');
       document.getElementById('workspaceOverlapNoticeBody').textContent = t('workspaceOverlapNoticeBody');
+      document.getElementById('operatorIssueModalEyebrow').textContent = t('operatorIssueModalEyebrow');
+      document.getElementById('operatorIssueModalTitle').textContent = t('operatorIssueModalTitle');
+      document.getElementById('operatorIssueModalContext').textContent = t('operatorIssueModalContext');
+      document.getElementById('operatorRepairChoiceTitle').textContent = t('operatorRepairChoiceTitle');
+      document.getElementById('operatorRepairChoiceBody').textContent = t('operatorRepairChoiceBody');
+      document.getElementById('operatorPlainCancelTitle').textContent = t('operatorPlainCancelTitle');
+      document.getElementById('operatorPlainCancelBody').textContent = t('operatorPlainCancelBody');
+      document.getElementById('operatorRepairBtn').textContent = t('operatorRepairAction');
+      document.getElementById('operatorPlainCancelBtn').textContent = t('operatorPlainCancelAction');
+      document.getElementById('closeOperatorIssueBtn').textContent = t('operatorIssueClose');
+      document.getElementById('operatorResumeModalEyebrow').textContent = t('operatorResumeModalEyebrow');
+      document.getElementById('operatorResumeModalTitle').textContent = t('operatorResumeModalTitle');
+      document.getElementById('operatorResumeModalContext').textContent = t('operatorResumeModalContext');
+      document.getElementById('operatorResumeBackendLabel').textContent = t('operatorResumeBackendLabel');
+      document.getElementById('closeOperatorResumeBtn').textContent = t('operatorIssueClose');
+      document.getElementById('operatorResumeBtn').textContent = t('operatorResumeAction');
       document.getElementById('reviewModalEyebrow').textContent = t('reviewModalEyebrow');
       document.getElementById('reviewModalTitle').textContent = t('reviewModalTitle');
       document.getElementById('closeReviewBtn').textContent = t('closeReviewBtn');
@@ -2521,12 +2807,26 @@
       document.querySelector('#priority option[value="high"]').textContent = priorityLabel('high');
       document.querySelector('#priority option[value="medium"]').textContent = priorityLabel('medium');
       document.querySelector('#priority option[value="low"]').textContent = priorityLabel('low');
-      document.querySelector('#backend option[value=""]').textContent = t('executionDefaultLabel');
-      document.querySelector('#backend option[value="mock"]').textContent = 'mock';
-      document.querySelector('#backend option[value="codex"]').textContent = 'codex';
-      document.querySelector('#backend option[value="claude"]').textContent = 'claude';
+      const backendValue = backendEl.value;
+      backendEl.innerHTML = `
+        <option value="">${escapeHtml(t('executionDefaultLabel'))}</option>
+        ${runtimeOptions(true)
+          .filter((option) => option.value !== 'inherit')
+          .map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`)
+          .join('')}
+      `;
+      if ([...backendEl.options].some((option) => option.value === backendValue)) {
+        backendEl.value = backendValue;
+      }
+      if (!backendEl.value) backendEl.value = '';
       renderDependencyOptions();
       syncSubmitModalState();
+      if (state.operatorResumeModalCommandId) {
+        const command = commandById(state.operatorResumeModalCommandId) || selectedCommand();
+        if (command) {
+          renderOperatorResumeModal(command);
+        }
+      }
       if (!state.snapshot) {
         statusLineEl.textContent = t('loading');
         listenEndpointEl.textContent = '';
@@ -2866,6 +3166,18 @@
     function updateBusyState() {
       submitBtnEl.disabled = state.submitting;
       refreshBtnEl.disabled = state.refreshInFlight;
+      if (state.operatorIssueModalCommandId) {
+        const modalCommand = commandById(state.operatorIssueModalCommandId) || selectedCommand();
+        if (modalCommand) {
+          renderOperatorIssueModal(modalCommand);
+        }
+      }
+      if (state.operatorResumeModalCommandId) {
+        const modalCommand = commandById(state.operatorResumeModalCommandId) || selectedCommand();
+        if (modalCommand) {
+          renderOperatorResumeModal(modalCommand);
+        }
+      }
       syncAppendSubmitState();
       if (state.answeringQuestionId) {
         syncQuestionSubmitState(state.answeringQuestionId);
@@ -2914,6 +3226,128 @@
         await refreshSnapshot({ forceDetail: true });
       } finally {
         state.dependencyActionInFlight = null;
+        updateBusyState();
+      }
+    }
+
+    function renderOperatorIssueModal(command) {
+      if (!command) return;
+      operatorIssueModalTitleEl.textContent = t('operatorIssueModalTitle');
+      operatorIssueModalContextEl.textContent = `${t('operatorIssueModalContext')} ${displayGoal(command.goal)}`;
+      document.getElementById('operatorIssueModalEyebrow').textContent = t('operatorIssueModalEyebrow');
+      document.getElementById('operatorRepairChoiceTitle').textContent = t('operatorRepairChoiceTitle');
+      document.getElementById('operatorRepairChoiceBody').textContent = t('operatorRepairChoiceBody');
+      document.getElementById('operatorPlainCancelTitle').textContent = t('operatorPlainCancelTitle');
+      document.getElementById('operatorPlainCancelBody').textContent = t('operatorPlainCancelBody');
+      closeOperatorIssueBtnEl.textContent = t('operatorIssueClose');
+      const busy = state.operatorIssueActionInFlight === command.id;
+      operatorRepairBtnEl.textContent = t('operatorRepairAction');
+      operatorRepairBtnEl.disabled = busy;
+      operatorPlainCancelBtnEl.textContent = t('operatorPlainCancelAction');
+      operatorPlainCancelBtnEl.disabled = busy;
+      closeOperatorIssueBtnEl.disabled = busy;
+      operatorRepairBtnEl.onclick = () => submitOperatorIssueCancel(command.id, true);
+      operatorPlainCancelBtnEl.onclick = () => submitOperatorIssueCancel(command.id, false);
+    }
+
+    function renderOperatorResumeModal(command) {
+      if (!command) return;
+      const options = availableOperatorRetryBackends(command);
+      const selected = selectedOperatorRetryBackend(command);
+      const busy = state.operatorIssueActionInFlight === command.id;
+      operatorResumeModalTitleEl.textContent = t('operatorResumeModalTitle');
+      operatorResumeModalContextEl.textContent = formatText(
+        t('operatorResumeModalContext'),
+        { job: displayGoal(command.goal) }
+      );
+      operatorResumeBackendEl.innerHTML = options.map((runtime) => `
+        <option value="${escapeHtml(runtime)}" ${runtime === selected ? 'selected' : ''}>${escapeHtml(runtimeOptionLabel(runtime))}</option>
+      `).join('');
+      operatorResumeBackendEl.disabled = busy;
+      operatorResumeBtnEl.textContent = t('operatorResumeAction');
+      operatorResumeBtnEl.disabled = busy || !options.length;
+      closeOperatorResumeBtnEl.disabled = busy;
+      operatorResumeBtnEl.onclick = () => submitOperatorIssueRetry(command.id, operatorResumeBackendEl.value || '');
+    }
+
+    function openOperatorIssueModal(commandId) {
+      const command = commandById(commandId) || selectedCommand();
+      if (!command) return;
+      state.operatorIssueModalCommandId = command.id;
+      renderOperatorIssueModal(command);
+      operatorIssueModalEl.classList.add('open');
+    }
+
+    function closeOperatorIssueModal() {
+      state.operatorIssueModalCommandId = null;
+      operatorIssueModalEl.classList.remove('open');
+    }
+
+    function openOperatorResumeModal(commandId) {
+      const command = commandById(commandId) || selectedCommand();
+      if (!command) return;
+      state.operatorResumeModalCommandId = command.id;
+      renderOperatorResumeModal(command);
+      operatorResumeModalEl.classList.add('open');
+    }
+
+    function closeOperatorResumeModal() {
+      state.operatorResumeModalCommandId = null;
+      operatorResumeModalEl.classList.remove('open');
+    }
+
+    async function submitOperatorIssueRetry(commandId, backend = '') {
+      if (!commandId || state.operatorIssueActionInFlight) return;
+      state.operatorIssueActionInFlight = commandId;
+      updateBusyState();
+      statusLineEl.textContent = `${t('operatorResumeAction')} ${commandId}…`;
+      try {
+        await api('/api/commands/retry-operator-issue', {
+          method: 'POST',
+          body: JSON.stringify({
+            command_id: commandId,
+            backend: backend || null,
+          }),
+        });
+        closeOperatorResumeModal();
+        closeOperatorIssueModal();
+        await refreshSnapshot({ forceDetail: true });
+      } finally {
+        state.operatorIssueActionInFlight = null;
+        updateBusyState();
+      }
+    }
+
+    async function submitOperatorIssueCancel(commandId, withRepair) {
+      if (!commandId || state.operatorIssueActionInFlight) return;
+      state.operatorIssueActionInFlight = commandId;
+      updateBusyState();
+      statusLineEl.textContent = withRepair
+        ? `${t('operatorRepairAction')} ${commandId}…`
+        : `${t('cancelingJob')} ${commandId}…`;
+      try {
+        if (withRepair) {
+          const response = await api('/api/commands/cancel-with-repair', {
+            method: 'POST',
+            body: JSON.stringify({
+              command_id: commandId,
+              repair_goal: buildRepairGoal(commandById(commandId) || selectedCommand()),
+            }),
+          });
+          state.selectedCommandId = response.repair_command?.id || state.selectedCommandId;
+        } else {
+          await api('/api/commands/cancel', {
+            method: 'POST',
+            body: JSON.stringify({
+              command_id: commandId,
+              reason: t('operatorCancelReason'),
+            }),
+          });
+        }
+        closeOperatorIssueModal();
+        await refreshSnapshot({ forceDetail: true });
+      } finally {
+        state.operatorIssueActionInFlight = null;
         updateBusyState();
       }
     }
@@ -3126,13 +3560,15 @@
 
     function renderAgentRuns(snapshot) {
       const selected = state.selectedCommandId;
+      const selectedCommandRecord = snapshot.commands.items.find((item) => item.id === selected) || null;
       const pendingApprovals = (snapshot.agent_runs.pending || []).filter((item) => !selected || item.command_id === selected);
       const batchCommandId = selected || pendingApprovals[0]?.command_id || '';
       const agentRuns = snapshot.agent_runs.items
         .filter((item) => !selected || item.command_id === selected)
         .slice()
         .reverse();
-      if (!selected || !agentRuns.length) {
+      const operatorBanner = operatorIssueBannerMarkup(selectedCommandRecord);
+      if (!selected || (!agentRuns.length && !operatorBanner)) {
         agentRunsListEl.innerHTML = `<div class="agent-empty">${escapeHtml(t('noAgentRuns'))}</div>`;
         return;
       }
@@ -3199,11 +3635,12 @@
               ${runs.map((agentRun) => {
                 const pending = agentRun.state === 'pending_approval';
                 const busy = state.agentDecisionInFlight === agentRun.id;
+                const issueFocus = selectedCommandRecord?.operator_issue_agent_run_id === agentRun.id;
                 const summary = agentRun.error || agentRun.output_summary || '';
-                const runtimeText = `${agentRun.runtime}${agentRun.model ? ` / ${agentRun.model}` : ''}`;
+                const runtimeText = `${runtimeOptionLabel(agentRun.runtime)}${agentRun.model ? ` / ${agentRun.model}` : ''}`;
                 const logText = agentRun.output_log || t('noAgentOutput');
                 return `
-                  <article class="agent-run-card ${pending ? 'pending' : ''}">
+                  <article class="agent-run-card ${pending ? 'pending' : ''} ${issueFocus ? 'issue-focus' : ''}">
                     <div class="agent-run-head">
                       <div class="agent-run-title-stack">
                         <div class="title">${escapeHtml(agentRun.title)}</div>
@@ -3241,6 +3678,7 @@
       }).join('');
       agentRunsListEl.innerHTML = `
         <div class="agent-role-shell">
+          ${operatorBanner}
           ${batchMarkup}
           ${roleTabsMarkup}
           ${rolePanelsMarkup}
@@ -3261,6 +3699,12 @@
       });
       agentRunsListEl.querySelectorAll('[data-agent-role-tab]').forEach((node) => {
         node.addEventListener('click', () => setAgentRoleTab(node.dataset.agentRoleTab));
+      });
+      agentRunsListEl.querySelectorAll('[data-open-operator-resume]').forEach((node) => {
+        node.addEventListener('click', () => openOperatorResumeModal(node.dataset.openOperatorResume));
+      });
+      agentRunsListEl.querySelectorAll('[data-open-operator-cancel]').forEach((node) => {
+        node.addEventListener('click', () => openOperatorIssueModal(node.dataset.openOperatorCancel));
       });
       syncAgentLogPanes();
     }
@@ -3330,6 +3774,7 @@
       const appendLocked = Boolean(command?.final_response) || ['done', 'failed', 'canceled'].includes(command.stage);
       const terminal = ['done', 'failed', 'canceled'].includes(command.stage);
       const paused = command.stage === 'paused';
+      const waitingOperator = command.stage === 'waiting_operator';
       const stopBusy = state.commandControlInFlight === command.id;
       const dependencyTitlesList = (command.blocking_dependency_ids?.length
         ? command.blocking_dependency_ids
@@ -3337,7 +3782,7 @@
       const allDependencyTitles = dependencyTitles(command);
       const dependencyBannerClass = command.dependency_state === 'failed' ? 'warn' : '';
       const dependencyActionBusy = state.dependencyActionInFlight === command.id;
-      if (terminal) {
+      if (terminal || waitingOperator) {
         runControlBtnEl.textContent = t('stopJob');
         runControlBtnEl.disabled = true;
         runControlBtnEl.onclick = null;
@@ -3367,6 +3812,7 @@
             <div class="body">${escapeHtml(t('approvalHelp'))}</div>
           </div>
         ` : ''}
+        ${operatorIssueBannerMarkup(command)}
         ${command.dependency_state !== 'none' ? `
           <div class="detail-banner ${escapeHtml(dependencyBannerClass)}">
             <h3>${escapeHtml(
@@ -3448,6 +3894,12 @@
       commandDetailEl.querySelectorAll('[data-cancel-command]').forEach((node) => {
         node.addEventListener('click', () => submitDependencyAction(node.dataset.cancelCommand, 'cancel'));
       });
+      commandDetailEl.querySelectorAll('[data-open-operator-resume]').forEach((node) => {
+        node.addEventListener('click', () => openOperatorResumeModal(node.dataset.openOperatorResume));
+      });
+      commandDetailEl.querySelectorAll('[data-open-operator-cancel]').forEach((node) => {
+        node.addEventListener('click', () => openOperatorIssueModal(node.dataset.openOperatorCancel));
+      });
       viewResultBtnEl.onclick = hasResult ? () => openResultModal(command) : null;
       openAppendBtnEl.onclick = appendLocked ? null : openAppendModal;
     }
@@ -3510,6 +3962,22 @@
           renderReviewModal(modalReview);
         } else {
           closeReviewModal();
+        }
+      }
+      if (state.operatorIssueModalCommandId) {
+        const modalCommand = snapshot.commands.items.find((item) => item.id === state.operatorIssueModalCommandId);
+        if (modalCommand) {
+          renderOperatorIssueModal(modalCommand);
+        } else {
+          closeOperatorIssueModal();
+        }
+      }
+      if (state.operatorResumeModalCommandId) {
+        const modalCommand = snapshot.commands.items.find((item) => item.id === state.operatorResumeModalCommandId);
+        if (modalCommand) {
+          renderOperatorResumeModal(modalCommand);
+        } else {
+          closeOperatorResumeModal();
         }
       }
       setWorkspaceTab(state.currentTab);
@@ -3608,6 +4076,11 @@
     document.getElementById('approvalMode').addEventListener('change', syncApprovalModeNotice);
     workspaceRootEl.addEventListener('input', syncSubmitModalState);
     allowParallelEl.addEventListener('change', syncSubmitModalState);
+    operatorResumeBackendEl.addEventListener('change', () => {
+      if (state.operatorResumeModalCommandId) {
+        state.operatorRetryBackendByCommand[state.operatorResumeModalCommandId] = operatorResumeBackendEl.value;
+      }
+    });
     document.getElementById('submitBtn').addEventListener('click', async () => {
       if (state.submitting) return;
       const workspaceRoot = workspaceRootEl.value.trim();
@@ -3679,6 +4152,8 @@
     document.getElementById('closeResultBtn').addEventListener('click', closeResultModal);
     document.getElementById('closeReviewBtn').addEventListener('click', closeReviewModal);
     document.getElementById('closeAppendBtn').addEventListener('click', closeAppendModal);
+    closeOperatorIssueBtnEl.addEventListener('click', closeOperatorIssueModal);
+    closeOperatorResumeBtnEl.addEventListener('click', closeOperatorResumeModal);
     submitModalEl.addEventListener('click', (event) => {
       if (event.target === submitModalEl) closeSubmitModal();
     });
@@ -3690,6 +4165,12 @@
     });
     appendModalEl.addEventListener('click', (event) => {
       if (event.target === appendModalEl) closeAppendModal();
+    });
+    operatorIssueModalEl.addEventListener('click', (event) => {
+      if (event.target === operatorIssueModalEl) closeOperatorIssueModal();
+    });
+    operatorResumeModalEl.addEventListener('click', (event) => {
+      if (event.target === operatorResumeModalEl) closeOperatorResumeModal();
     });
     workspaceTabsEl.querySelectorAll('[data-tab]').forEach((button) => {
       button.addEventListener('click', () => setWorkspaceTab(button.dataset.tab));

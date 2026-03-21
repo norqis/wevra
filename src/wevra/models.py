@@ -32,11 +32,19 @@ class ApprovalMode(str, Enum):
     MANUAL = "manual"
 
 
+class OperatorIssueKind(str, Enum):
+    PROVIDER_LIMIT = "provider_limit"
+    AUTH_REQUIRED = "auth_required"
+    INTERACTIVE_PROMPT = "interactive_prompt"
+    RUNTIME_TIMEOUT = "runtime_timeout"
+
+
 class CommandStage(str, Enum):
     QUEUED = "queued"
     PLANNING = "planning"
     RUNNING = "running"
     WAITING_APPROVAL = "waiting_approval"
+    WAITING_OPERATOR = "waiting_operator"
     WAITING_QUESTION = "waiting_question"
     VERIFYING = "verifying"
     REPLANNING = "replanning"
@@ -116,10 +124,18 @@ class CommandRecord(BaseModel):
     blocking_dependency_ids: List[str] = Field(default_factory=list)
     can_ignore_dependencies: bool = False
     resume_stage: Optional[CommandStage] = None
+    resume_hint: Optional[str] = None
     created_at: str
     updated_at: str
     final_response: Optional[str] = None
     failure_reason: Optional[str] = None
+    operator_issue_kind: Optional[OperatorIssueKind] = None
+    operator_issue_detail: Optional[str] = None
+    operator_issue_agent_run_id: Optional[str] = None
+    operator_issue_task_id: Optional[str] = None
+    operator_issue_role_name: Optional[str] = None
+    operator_issue_runtime: Optional[RuntimeBackend] = None
+    operator_issue_model: Optional[str] = None
     question_state: str = "none"
     planning_attempts: int = 0
     run_count: int = 0
@@ -142,6 +158,7 @@ class TaskRecord(BaseModel):
     input_payload: Dict[str, Any] = Field(default_factory=dict)
     output_payload: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+    operator_issue_kind: Optional[OperatorIssueKind] = None
     attempt_count: int = 0
     assigned_run_id: Optional[str] = None
     created_at: str

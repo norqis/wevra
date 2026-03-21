@@ -1,5 +1,6 @@
 import json
 import signal
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -34,17 +35,23 @@ from wevra.models import (
     ApprovalMode,
     CommandRecord,
     CommandStage,
+    OperatorIssueKind,
     PlannerDecision,
     PlannerOutput,
     PlannerTaskSpec,
     Priority,
     QuestionResolutionMode,
     QuestionState,
+    ReviewDecision,
+    ReviewerOutput,
     TaskRecord,
     TaskState,
+    WorkerDecision,
+    WorkerOutput,
     WorkflowMode,
 )
 from wevra.service import (
+    AgentExecutionError,
     StructuredCliBackend,
     approve_agent_run,
     approve_agent_runs_batch,
@@ -63,14 +70,17 @@ from wevra.service import (
     infer_mode_from_goal,
     infer_mode_from_specs,
     ignore_command_dependencies,
+    cancel_command_with_repair,
     list_agent_runs,
     list_artifacts,
     list_instructions,
+    list_tasks,
     mode_prompt_guidance,
     mode_requires_review,
     mode_requires_test,
     requested_mode,
     reduce_waiting_question,
+    retry_operator_issue,
     resolve_command_mode,
     resolve_settings,
     select_actionable_command,
@@ -727,7 +737,7 @@ def test_structured_cli_backends_build_commands_and_handle_failures(tmp_path, mo
         timeout_seconds=30,
         runtime_home=runtime_home,
     )
-    codex_payload = codex_backend._run_codex("hello", {"type": "object"}, tmp_path)
+    codex_payload = codex_backend._run_structured("hello", {"type": "object"}, str(tmp_path))
     codex_command, codex_cwd, codex_env, codex_kwargs = codex_runs[0]
     assert codex_payload == {"decision": "complete"}
     assert codex_command[:2] == ["codex", "exec"]
@@ -744,7 +754,7 @@ def test_structured_cli_backends_build_commands_and_handle_failures(tmp_path, mo
         timeout_seconds=30,
         runtime_home=runtime_home,
     )
-    claude_payload = claude_backend._run_claude("review", {"type": "object"}, tmp_path)
+    claude_payload = claude_backend._run_structured("review", {"type": "object"}, str(tmp_path))
     assert claude_payload["decision"] == "approve"
     claude_command = codex_runs[1][0]
     assert "--dangerously-skip-permissions" in claude_command
@@ -755,9 +765,9 @@ def test_structured_cli_backends_build_commands_and_handle_failures(tmp_path, mo
         lambda self, *args, **kwargs: (1, "", "boom"),
     )
     with pytest.raises(RuntimeError, match="boom"):
-        codex_backend._run_codex("broken", {"type": "object"}, tmp_path)
+        codex_backend._run_structured("broken", {"type": "object"}, str(tmp_path))
     with pytest.raises(RuntimeError, match="boom"):
-        claude_backend._run_claude("broken", {"type": "object"}, tmp_path)
+        claude_backend._run_structured("broken", {"type": "object"}, str(tmp_path))
     with pytest.raises(RuntimeError, match="Unsupported backend"):
         StructuredCliBackend(
             RuntimeBackend.INHERIT,
@@ -765,6 +775,274 @@ def test_structured_cli_backends_build_commands_and_handle_failures(tmp_path, mo
             approval_mode=ApprovalMode.MANUAL,
             timeout_seconds=30,
         )._run_structured("prompt", {}, str(tmp_path))
+
+
+def test_structured_cli_backends_classify_recoverable_operator_issues(tmp_path, monkeypatch):
+    backend = StructuredCliBackend(
+        RuntimeBackend.CODEX,
+        model="gpt-test",
+        approval_mode=ApprovalMode.AUTO,
+        timeout_seconds=30,
+        runtime_home=tmp_path / "runtime-home",
+    )
+
+    monkeypatch.setattr(
+        StructuredCliBackend,
+        "_run_streaming_process",
+        lambda self, *args, **kwargs: (1, "", "429 rate limit exceeded"),
+    )
+    with pytest.raises(AgentExecutionError) as provider_limit:
+        backend._run_structured("broken", {"type": "object"}, str(tmp_path))
+    assert provider_limit.value.kind == OperatorIssueKind.PROVIDER_LIMIT
+
+    monkeypatch.setattr(
+        StructuredCliBackend,
+        "_run_streaming_process",
+        lambda self, *args, **kwargs: (1, "", "login required before continuing"),
+    )
+    with pytest.raises(AgentExecutionError) as auth_required:
+        backend._run_structured("broken", {"type": "object"}, str(tmp_path))
+    assert auth_required.value.kind == OperatorIssueKind.AUTH_REQUIRED
+
+    monkeypatch.setattr(
+        StructuredCliBackend,
+        "_run_streaming_process",
+        lambda self, *args, **kwargs: (1, "", "confirm in the terminal to continue"),
+    )
+    with pytest.raises(AgentExecutionError) as interactive_prompt:
+        backend._run_structured("broken", {"type": "object"}, str(tmp_path))
+    assert interactive_prompt.value.kind == OperatorIssueKind.INTERACTIVE_PROMPT
+
+    monkeypatch.setattr(
+        StructuredCliBackend,
+        "_run_streaming_process",
+        lambda self, *args, **kwargs: (_ for _ in ()).throw(
+            subprocess.TimeoutExpired(cmd=["codex"], timeout=30)
+        ),
+    )
+    with pytest.raises(AgentExecutionError) as runtime_timeout:
+        backend._run_structured("broken", {"type": "object"}, str(tmp_path))
+    assert runtime_timeout.value.kind == OperatorIssueKind.RUNTIME_TIMEOUT
+
+
+def test_planner_operator_issue_can_retry_with_different_backend(tmp_path, monkeypatch):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    initialize_database(settings.db_path)
+
+    command = submit_direct(
+        tmp_path,
+        settings,
+        goal="planner operator issue",
+        workflow_mode=WorkflowMode.PLANNING,
+        priority=Priority.HIGH,
+        backend=RuntimeBackend.CODEX,
+    )
+    with connect(settings.db_path) as conn:
+        conn.execute(
+            "UPDATE commands SET stage = ?, effective_mode = ? WHERE id = ?",
+            (CommandStage.PLANNING.value, WorkflowMode.PLANNING.value, command.id),
+        )
+        conn.commit()
+
+    class FlakyPlanner:
+        def __init__(self):
+            self.calls = 0
+
+        def plan(self, *args, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise AgentExecutionError(
+                    OperatorIssueKind.PROVIDER_LIMIT,
+                    "provider limit",
+                    detail="429 rate limit exceeded",
+                )
+            return PlannerOutput(
+                decision=PlannerDecision.COMPLETE,
+                workflow_mode=WorkflowMode.PLANNING,
+                final_response=(
+                    "## Plan\nContinue planning.\n\n"
+                    "## Design Direction\nKeep the current direction.\n\n"
+                    "## Task Breakdown\n1. Finish the plan."
+                ),
+            )
+
+    backend = FlakyPlanner()
+    monkeypatch.setattr(service_module, "backend_for", lambda *args, **kwargs: backend)
+
+    blocked = tick_once(
+        settings.db_path,
+        command_id=command.id,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+    assert blocked.action == "operator_attention_required"
+    assert blocked.command.stage == CommandStage.WAITING_OPERATOR
+    assert blocked.command.operator_issue_kind == OperatorIssueKind.PROVIDER_LIMIT
+
+    resumed = retry_operator_issue(
+        settings.db_path, command.id, backend_override=RuntimeBackend.CLAUDE
+    )
+    assert resumed.stage == CommandStage.PLANNING
+    assert resumed.backend == RuntimeBackend.CLAUDE
+    assert resumed.resume_hint is not None
+    assert "provider usage limit" in resumed.resume_hint
+
+    completed = tick_once(
+        settings.db_path,
+        command_id=command.id,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+    assert completed.action == "command_completed"
+    assert completed.command.stage == CommandStage.DONE
+
+
+def test_task_operator_issue_requeues_blocked_task_on_retry(tmp_path, monkeypatch):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    initialize_database(settings.db_path)
+
+    command = submit_direct(
+        tmp_path,
+        settings,
+        goal="task operator issue",
+        workflow_mode=WorkflowMode.IMPLEMENTATION,
+        priority=Priority.HIGH,
+        backend=RuntimeBackend.CODEX,
+    )
+    with connect(settings.db_path) as conn:
+        conn.execute(
+            "UPDATE commands SET stage = ?, effective_mode = ? WHERE id = ?",
+            (CommandStage.PLANNING.value, WorkflowMode.IMPLEMENTATION.value, command.id),
+        )
+        conn.commit()
+
+    class TaskIssueBackend:
+        def __init__(self):
+            self.implementer_calls = 0
+
+        def plan(self, *args, **kwargs):
+            return PlannerOutput(
+                decision=PlannerDecision.CREATE_TASKS,
+                workflow_mode=WorkflowMode.IMPLEMENTATION,
+                tasks=[
+                    PlannerTaskSpec(
+                        key="implement_main",
+                        kind="implementation",
+                        capability="implementer",
+                        title="Implement the main change",
+                        description="Edit the workspace to apply the requested change.",
+                        depends_on=[],
+                        write_files=["src/app.ts"],
+                    )
+                ],
+            )
+
+        def execute_task(self, command, task, *args, **kwargs):
+            if task.capability == "implementer":
+                self.implementer_calls += 1
+                if self.implementer_calls == 1:
+                    raise AgentExecutionError(
+                        OperatorIssueKind.PROVIDER_LIMIT,
+                        "provider limit",
+                        detail="usage limit exceeded",
+                    )
+            return WorkerOutput(
+                decision=WorkerDecision.COMPLETE,
+                summary=f"{task.capability} finished",
+                output_payload={"summary": f"{task.capability} finished"},
+            )
+
+        def review(self, *args, **kwargs):
+            return ReviewerOutput(
+                decision=ReviewDecision.APPROVE,
+                summary="review ok",
+                findings=[],
+            )
+
+    backend = TaskIssueBackend()
+    monkeypatch.setattr(service_module, "backend_for", lambda *args, **kwargs: backend)
+
+    planned = tick_once(
+        settings.db_path, command_id=command.id, settings=settings, repo_root=tmp_path
+    )
+    assert planned.action == "tasks_planned"
+
+    interrupted = tick_once(
+        settings.db_path,
+        command_id=command.id,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+    assert interrupted.action == "operator_attention_required"
+    assert interrupted.command.stage == CommandStage.WAITING_OPERATOR
+    tasks = list_tasks(settings.db_path, command_id=command.id)
+    blocked_tasks = [
+        task for task in tasks if task.operator_issue_kind == OperatorIssueKind.PROVIDER_LIMIT
+    ]
+    assert blocked_tasks
+    assert blocked_tasks[0].state == TaskState.BLOCKED
+
+    resumed = retry_operator_issue(settings.db_path, command.id)
+    assert resumed.stage == CommandStage.RUNNING
+
+    resumed_tick = tick_once(
+        settings.db_path,
+        command_id=command.id,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+    assert resumed_tick.command.stage in {
+        CommandStage.RUNNING,
+        CommandStage.VERIFYING,
+        CommandStage.DONE,
+    }
+    tasks_after_resume = list_tasks(settings.db_path, command_id=command.id)
+    assert any(
+        task.state == TaskState.DONE
+        for task in tasks_after_resume
+        if task.capability == "implementer"
+    )
+
+
+def test_cancel_with_repair_creates_high_priority_repair_job(tmp_path):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    initialize_database(settings.db_path)
+
+    command = submit_direct(
+        tmp_path,
+        settings,
+        goal="repair me",
+        workflow_mode=WorkflowMode.IMPLEMENTATION,
+        priority=Priority.MEDIUM,
+        backend=RuntimeBackend.CODEX,
+    )
+    with connect(settings.db_path) as conn:
+        conn.execute(
+            "UPDATE commands SET stage = ?, operator_issue_kind = ?, operator_issue_detail = ? WHERE id = ?",
+            (
+                CommandStage.WAITING_OPERATOR.value,
+                OperatorIssueKind.PROVIDER_LIMIT.value,
+                "usage limit exceeded",
+                command.id,
+            ),
+        )
+        conn.commit()
+
+    canceled, repair = cancel_command_with_repair(
+        settings.db_path,
+        command.id,
+        repair_goal="中断したジョブの変更を元に戻す: repair me",
+        settings=settings,
+        repo_root=tmp_path,
+    )
+    assert canceled.stage == CommandStage.CANCELED
+    assert repair.priority == Priority.HIGH
+    assert repair.workflow_mode == WorkflowMode.IMPLEMENTATION
+    assert repair.workspace_root == canceled.workspace_root
+    assert repair.goal.startswith("中断したジョブの変更を元に戻す")
 
 
 def test_manual_agent_runs_capture_logs_and_expose_them_in_detail_payload(tmp_path, monkeypatch):

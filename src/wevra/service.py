@@ -24,6 +24,7 @@ from wevra.models import (
     CommandStage,
     EventRecord,
     InstructionRecord,
+    OperatorIssueKind,
     PlannerDecision,
     PlannerOutput,
     PlannerTaskSpec,
@@ -42,6 +43,7 @@ from wevra.models import (
     WorkerOutput,
     WorkflowMode,
 )
+from wevra.runtime_registry import structured_runtime_adapter, runtime_label
 
 
 PRIORITY_RANK = {
@@ -56,12 +58,13 @@ STAGE_RANK = {
     CommandStage.RUNNING.value: 2,
     CommandStage.VERIFYING.value: 3,
     CommandStage.WAITING_APPROVAL.value: 4,
-    CommandStage.WAITING_QUESTION.value: 5,
-    CommandStage.PAUSED.value: 6,
-    CommandStage.CANCELED.value: 7,
-    CommandStage.QUEUED.value: 8,
-    CommandStage.DONE.value: 9,
-    CommandStage.FAILED.value: 10,
+    CommandStage.WAITING_OPERATOR.value: 5,
+    CommandStage.WAITING_QUESTION.value: 6,
+    CommandStage.PAUSED.value: 7,
+    CommandStage.CANCELED.value: 8,
+    CommandStage.QUEUED.value: 9,
+    CommandStage.DONE.value: 10,
+    CommandStage.FAILED.value: 11,
 }
 
 TERMINAL_COMMAND_STAGES = {
@@ -78,12 +81,47 @@ PARALLEL_STAGE_RANK = {
     CommandStage.RUNNING.value: 3,
     CommandStage.VERIFYING.value: 4,
     CommandStage.WAITING_APPROVAL.value: 5,
-    CommandStage.WAITING_QUESTION.value: 6,
-    CommandStage.PAUSED.value: 7,
-    CommandStage.CANCELED.value: 8,
-    CommandStage.DONE.value: 9,
-    CommandStage.FAILED.value: 10,
+    CommandStage.WAITING_OPERATOR.value: 6,
+    CommandStage.WAITING_QUESTION.value: 7,
+    CommandStage.PAUSED.value: 8,
+    CommandStage.CANCELED.value: 9,
+    CommandStage.DONE.value: 10,
+    CommandStage.FAILED.value: 11,
 }
+
+PROVIDER_LIMIT_PATTERNS = (
+    "rate limit",
+    "usage limit",
+    "quota",
+    "too many requests",
+    "429",
+    "insufficient credits",
+    "credit balance",
+    "usage cap",
+    "limit reached",
+)
+
+AUTH_REQUIRED_PATTERNS = (
+    "login required",
+    "log in",
+    "logged in",
+    "sign in",
+    "authentication",
+    "unauthorized",
+    "not authorized",
+    "api key",
+    "auth token",
+)
+
+INTERACTIVE_PROMPT_PATTERNS = (
+    "yes/no",
+    "confirm",
+    "requires tty",
+    "waiting for input",
+    "interactive",
+    "prompt",
+    "update available",
+)
 
 MODE_KEYWORDS = {
     WorkflowMode.RESEARCH: (
@@ -842,6 +880,8 @@ def build_context_payload(
         "reviews": [item.model_dump(mode="json") for item in reviews],
         "instructions": [item.model_dump(mode="json") for item in instructions],
     }
+    if command.resume_hint:
+        payload["resume_hint"] = command.resume_hint
     if task is not None:
         payload["task"] = task.model_dump(mode="json")
     return payload
@@ -852,6 +892,69 @@ def prompt_excerpt(prompt: str, limit: int = 240) -> str:
     if len(compact) <= limit:
         return compact
     return compact[: limit - 1] + "…"
+
+
+class AgentExecutionError(RuntimeError):
+    def __init__(
+        self,
+        kind: OperatorIssueKind,
+        message: str,
+        *,
+        detail: str,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.detail = detail
+
+
+def classify_agent_failure_kind(text: str) -> Optional[OperatorIssueKind]:
+    lowered = (text or "").lower()
+    if any(pattern in lowered for pattern in PROVIDER_LIMIT_PATTERNS):
+        return OperatorIssueKind.PROVIDER_LIMIT
+    if any(pattern in lowered for pattern in AUTH_REQUIRED_PATTERNS):
+        return OperatorIssueKind.AUTH_REQUIRED
+    if any(pattern in lowered for pattern in INTERACTIVE_PROMPT_PATTERNS):
+        return OperatorIssueKind.INTERACTIVE_PROMPT
+    return None
+
+
+def operator_issue_message(kind: OperatorIssueKind) -> str:
+    if kind == OperatorIssueKind.PROVIDER_LIMIT:
+        return "The selected AI hit a usage limit before it could finish."
+    if kind == OperatorIssueKind.AUTH_REQUIRED:
+        return "The selected AI needs sign-in or authentication before it can continue."
+    if kind == OperatorIssueKind.INTERACTIVE_PROMPT:
+        return "The selected AI is waiting for interactive input and needs operator attention."
+    if kind == OperatorIssueKind.RUNTIME_TIMEOUT:
+        return "The selected AI timed out before it returned a result."
+    return "The selected AI needs operator attention before this job can continue."
+
+
+def build_operator_resume_hint(
+    kind: OperatorIssueKind,
+    *,
+    runtime: RuntimeBackend,
+    title: str,
+    backend_override: Optional[RuntimeBackend] = None,
+) -> str:
+    selected_runtime_label = runtime_label(backend_override or runtime)
+    if kind == OperatorIssueKind.PROVIDER_LIMIT:
+        reason = "the previous attempt stopped because the provider usage limit was reached"
+    elif kind == OperatorIssueKind.AUTH_REQUIRED:
+        reason = "the previous attempt stopped because authentication was required"
+    elif kind == OperatorIssueKind.INTERACTIVE_PROMPT:
+        reason = "the previous attempt stopped because the CLI was waiting for interactive input"
+    else:
+        reason = "the previous attempt stopped because the CLI timed out"
+    return (
+        f"This is a retry for '{title}'. The previous attempt stopped because {reason}. "
+        f"Continue from the current workspace state using {selected_runtime_label}. "
+        "Do not restart from scratch unless the current files are unusable."
+    )
+
+
+def is_recoverable_operator_issue(exc: Exception) -> bool:
+    return isinstance(exc, AgentExecutionError)
 
 
 class BackendInterface:
@@ -1425,133 +1528,64 @@ class StructuredCliBackend(BackendInterface):
         db_path: Optional[Path] = None,
     ) -> dict:
         root = Path(workspace_root)
+        adapter = structured_runtime_adapter(self.backend)
+        schema_path: str | None = None
+        output_path: str | None = None
         if self.backend == RuntimeBackend.CODEX:
-            return self._run_codex(
-                prompt,
-                schema,
-                root,
-                agent_run_id=agent_run_id,
-                db_path=db_path,
-            )
-        if self.backend == RuntimeBackend.CLAUDE:
-            return self._run_claude(
-                prompt,
-                schema,
-                root,
-                agent_run_id=agent_run_id,
-                db_path=db_path,
-            )
-        raise RuntimeError(f"Unsupported backend: {self.backend.value}")
-
-    def _run_codex(
-        self,
-        prompt: str,
-        schema: dict,
-        workspace_root: Path,
-        *,
-        agent_run_id: Optional[str] = None,
-        db_path: Optional[Path] = None,
-    ) -> dict:
-        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as schema_file:
-            json.dump(schema, schema_file)
-            schema_path = schema_file.name
-        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as output_file:
-            output_path = output_file.name
+            with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as schema_file:
+                json.dump(schema, schema_file)
+                schema_path = schema_file.name
+            with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as output_file:
+                output_path = output_file.name
         try:
-            command = [
-                "codex",
-                "exec",
-                "--skip-git-repo-check",
-                "--output-schema",
+            command = adapter.command_builder(
+                prompt,
+                schema,
+                self.model,
+                self.approval_mode,
                 schema_path,
-                "--output-last-message",
                 output_path,
-            ]
-            if self.model:
-                command.extend(["--model", self.model])
-            if self.approval_mode == ApprovalMode.AUTO:
-                command.append("--dangerously-bypass-approvals-and-sandbox")
-            else:
-                command.append("--full-auto")
-            command.append(prompt)
+            )
             env = self._build_runtime_env()
             if agent_run_id and db_path:
                 append_agent_run_log(
                     db_path,
                     agent_run_id,
-                    format_agent_log_line(
-                        f"$ {' '.join(command[:-1])} <prompt>",
-                    ),
+                    format_agent_log_line(f"$ {' '.join(command[:-1])} <prompt>"),
                 )
             returncode, stdout_text, stderr_text = self._run_streaming_process(
                 command,
-                workspace_root,
+                root,
                 env,
                 agent_run_id=agent_run_id,
                 db_path=db_path,
             )
             if returncode != 0:
-                raise RuntimeError(
-                    stderr_text.strip() or stdout_text.strip() or "codex exec failed"
+                detail = (
+                    stderr_text.strip()
+                    or stdout_text.strip()
+                    or f"{adapter.label} structured run failed"
                 )
-            return json.loads(Path(output_path).read_text())
+                issue_kind = classify_agent_failure_kind(detail)
+                if issue_kind is not None:
+                    raise AgentExecutionError(
+                        issue_kind,
+                        operator_issue_message(issue_kind),
+                        detail=detail,
+                    )
+                raise RuntimeError(detail)
+            return adapter.output_loader(stdout_text, output_path)
         except subprocess.TimeoutExpired as exc:
-            raise RuntimeError(
-                f"codex timed out after {self.timeout_seconds}s while waiting for a structured response."
+            raise AgentExecutionError(
+                OperatorIssueKind.RUNTIME_TIMEOUT,
+                operator_issue_message(OperatorIssueKind.RUNTIME_TIMEOUT),
+                detail=adapter.timeout_builder(self.timeout_seconds),
             ) from exc
         finally:
-            Path(schema_path).unlink(missing_ok=True)
-            Path(output_path).unlink(missing_ok=True)
-
-    def _run_claude(
-        self,
-        prompt: str,
-        schema: dict,
-        workspace_root: Path,
-        *,
-        agent_run_id: Optional[str] = None,
-        db_path: Optional[Path] = None,
-    ) -> dict:
-        command = [
-            "claude",
-            "-p",
-            "--json-schema",
-            json.dumps(schema, sort_keys=True),
-        ]
-        if self.model:
-            command.extend(["--model", self.model])
-        if self.approval_mode == ApprovalMode.AUTO:
-            command.append("--dangerously-skip-permissions")
-        else:
-            command.extend(["--permission-mode", "default"])
-        command.append(prompt)
-        env = self._build_runtime_env()
-
-        try:
-            if agent_run_id and db_path:
-                append_agent_run_log(
-                    db_path,
-                    agent_run_id,
-                    format_agent_log_line(
-                        f"$ {' '.join(command[:-1])} <prompt>",
-                    ),
-                )
-            returncode, stdout_text, stderr_text = self._run_streaming_process(
-                command,
-                workspace_root,
-                env,
-                agent_run_id=agent_run_id,
-                db_path=db_path,
-            )
-            if returncode != 0:
-                raise RuntimeError(
-                    stderr_text.strip() or stdout_text.strip() or "claude print failed"
-                )
-            return json.loads(stdout_text)
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeError(
-                f"claude timed out after {self.timeout_seconds}s while waiting for a structured response."
-            ) from exc
+            if schema_path:
+                Path(schema_path).unlink(missing_ok=True)
+            if output_path:
+                Path(output_path).unlink(missing_ok=True)
 
     def _run_streaming_process(
         self,
@@ -1968,6 +2002,7 @@ def create_task_records(
                 "plan_order": offset,
                 "input_payload": json.dumps(payload, sort_keys=True),
                 "assigned_run_id": None,
+                "operator_issue_kind": None,
             }
             if existing_task.state != TaskState.DONE or rerun_completed_gate:
                 update_fields.update(
@@ -2032,6 +2067,7 @@ def create_task_records(
                 state=TaskState.CANCELED.value,
                 error="Superseded by replanning.",
                 assigned_run_id=None,
+                operator_issue_kind=None,
             )
             append_event(
                 conn,
@@ -2162,9 +2198,6 @@ def submit_command(
     initialize_database(db_path)
     if workspace_root is None:
         raise ValueError("workspace_root_required")
-
-    command_id = new_id("cmd")
-    now = utc_now()
     resolved_root = normalized_workspace_root(workspace_root)
     selected_backend = backend or RuntimeBackend.INHERIT
 
@@ -2178,68 +2211,23 @@ def submit_command(
             if dependency_id not in existing_ids:
                 raise ValueError(f"Unknown dependency command: {dependency_id}")
             unique_dependencies.append(dependency_id)
-        conn.execute(
-            """
-            INSERT INTO commands (
-                id, goal, stage, workflow_mode, approval_mode, effective_mode, priority, backend, workspace_root, allow_parallel, resume_stage, final_response, failure_reason,
-                question_state, planning_attempts, run_count, replan_requested, stop_requested, version, created_at, updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                command_id,
-                goal,
-                CommandStage.QUEUED.value,
-                workflow_mode.value,
-                approval_mode.value,
-                None if workflow_mode == WorkflowMode.AUTO else workflow_mode.value,
-                priority.value,
-                selected_backend.value,
-                resolved_root,
-                int(bool(allow_parallel and not unique_dependencies)),
-                None,
-                None,
-                None,
-                "none",
-                0,
-                0,
-                0,
-                0,
-                1,
-                now,
-                now,
-            ),
-        )
-        if unique_dependencies:
-            conn.executemany(
-                """
-                INSERT INTO command_dependencies (command_id, depends_on_command_id)
-                VALUES (?, ?)
-                """,
-                [(command_id, dependency_id) for dependency_id in unique_dependencies],
-            )
-        append_event(
+        created = _insert_command_record(
             conn,
-            "command",
-            command_id,
-            "command_submitted",
-            {
-                "goal": goal,
-                "workflow_mode": workflow_mode.value,
-                "approval_mode": approval_mode.value,
-                "priority": priority.value,
-                "backend": selected_backend.value,
-                "workspace_root": resolved_root,
-                "allow_parallel": bool(allow_parallel and not unique_dependencies),
-                "depends_on_command_ids": unique_dependencies,
-            },
+            goal=goal,
+            workflow_mode=workflow_mode,
+            approval_mode=approval_mode,
+            priority=priority,
+            backend=selected_backend,
+            workspace_root=resolved_root,
+            depends_on_command_ids=unique_dependencies,
+            allow_parallel=allow_parallel,
         )
         conn.commit()
         rows = conn.execute("SELECT * FROM commands").fetchall()
         commands = [command_from_row(row) for row in rows]
         commands = attach_command_dependencies(commands, command_dependency_map(conn))
         commands = enrich_command_dependency_state(commands)
-        return next(command for command in commands if command.id == command_id)
+        return next(command for command in commands if command.id == created.id)
 
 
 def create_instruction_record(conn, command_id: str, body: str) -> InstructionRecord:
@@ -2347,6 +2335,42 @@ def append_instruction(
                     "instruction_id": instruction.id,
                 },
             )
+        elif command.stage == CommandStage.WAITING_OPERATOR:
+            update_command(
+                conn,
+                command.id,
+                stage=CommandStage.REPLANNING.value,
+                question_state="none",
+                replan_requested=0,
+                final_response=None,
+                failure_reason=None,
+                **clear_operator_issue_fields(),
+            )
+            conn.execute(
+                """
+                UPDATE tasks
+                SET state = ?, error = ?, operator_issue_kind = NULL, assigned_run_id = NULL, updated_at = ?
+                WHERE command_id = ? AND state = ? AND operator_issue_kind IS NOT NULL
+                """,
+                (
+                    TaskState.CANCELED.value,
+                    "Superseded by appended instruction.",
+                    utc_now(),
+                    command.id,
+                    TaskState.BLOCKED.value,
+                ),
+            )
+            append_event(
+                conn,
+                "command",
+                command.id,
+                "replanning_requested",
+                {
+                    "source": "instruction_append",
+                    "mode": "supersede_operator_issue",
+                    "instruction_id": instruction.id,
+                },
+            )
         elif command.stage in {CommandStage.RUNNING, CommandStage.VERIFYING}:
             update_command(
                 conn,
@@ -2354,6 +2378,7 @@ def append_instruction(
                 replan_requested=1,
                 final_response=None,
                 failure_reason=None,
+                **clear_operator_issue_fields(),
             )
             append_event(
                 conn,
@@ -2375,6 +2400,7 @@ def append_instruction(
                 replan_requested=0,
                 final_response=None,
                 failure_reason=None,
+                **clear_operator_issue_fields(),
             )
             append_event(
                 conn,
@@ -2437,6 +2463,7 @@ def request_command_stop(db_path: Path, command_id: str) -> CommandRecord:
             CommandStage.QUEUED,
             CommandStage.WAITING_QUESTION,
             CommandStage.WAITING_APPROVAL,
+            CommandStage.WAITING_OPERATOR,
         }:
             paused = pause_command_record(conn, command, note="paused by operator")
             conn.commit()
@@ -2513,6 +2540,282 @@ def ignore_command_dependencies(db_path: Path, command_id: str) -> CommandRecord
         return get_command(db_path, command_id)
 
 
+def _insert_command_record(
+    conn,
+    *,
+    goal: str,
+    workflow_mode: WorkflowMode,
+    approval_mode: ApprovalMode,
+    priority: Priority,
+    backend: RuntimeBackend,
+    workspace_root: str,
+    depends_on_command_ids: Sequence[str],
+    allow_parallel: bool,
+) -> CommandRecord:
+    command_id = new_id("cmd")
+    now = utc_now()
+    conn.execute(
+        """
+        INSERT INTO commands (
+            id, goal, stage, workflow_mode, approval_mode, effective_mode, priority, backend, workspace_root, allow_parallel,
+            resume_stage, resume_hint, final_response, failure_reason, operator_issue_kind, operator_issue_detail,
+            operator_issue_agent_run_id, operator_issue_task_id, operator_issue_role_name, operator_issue_runtime,
+            operator_issue_model, question_state, planning_attempts, run_count, replan_requested, stop_requested,
+            version, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            command_id,
+            goal,
+            CommandStage.QUEUED.value,
+            workflow_mode.value,
+            approval_mode.value,
+            None if workflow_mode == WorkflowMode.AUTO else workflow_mode.value,
+            priority.value,
+            backend.value,
+            workspace_root,
+            int(bool(allow_parallel and not depends_on_command_ids)),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "none",
+            0,
+            0,
+            0,
+            0,
+            1,
+            now,
+            now,
+        ),
+    )
+    if depends_on_command_ids:
+        conn.executemany(
+            """
+            INSERT INTO command_dependencies (command_id, depends_on_command_id)
+            VALUES (?, ?)
+            """,
+            [(command_id, dependency_id) for dependency_id in depends_on_command_ids],
+        )
+    append_event(
+        conn,
+        "command",
+        command_id,
+        "command_submitted",
+        {
+            "goal": goal,
+            "workflow_mode": workflow_mode.value,
+            "approval_mode": approval_mode.value,
+            "priority": priority.value,
+            "backend": backend.value,
+            "workspace_root": workspace_root,
+            "allow_parallel": bool(allow_parallel and not depends_on_command_ids),
+            "depends_on_command_ids": list(depends_on_command_ids),
+        },
+    )
+    row = conn.execute("SELECT * FROM commands WHERE id = ?", (command_id,)).fetchone()
+    return command_from_row(row)
+
+
+def retry_operator_issue(
+    db_path: Path,
+    command_id: str,
+    *,
+    backend_override: Optional[RuntimeBackend] = None,
+) -> CommandRecord:
+    initialize_database(db_path)
+    with connect(db_path) as conn:
+        row = conn.execute("SELECT * FROM commands WHERE id = ?", (command_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"Unknown command: {command_id}")
+        command = command_from_row(row)
+        if command.stage != CommandStage.WAITING_OPERATOR:
+            raise ValueError(f"Command is not waiting for operator action: {command_id}")
+        if command.operator_issue_kind is None:
+            raise ValueError(f"No recoverable operator issue is recorded for: {command_id}")
+
+        target_backend = backend_override or command.backend
+        role_name = command.operator_issue_role_name or "agent"
+        issue_kind = command.operator_issue_kind
+        if command.operator_issue_task_id:
+            conn.execute(
+                """
+                UPDATE tasks
+                SET state = ?, error = NULL, operator_issue_kind = NULL, assigned_run_id = NULL, updated_at = ?
+                WHERE command_id = ? AND state = ? AND operator_issue_kind IS NOT NULL
+                """,
+                (
+                    TaskState.PENDING.value,
+                    utc_now(),
+                    command_id,
+                    TaskState.BLOCKED.value,
+                ),
+            )
+
+        next_stage = command.resume_stage or CommandStage.RUNNING
+        unresolved_question = conn.execute(
+            """
+            SELECT 1 FROM questions
+            WHERE command_id = ? AND state IN (?, ?)
+            LIMIT 1
+            """,
+            (
+                command_id,
+                QuestionState.OPEN.value,
+                QuestionState.ANSWERED.value,
+            ),
+        ).fetchone()
+        if unresolved_question is not None:
+            next_stage = CommandStage.WAITING_QUESTION
+
+        cleared_fields = clear_operator_issue_fields()
+        cleared_fields["resume_hint"] = build_operator_resume_hint(
+            issue_kind,
+            runtime=command.operator_issue_runtime or command.backend,
+            title=command.goal,
+            backend_override=backend_override,
+        )
+        update_command(
+            conn,
+            command.id,
+            stage=next_stage.value,
+            resume_stage=None,
+            backend=target_backend.value,
+            failure_reason=None,
+            **cleared_fields,
+        )
+        append_event(
+            conn,
+            "command",
+            command.id,
+            "operator_issue_retry_requested",
+            {
+                "kind": issue_kind.value,
+                "role_name": role_name,
+                "backend": target_backend.value,
+                "switched_backend": backend_override is not None,
+            },
+        )
+        conn.commit()
+        return get_command(db_path, command_id)
+
+
+def cancel_command_with_repair(
+    db_path: Path,
+    command_id: str,
+    *,
+    repair_goal: str,
+    settings: Optional[AppConfig] = None,
+    repo_root: Optional[Path] = None,
+) -> tuple[CommandRecord, CommandRecord]:
+    settings = resolve_settings(settings=settings, repo_root=repo_root)
+    initialize_database(db_path)
+    repair_goal = repair_goal.strip()
+    if not repair_goal:
+        raise ValueError("repair_goal_required")
+    with connect(db_path) as conn:
+        row = conn.execute("SELECT * FROM commands WHERE id = ?", (command_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"Unknown command: {command_id}")
+        command = command_from_row(row)
+        if command.stage in {CommandStage.DONE, CommandStage.FAILED, CommandStage.CANCELED}:
+            raise ValueError(f"Cannot repair a terminal command: {command_id}")
+
+        conn.execute(
+            """
+            UPDATE tasks
+            SET state = ?, error = COALESCE(error, ?), updated_at = ?
+            WHERE command_id = ? AND state IN (?, ?, ?)
+            """,
+            (
+                TaskState.CANCELED.value,
+                "Canceled after interruption. Repair job created.",
+                utc_now(),
+                command_id,
+                TaskState.PENDING.value,
+                TaskState.RUNNING.value,
+                TaskState.BLOCKED.value,
+            ),
+        )
+        conn.execute(
+            """
+            UPDATE questions
+            SET state = ?, updated_at = ?
+            WHERE command_id = ? AND state IN (?, ?)
+            """,
+            (
+                QuestionState.RESOLVED.value,
+                utc_now(),
+                command_id,
+                QuestionState.OPEN.value,
+                QuestionState.ANSWERED.value,
+            ),
+        )
+        conn.execute(
+            """
+            UPDATE agent_runs
+            SET state = ?, error = COALESCE(error, ?), finished_at = COALESCE(finished_at, ?), updated_at = ?
+            WHERE command_id = ? AND state IN (?, ?, ?)
+            """,
+            (
+                AgentRunState.DENIED.value,
+                "Canceled after interruption. Repair job created.",
+                utc_now(),
+                utc_now(),
+                command_id,
+                AgentRunState.PENDING_APPROVAL.value,
+                AgentRunState.APPROVED.value,
+                AgentRunState.RUNNING.value,
+            ),
+        )
+        update_command(
+            conn,
+            command_id,
+            stage=CommandStage.CANCELED.value,
+            resume_stage=None,
+            stop_requested=0,
+            final_response=None,
+            failure_reason="Canceled after interruption. Repair job created.",
+            **clear_operator_issue_fields(),
+        )
+        append_event(
+            conn,
+            "command",
+            command_id,
+            "command_canceled",
+            {"reason": "Canceled after interruption. Repair job created."},
+        )
+
+        repair_command = _insert_command_record(
+            conn,
+            goal=repair_goal,
+            workflow_mode=WorkflowMode.IMPLEMENTATION,
+            approval_mode=command.approval_mode,
+            priority=Priority.HIGH,
+            backend=command.backend,
+            workspace_root=command.workspace_root,
+            depends_on_command_ids=[],
+            allow_parallel=False,
+        )
+        append_event(
+            conn,
+            "command",
+            repair_command.id,
+            "repair_job_created",
+            {"source_command_id": command.id},
+        )
+        conn.commit()
+        return get_command(db_path, command_id), get_command(db_path, repair_command.id)
+
+
 def cancel_command(db_path: Path, command_id: str, reason: Optional[str] = None) -> CommandRecord:
     initialize_database(db_path)
     with connect(db_path) as conn:
@@ -2577,6 +2880,7 @@ def cancel_command(db_path: Path, command_id: str, reason: Optional[str] = None)
             stop_requested=0,
             final_response=None,
             failure_reason=reason or "Canceled by operator.",
+            **clear_operator_issue_fields(),
         )
         append_event(
             conn,
@@ -2597,6 +2901,66 @@ def get_command(db_path: Path, command_id: str) -> Optional[CommandRecord]:
         commands = attach_command_dependencies(commands, command_dependency_map(conn))
         commands = enrich_command_dependency_state(commands)
         return next((command for command in commands if command.id == command_id), None)
+
+
+def clear_operator_issue_fields() -> dict[str, object]:
+    return {
+        "operator_issue_kind": None,
+        "operator_issue_detail": None,
+        "operator_issue_agent_run_id": None,
+        "operator_issue_task_id": None,
+        "operator_issue_role_name": None,
+        "operator_issue_runtime": None,
+        "operator_issue_model": None,
+        "resume_hint": None,
+    }
+
+
+def set_command_operator_issue(
+    conn,
+    command: CommandRecord,
+    *,
+    issue: AgentExecutionError,
+    agent_run: AgentRunRecord,
+    task_id: Optional[str] = None,
+    **extra_fields,
+) -> CommandRecord:
+    update_command(
+        conn,
+        command.id,
+        stage=CommandStage.WAITING_OPERATOR.value,
+        resume_stage=agent_run.resume_stage.value,
+        question_state="none",
+        final_response=None,
+        failure_reason=None,
+        operator_issue_kind=issue.kind.value,
+        operator_issue_detail=issue.detail,
+        operator_issue_agent_run_id=agent_run.id,
+        operator_issue_task_id=task_id,
+        operator_issue_role_name=agent_run.role_name,
+        operator_issue_runtime=agent_run.runtime.value,
+        operator_issue_model=agent_run.model,
+        resume_hint=None,
+        **extra_fields,
+    )
+    append_event(
+        conn,
+        "command",
+        command.id,
+        "operator_attention_required",
+        {
+            "kind": issue.kind.value,
+            "agent_run_id": agent_run.id,
+            "task_id": task_id,
+            "role_name": agent_run.role_name,
+            "runtime": agent_run.runtime.value,
+            "model": agent_run.model,
+            "resume_stage": agent_run.resume_stage.value,
+            "detail": issue.detail,
+        },
+    )
+    row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
+    return command_from_row(row)
 
 
 def list_commands(db_path: Path) -> List[CommandRecord]:
@@ -2743,6 +3107,8 @@ def command_is_blocked_by_operator(command: CommandRecord, conn) -> bool:
     if command.stage == CommandStage.WAITING_APPROVAL and not approved_agent_run_ready(
         conn, command.id
     ):
+        return True
+    if command.stage == CommandStage.WAITING_OPERATOR:
         return True
     return False
 
@@ -3036,6 +3402,34 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
             agent_run_id=agent_run.id,
             db_path=settings.db_path,
         )
+    except AgentExecutionError as exc:
+        mark_agent_run_finished(
+            conn,
+            agent_run.id,
+            state=AgentRunState.FAILED,
+            error=exc.detail,
+        )
+        waiting = set_command_operator_issue(
+            conn,
+            command,
+            issue=exc,
+            agent_run=agent_run,
+            run_count=command.run_count + 1,
+            planning_attempts=command.planning_attempts + 1,
+            replan_requested=0,
+        )
+        append_event(
+            conn,
+            "command",
+            command.id,
+            "planning_interrupted",
+            {"kind": exc.kind.value, "agent_run_id": agent_run.id},
+        )
+        return TickOutcome(
+            action="operator_attention_required",
+            command=waiting,
+            note=exc.detail,
+        )
     except Exception as exc:
         mark_agent_run_finished(
             conn,
@@ -3098,6 +3492,7 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
             failure_reason=None,
             replan_requested=0,
             effective_mode=resolved_mode.value,
+            resume_hint=None,
         )
         append_event(
             conn,
@@ -3136,6 +3531,7 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
             planning_attempts=next_planning_attempts,
             replan_requested=0,
             effective_mode=resolved_mode.value,
+            resume_hint=None,
         )
         append_event(
             conn,
@@ -3167,6 +3563,7 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
                 failure_reason=None,
                 replan_requested=0,
                 effective_mode=resolved_mode.value,
+                resume_hint=None,
             )
             append_event(
                 conn,
@@ -3198,6 +3595,7 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
                 failure_reason=None,
                 replan_requested=0,
                 effective_mode=resolved_mode.value,
+                resume_hint=None,
             )
             append_event(
                 conn,
@@ -3230,6 +3628,7 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
             failure_reason=None,
             replan_requested=0,
             effective_mode=resolved_mode.value,
+            resume_hint=None,
         )
         append_event(
             conn,
@@ -3386,8 +3785,8 @@ def execute_task_batch(
     reviews: List[ReviewRecord],
     instructions: List[InstructionRecord],
     settings: AppConfig,
-) -> Dict[str, Tuple[Optional[WorkerOutput], Optional[str]]]:
-    def run_single(task: TaskRecord) -> Tuple[str, Optional[WorkerOutput], Optional[str]]:
+) -> Dict[str, Tuple[Optional[WorkerOutput], Optional[Exception]]]:
+    def run_single(task: TaskRecord) -> Tuple[str, Optional[WorkerOutput], Optional[Exception]]:
         backend = backend_for(command, settings, task.capability)
         try:
             output = backend.execute_task(
@@ -3402,9 +3801,9 @@ def execute_task_batch(
             )
             return task.id, output, None
         except Exception as exc:
-            return task.id, None, str(exc)
+            return task.id, None, exc
 
-    results: Dict[str, Tuple[Optional[WorkerOutput], Optional[str]]] = {}
+    results: Dict[str, Tuple[Optional[WorkerOutput], Optional[Exception]]] = {}
     with ThreadPoolExecutor(max_workers=len(batch)) as executor:
         futures = [executor.submit(run_single, task) for task in batch]
         for future in as_completed(futures):
@@ -3551,6 +3950,7 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
             state=TaskState.RUNNING.value,
             attempt_count=task.attempt_count + 1,
             assigned_run_id=agent_run.id,
+            operator_issue_kind=None,
         )
         append_event(conn, "task", task.id, "task_started", {"command_id": command.id})
 
@@ -3575,22 +3975,62 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
     updated_tasks: List[TaskRecord] = []
     created_questions: List[QuestionRecord] = []
     failed_any = False
+    operator_issues: List[Tuple[TaskRecord, AgentRunRecord, AgentExecutionError]] = []
     for task in active_batch:
         output, error = results[task.id]
         agent_run = agent_run_map[task.id]
         if error is not None:
-            update_task(
-                conn,
-                task.id,
-                state=TaskState.FAILED.value,
-                error=error,
-                output_payload=json.dumps({"error": error}, sort_keys=True),
-            )
-            mark_agent_run_finished(conn, agent_run.id, state=AgentRunState.FAILED, error=error)
-            append_event(
-                conn, "task", task.id, "task_failed", {"command_id": command.id, "error": error}
-            )
-            failed_any = True
+            if isinstance(error, AgentExecutionError):
+                update_task(
+                    conn,
+                    task.id,
+                    state=TaskState.BLOCKED.value,
+                    error=error.detail,
+                    operator_issue_kind=error.kind.value,
+                    output_payload=None,
+                )
+                mark_agent_run_finished(
+                    conn,
+                    agent_run.id,
+                    state=AgentRunState.FAILED,
+                    error=error.detail,
+                )
+                append_event(
+                    conn,
+                    "task",
+                    task.id,
+                    "task_interrupted",
+                    {
+                        "command_id": command.id,
+                        "kind": error.kind.value,
+                        "detail": error.detail,
+                    },
+                )
+                operator_issues.append((task, agent_run, error))
+            else:
+                failure_text = str(error)
+                update_task(
+                    conn,
+                    task.id,
+                    state=TaskState.FAILED.value,
+                    error=failure_text,
+                    operator_issue_kind=None,
+                    output_payload=json.dumps({"error": failure_text}, sort_keys=True),
+                )
+                mark_agent_run_finished(
+                    conn,
+                    agent_run.id,
+                    state=AgentRunState.FAILED,
+                    error=failure_text,
+                )
+                append_event(
+                    conn,
+                    "task",
+                    task.id,
+                    "task_failed",
+                    {"command_id": command.id, "error": failure_text},
+                )
+                failed_any = True
         elif output and output.decision == WorkerDecision.COMPLETE:
             result_payload = dict(output.result)
             if output.summary:
@@ -3601,6 +4041,7 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
                 state=TaskState.DONE.value,
                 output_payload=json.dumps(result_payload, sort_keys=True),
                 error=None,
+                operator_issue_kind=None,
             )
             mark_agent_run_finished(
                 conn,
@@ -3627,7 +4068,13 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
                 if resolution_mode == QuestionResolutionMode.RESUME_TASK
                 else TaskState.CANCELED
             )
-            update_task(conn, task.id, state=task_state.value, error=None)
+            update_task(
+                conn,
+                task.id,
+                state=task_state.value,
+                error=None,
+                operator_issue_kind=None,
+            )
             mark_agent_run_finished(
                 conn,
                 agent_run.id,
@@ -3658,6 +4105,7 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
                 task.id,
                 state=TaskState.FAILED.value,
                 error=failure_reason,
+                operator_issue_kind=None,
                 output_payload=json.dumps({"error": failure_reason}, sort_keys=True),
             )
             mark_agent_run_finished(
@@ -3685,7 +4133,9 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
 
     next_stage = CommandStage.RUNNING
     question_state = "none"
-    if created_questions:
+    if operator_issues:
+        next_stage = CommandStage.WAITING_OPERATOR
+    elif created_questions:
         next_stage = CommandStage.WAITING_QUESTION
         question_state = QuestionState.OPEN.value
     elif failed_any:
@@ -3712,16 +4162,34 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
             list_tasks_for_command(conn, command.id),
             [],
         )
-    update_command(
-        conn,
-        command.id,
-        stage=next_stage.value,
-        question_state=question_state,
-        run_count=command.run_count + len(active_batch),
-        failure_reason=None,
-        final_response=final_response,
-    )
-    if next_stage == CommandStage.REPLANNING:
+    if next_stage == CommandStage.WAITING_OPERATOR:
+        blocked_task, blocked_run, blocked_issue = operator_issues[0]
+        updated_command = set_command_operator_issue(
+            conn,
+            command,
+            issue=blocked_issue,
+            agent_run=blocked_run,
+            task_id=blocked_task.id,
+            run_count=command.run_count + len(active_batch),
+        )
+        if created_questions:
+            update_command(conn, command.id, question_state=QuestionState.OPEN.value)
+        action = "operator_attention_required"
+    else:
+        update_command(
+            conn,
+            command.id,
+            stage=next_stage.value,
+            question_state=question_state,
+            run_count=command.run_count + len(active_batch),
+            failure_reason=None,
+            final_response=final_response,
+            resume_hint=None,
+        )
+        updated_command = None
+    if next_stage == CommandStage.WAITING_OPERATOR:
+        action = "operator_attention_required"
+    elif next_stage == CommandStage.REPLANNING:
         append_event(
             conn,
             "command",
@@ -3756,7 +4224,7 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
     command_row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
     return TickOutcome(
         action=action,
-        command=command_from_row(command_row),
+        command=updated_command or command_from_row(command_row),
         task=updated_tasks[0] if updated_tasks else None,
         tasks=updated_tasks,
         question=created_questions[0] if created_questions else None,
@@ -3773,11 +4241,11 @@ def run_review_batch(
     settings: AppConfig,
     slots: Optional[List[int]] = None,
     agent_run_ids: Optional[Dict[int, str]] = None,
-) -> List[Tuple[int, ReviewerOutput]]:
+) -> List[Tuple[int, Optional[ReviewerOutput], Optional[Exception]]]:
     reviewer_count = settings.role_for("reviewer").count
     active_slots = slots or list(range(1, reviewer_count + 1))
 
-    def run_single(slot: int) -> Tuple[int, ReviewerOutput]:
+    def run_single(slot: int) -> Tuple[int, Optional[ReviewerOutput], Optional[Exception]]:
         backend = backend_for(command, settings, "reviewer")
         try:
             output = backend.review(
@@ -3790,16 +4258,11 @@ def run_review_batch(
                 agent_run_id=agent_run_ids.get(slot) if agent_run_ids else None,
                 db_path=settings.db_path,
             )
-            return slot, output
+            return slot, output, None
         except Exception as exc:
-            return slot, ReviewerOutput(
-                decision=ReviewDecision.FAIL,
-                summary=f"Reviewer {slot} failed.",
-                findings=[],
-                failure_reason=str(exc),
-            )
+            return slot, None, exc
 
-    outputs: List[Tuple[int, ReviewerOutput]] = []
+    outputs: List[Tuple[int, Optional[ReviewerOutput], Optional[Exception]]] = []
     with ThreadPoolExecutor(max_workers=max(len(active_slots), 1)) as executor:
         futures = [executor.submit(run_single, slot) for slot in active_slots]
         for future in as_completed(futures):
@@ -3881,21 +4344,46 @@ def reduce_verifying(conn, command: CommandRecord, settings: AppConfig) -> TickO
         slots=list(slot_run_map.keys()),
         agent_run_ids={slot: run.id for slot, run in slot_run_map.items()},
     )
+    recoverable_review_issues: List[Tuple[int, AgentRunRecord, AgentExecutionError]] = []
 
     reviewer_kind = (
         command.backend.value
         if command.backend != RuntimeBackend.INHERIT
         else settings.role_for("reviewer").runtime.value
     )
+    review_outputs: List[Tuple[int, ReviewerOutput]] = []
+    for slot, output, error in outputs:
+        if isinstance(error, AgentExecutionError):
+            recoverable_review_issues.append((slot, slot_run_map[slot], error))
+            continue
+        if error is not None:
+            output = ReviewerOutput(
+                decision=ReviewDecision.FAIL,
+                summary=f"Reviewer {slot} failed.",
+                findings=[],
+                failure_reason=str(error),
+            )
+        assert output is not None
+        review_outputs.append((slot, output))
+
     created_reviews = [
         create_review_record(conn, command, output, reviewer_slot=slot, reviewer_kind=reviewer_kind)
-        for slot, output in outputs
+        for slot, output in review_outputs
     ]
     next_run_count = command.run_count + len(outputs)
 
     review_map = {review.reviewer_slot: review for review in created_reviews}
-    for slot, output in outputs:
+    for slot, output, error in outputs:
         agent_run = slot_run_map[slot]
+        if isinstance(error, AgentExecutionError):
+            mark_agent_run_finished(
+                conn,
+                agent_run.id,
+                state=AgentRunState.FAILED,
+                error=error.detail,
+            )
+            continue
+        assert output is not None
         if output.decision == ReviewDecision.FAIL:
             mark_agent_run_finished(
                 conn,
@@ -3910,6 +4398,28 @@ def reduce_verifying(conn, command: CommandRecord, settings: AppConfig) -> TickO
                 state=AgentRunState.COMPLETED,
                 output_summary=review_map[slot].summary,
             )
+
+    if recoverable_review_issues:
+        _, blocked_run, blocked_issue = recoverable_review_issues[0]
+        waiting = set_command_operator_issue(
+            conn,
+            command,
+            issue=blocked_issue,
+            agent_run=blocked_run,
+            run_count=next_run_count,
+        )
+        append_event(
+            conn,
+            "command",
+            command.id,
+            "review_interrupted",
+            {"kind": blocked_issue.kind.value, "agent_run_id": blocked_run.id},
+        )
+        return TickOutcome(
+            action="operator_attention_required",
+            command=waiting,
+            note=blocked_issue.detail,
+        )
 
     if any(review.decision == ReviewDecision.FAIL for review in created_reviews):
         failure_reason = next(
@@ -3926,6 +4436,7 @@ def reduce_verifying(conn, command: CommandRecord, settings: AppConfig) -> TickO
             stage=CommandStage.FAILED.value,
             run_count=next_run_count,
             failure_reason=failure_reason,
+            resume_hint=None,
         )
         append_event(
             conn,
@@ -3949,6 +4460,7 @@ def reduce_verifying(conn, command: CommandRecord, settings: AppConfig) -> TickO
             stage=CommandStage.REPLANNING.value,
             run_count=next_run_count,
             failure_reason=None,
+            resume_hint=None,
         )
         append_event(
             conn,
@@ -3974,6 +4486,7 @@ def reduce_verifying(conn, command: CommandRecord, settings: AppConfig) -> TickO
         final_response=final_response,
         run_count=next_run_count,
         failure_reason=None,
+        resume_hint=None,
     )
     append_event(
         conn,
@@ -4031,6 +4544,12 @@ def tick_once(
                 action="blocked",
                 command=command,
                 note="waiting for operator approval",
+            )
+        elif command.stage == CommandStage.WAITING_OPERATOR:
+            outcome = TickOutcome(
+                action="blocked",
+                command=command,
+                note="waiting for operator action",
             )
         elif command.stage == CommandStage.WAITING_QUESTION:
             outcome = reduce_waiting_question(conn, command)

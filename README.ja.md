@@ -1,8 +1,7 @@
 # Wevra
 
-Wevra は、構造化された AI 作業をローカルで回す workflow engine です。
+Wevra は、AI ジョブのオーケストレーションエンジンです。
 
-ジョブを受け取り、必要な作業に分解し、適切な mode で進め、ユーザー確認が必要なときは止まり、長寿命の AI チャットに依存せずに engine 側でフローを管理します。
 1 度ジョブを投入すれば、計画、実装、テスト、最終レビューまで一貫して進められます。
 
 Wevra では、ジョブを次の実行モードで回せます。
@@ -15,7 +14,7 @@ Wevra では、ジョブを次の実行モードで回せます。
 | `review` | レビューに必要な文脈を集めたうえで、最終レビューパスまで進めます。 |
 | `planning` | 実装には進まず、計画、設計方針、タスク分解を分けた最終結果として返します。 |
 
-![日本語ダッシュボードのスクリーンショット](docs/images/dashboard-ja.png)
+![日本語ダッシュボードの操作デモ](docs/images/dashboard-flow-ja-live.gif)
 
 ## 初回セットアップ
 
@@ -53,7 +52,7 @@ dashboard では次の操作ができます。
 
 - 新しいジョブを作り、実行モード、承認方式、使う AI、作業ディレクトリ、必要なら依存ジョブを設定する
 - 進行状況、タスク、レビュー、エージェントの実行ログ、結果をリアルタイムで見る
-- 作業が止まったときに質問へ回答し、エージェント実行を許可または拒否する
+- 作業が止まったときに質問へ回答し、エージェント実行を許可または拒否し、中断した AI 実行を再開または修復する
 - 実行中のジョブを安全な区切りで一時停止し、あとで再開する
 - workspace が重ならない独立ジョブだけ並列で進める
 - 進行中のジョブに追加指示を送る
@@ -101,6 +100,14 @@ dashboard では次の操作ができます。
 ./wevra approve-agent-run <agent-run-id>
 ./wevra approve-agent-runs <command-id> --role implementer
 ./wevra deny-agent-run <agent-run-id> "このジョブでは外部実行を許可しない"
+```
+
+中断した AI 実行を再開または修復する例:
+
+```bash
+./wevra retry-operator-issue <command-id>
+./wevra retry-operator-issue <command-id> --backend claude
+./wevra cancel-with-repair <command-id> "中断したジョブの変更を元に戻す: planner rollout"
 ```
 
 ## 実行フロー
@@ -189,4 +196,4 @@ role ごとに、どの実行先と model を使うかを設定します。
 ./.venv/bin/pytest -q
 ```
 
-dashboard の UI を変更したときは、PR を出す前に `docs/images/dashboard-en.png` と `docs/images/dashboard-ja.png` も更新してください。
+dashboard の UI を変更したときは、PR を出す前に `docs/images/dashboard-flow-en-live.gif` と `docs/images/dashboard-flow-ja-live.gif` も更新してください。

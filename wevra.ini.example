@@ -4,6 +4,9 @@ language = en
 agent_timeout_seconds = 1800
 home =
 
+[testing]
+command =
+
 [ui]
 auto_start = true
 port = 43861

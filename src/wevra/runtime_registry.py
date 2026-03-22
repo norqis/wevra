@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +16,43 @@ class StructuredRuntimeAdapter:
     command_builder: Callable[[str, dict, str, ApprovalMode, str | None, str | None], List[str]]
     output_loader: Callable[[str, str | None], dict]
     timeout_builder: Callable[[int], str]
+    schema_preparer: Callable[[dict], dict]
+
+
+def _identity_schema(schema: dict) -> dict:
+    return copy.deepcopy(schema)
+
+
+def _prepare_openai_strict_schema(schema: dict) -> dict:
+    def transform(node):
+        if isinstance(node, dict):
+            cleaned = {}
+            for key, value in node.items():
+                if key == "properties" and isinstance(value, dict):
+                    cleaned["properties"] = {
+                        property_name: transform(property_schema)
+                        for property_name, property_schema in value.items()
+                    }
+                    continue
+                if key in {"default", "title"}:
+                    continue
+                cleaned[key] = transform(value)
+            if cleaned.get("type") == "object" or "properties" in cleaned:
+                properties = cleaned.get("properties")
+                if not isinstance(properties, dict):
+                    properties = {}
+                cleaned["properties"] = {
+                    property_name: transform(property_schema)
+                    for property_name, property_schema in properties.items()
+                }
+                cleaned["required"] = list(cleaned["properties"].keys())
+                cleaned["additionalProperties"] = False
+            return cleaned
+        if isinstance(node, list):
+            return [transform(item) for item in node]
+        return node
+
+    return transform(copy.deepcopy(schema))
 
 
 def _build_codex_command(
@@ -89,6 +127,7 @@ STRUCTURED_RUNTIME_ADAPTERS: Dict[RuntimeBackend, StructuredRuntimeAdapter] = {
         timeout_builder=lambda seconds: (
             f"Codex timed out after {seconds}s while waiting for a structured response."
         ),
+        schema_preparer=_prepare_openai_strict_schema,
     ),
     RuntimeBackend.CLAUDE: StructuredRuntimeAdapter(
         backend=RuntimeBackend.CLAUDE,
@@ -98,6 +137,7 @@ STRUCTURED_RUNTIME_ADAPTERS: Dict[RuntimeBackend, StructuredRuntimeAdapter] = {
         timeout_builder=lambda seconds: (
             f"Claude Code timed out after {seconds}s while waiting for a structured response."
         ),
+        schema_preparer=_identity_schema,
     ),
 }
 

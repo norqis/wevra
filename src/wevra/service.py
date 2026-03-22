@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
+import shlex
+import shutil
+import signal
 import subprocess
 import tempfile
 import threading
@@ -10,6 +14,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
+import sys
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from wevra.config import AppConfig, load_config
@@ -123,6 +128,8 @@ INTERACTIVE_PROMPT_PATTERNS = (
     "update available",
 )
 
+RUNTIME_INTERRUPTED_DETAIL = "The AI process ended before Wevra received a final structured result."
+
 MODE_KEYWORDS = {
     WorkflowMode.RESEARCH: (
         "research",
@@ -149,6 +156,8 @@ PLANNING_SECTION_ALIASES = {
     "design_direction": {"design direction", "design", "approach", "設計方針", "設計"},
     "task_breakdown": {"task breakdown", "breakdown", "tasks", "タスク分解", "タスク"},
 }
+
+EXPLICIT_PATH_PATTERN = re.compile(r"(?<![\w./-])((?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+)")
 
 
 def utc_now() -> str:
@@ -292,6 +301,10 @@ def build_final_test_spec(dependency_keys: Sequence[str]) -> PlannerTaskSpec:
         write_files=[],
         input_payload={"system_generated": True, "gate": "final_test"},
     )
+
+
+def is_deterministic_test_gate(task: TaskRecord) -> bool:
+    return task.capability == "tester" and task.input_payload.get("gate") == "final_test"
 
 
 def append_event(conn, stream_type: str, stream_id: str, event_type: str, payload: dict) -> None:
@@ -476,9 +489,9 @@ def create_agent_run_record(
         INSERT INTO agent_runs (
             id, command_id, task_id, reviewer_slot, role_name, capability, runtime, model,
             run_kind, title, resume_stage, state, approval_required, prompt_excerpt,
-            output_summary, output_log, error, created_at, started_at, finished_at, updated_at
+            output_summary, output_log, error, process_id, created_at, started_at, finished_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             run_id,
@@ -497,6 +510,7 @@ def create_agent_run_record(
             prompt_excerpt,
             None,
             initial_log,
+            None,
             None,
             now,
             now if state == AgentRunState.RUNNING else None,
@@ -552,6 +566,117 @@ def list_agent_runs(db_path: Path, command_id: Optional[str] = None) -> List[Age
 def get_agent_run_by_id(conn, agent_run_id: str) -> Optional[AgentRunRecord]:
     row = conn.execute("SELECT * FROM agent_runs WHERE id = ?", (agent_run_id,)).fetchone()
     return agent_run_from_row(row) if row else None
+
+
+def reconcile_orphaned_agent_runs(conn) -> List[str]:
+    rows = conn.execute(
+        """
+        SELECT * FROM agent_runs
+        WHERE state = ? AND process_id IS NOT NULL
+        ORDER BY created_at ASC
+        """,
+        (AgentRunState.RUNNING.value,),
+    ).fetchall()
+    affected_commands: List[str] = []
+    for row in rows:
+        agent_run = agent_run_from_row(row)
+        if process_is_alive(agent_run.process_id):
+            continue
+        detail = RUNTIME_INTERRUPTED_DETAIL
+        issue = AgentExecutionError(
+            OperatorIssueKind.RUNTIME_INTERRUPTED,
+            operator_issue_message(OperatorIssueKind.RUNTIME_INTERRUPTED),
+            detail=detail,
+        )
+        update_agent_run(
+            conn,
+            agent_run.id,
+            state=AgentRunState.FAILED.value,
+            error=detail,
+            process_id=None,
+            finished_at=utc_now(),
+        )
+        append_agent_run_log_conn(
+            conn,
+            agent_run.id,
+            format_agent_log_line(detail, channel="error"),
+        )
+        append_event(
+            conn,
+            "agent_run",
+            agent_run.id,
+            "agent_run_interrupted",
+            {"command_id": agent_run.command_id, "detail": detail},
+        )
+        command_row = conn.execute(
+            "SELECT * FROM commands WHERE id = ?",
+            (agent_run.command_id,),
+        ).fetchone()
+        if command_row is None:
+            continue
+        command = command_from_row(command_row)
+        if command.stage in {
+            CommandStage.DONE,
+            CommandStage.FAILED,
+            CommandStage.CANCELED,
+            CommandStage.PAUSED,
+        }:
+            continue
+        if agent_run.task_id:
+            task_row = conn.execute(
+                "SELECT * FROM tasks WHERE id = ?",
+                (agent_run.task_id,),
+            ).fetchone()
+            if task_row is not None:
+                task = task_from_row(task_row)
+                if task.state == TaskState.RUNNING:
+                    update_task(
+                        conn,
+                        task.id,
+                        state=TaskState.BLOCKED.value,
+                        error=detail,
+                        operator_issue_kind=OperatorIssueKind.RUNTIME_INTERRUPTED.value,
+                        assigned_run_id=None,
+                    )
+                    append_event(
+                        conn,
+                        "task",
+                        task.id,
+                        "task_interrupted",
+                        {
+                            "command_id": command.id,
+                            "kind": OperatorIssueKind.RUNTIME_INTERRUPTED.value,
+                            "detail": detail,
+                        },
+                    )
+            updated_command = set_command_operator_issue(
+                conn,
+                command,
+                issue=issue,
+                agent_run=agent_run,
+                task_id=agent_run.task_id,
+                run_count=command.run_count,
+            )
+        else:
+            updated_command = set_command_operator_issue(
+                conn,
+                command,
+                issue=issue,
+                agent_run=agent_run,
+                run_count=command.run_count,
+            )
+        append_event(
+            conn,
+            "command",
+            updated_command.id,
+            "operator_attention_required",
+            {
+                "kind": OperatorIssueKind.RUNTIME_INTERRUPTED.value,
+                "agent_run_id": agent_run.id,
+            },
+        )
+        affected_commands.append(updated_command.id)
+    return affected_commands
 
 
 def _find_active_agent_run(
@@ -664,6 +789,7 @@ def mark_agent_run_finished(
         state=state.value,
         output_summary=output_summary,
         error=error,
+        process_id=None,
         finished_at=utc_now(),
     )
     append_event(
@@ -887,11 +1013,167 @@ def build_context_payload(
     return payload
 
 
+def build_worker_context_payload(
+    command: CommandRecord,
+    task: TaskRecord,
+    tasks: List[TaskRecord],
+    questions: List[QuestionRecord],
+    reviews: List[ReviewRecord],
+    instructions: List[InstructionRecord],
+) -> dict:
+    completed_tasks = []
+    for item in tasks:
+        if item.id == task.id or item.state != TaskState.DONE:
+            continue
+        summary = None
+        if item.output_payload:
+            summary = item.output_payload.get("summary")
+        completed_tasks.append(
+            {
+                "id": item.id,
+                "title": item.title,
+                "capability": item.capability,
+                "summary": summary,
+            }
+        )
+
+    dependency_context = []
+    dependency_ids = set(task.depends_on)
+    for item in tasks:
+        if item.id not in dependency_ids:
+            continue
+        summary = None
+        if item.output_payload:
+            summary = item.output_payload.get("summary")
+        dependency_context.append(
+            {
+                "id": item.id,
+                "title": item.title,
+                "state": item.state.value,
+                "summary": summary,
+            }
+        )
+
+    recent_reviews = [
+        {
+            "reviewer_slot": review.reviewer_slot,
+            "decision": review.decision.value,
+            "summary": review.summary,
+            "findings": review.findings,
+        }
+        for review in reviews[-3:]
+    ]
+    answered_questions = [
+        {
+            "source": question.source,
+            "question": question.question,
+            "answer": question.answer,
+        }
+        for question in questions
+        if question.state in {QuestionState.ANSWERED, QuestionState.RESOLVED}
+    ][-3:]
+    return {
+        "command": {
+            "id": command.id,
+            "goal": command.goal,
+            "workflow_mode": command.workflow_mode.value,
+            "effective_mode": command.effective_mode.value if command.effective_mode else None,
+            "workspace_root": command.workspace_root,
+        },
+        "task": task.model_dump(mode="json"),
+        "resume_hint": command.resume_hint,
+        "dependencies": dependency_context,
+        "completed_tasks": completed_tasks[-8:],
+        "answered_questions": answered_questions,
+        "recent_reviews": recent_reviews,
+        "instructions": [item.model_dump(mode="json") for item in instructions],
+    }
+
+
+def build_review_context_payload(
+    command: CommandRecord,
+    tasks: List[TaskRecord],
+    questions: List[QuestionRecord],
+    reviews: List[ReviewRecord],
+    instructions: List[InstructionRecord],
+) -> dict:
+    explicit_paths = extract_explicit_paths(command.goal)
+    completed_tasks = []
+    write_targets: List[str] = []
+    for item in tasks:
+        if item.state != TaskState.DONE:
+            continue
+        task_write_files = [
+            path
+            for path in item.input_payload.get("write_files", [])
+            if isinstance(path, str) and path.strip()
+        ]
+        for path in task_write_files:
+            if path not in write_targets:
+                write_targets.append(path)
+        summary = None
+        if item.output_payload:
+            summary = item.output_payload.get("summary")
+        completed_tasks.append(
+            {
+                "id": item.id,
+                "title": item.title,
+                "capability": item.capability,
+                "kind": item.kind,
+                "summary": summary,
+                "write_files": task_write_files,
+            }
+        )
+
+    recent_reviews = [
+        {
+            "reviewer_slot": review.reviewer_slot,
+            "decision": review.decision.value,
+            "summary": review.summary,
+            "findings": review.findings,
+        }
+        for review in reviews[-3:]
+    ]
+    answered_questions = [
+        {
+            "source": question.source,
+            "question": question.question,
+            "answer": question.answer,
+        }
+        for question in questions
+        if question.state in {QuestionState.ANSWERED, QuestionState.RESOLVED}
+    ][-3:]
+    return {
+        "command": {
+            "id": command.id,
+            "goal": command.goal,
+            "workflow_mode": command.workflow_mode.value,
+            "effective_mode": command.effective_mode.value if command.effective_mode else None,
+            "workspace_root": command.workspace_root,
+        },
+        "resume_hint": command.resume_hint,
+        "explicit_paths": explicit_paths,
+        "write_targets": write_targets[:12],
+        "completed_tasks": completed_tasks[-8:],
+        "answered_questions": answered_questions,
+        "recent_reviews": recent_reviews,
+        "instructions": [item.model_dump(mode="json") for item in instructions],
+    }
+
+
 def prompt_excerpt(prompt: str, limit: int = 240) -> str:
     compact = " ".join(prompt.strip().split())
     if len(compact) <= limit:
         return compact
     return compact[: limit - 1] + "…"
+
+
+def extract_explicit_paths(text: str) -> List[str]:
+    seen: List[str] = []
+    for match in EXPLICIT_PATH_PATTERN.findall(text or ""):
+        if match not in seen:
+            seen.append(match)
+    return seen[:6]
 
 
 class AgentExecutionError(RuntimeError):
@@ -927,6 +1209,8 @@ def operator_issue_message(kind: OperatorIssueKind) -> str:
         return "The selected AI is waiting for interactive input and needs operator attention."
     if kind == OperatorIssueKind.RUNTIME_TIMEOUT:
         return "The selected AI timed out before it returned a result."
+    if kind == OperatorIssueKind.RUNTIME_INTERRUPTED:
+        return "The selected AI stopped before it returned a final result."
     return "The selected AI needs operator attention before this job can continue."
 
 
@@ -944,6 +1228,8 @@ def build_operator_resume_hint(
         reason = "the previous attempt stopped because authentication was required"
     elif kind == OperatorIssueKind.INTERACTIVE_PROMPT:
         reason = "the previous attempt stopped because the CLI was waiting for interactive input"
+    elif kind == OperatorIssueKind.RUNTIME_INTERRUPTED:
+        reason = "the previous attempt stopped before it returned a final result"
     else:
         reason = "the previous attempt stopped because the CLI timed out"
     return (
@@ -955,6 +1241,222 @@ def build_operator_resume_hint(
 
 def is_recoverable_operator_issue(exc: Exception) -> bool:
     return isinstance(exc, AgentExecutionError)
+
+
+def process_is_alive(process_id: Optional[int]) -> bool:
+    if not process_id or process_id <= 0:
+        return False
+    proc_stat = Path(f"/proc/{process_id}/stat")
+    if proc_stat.exists():
+        try:
+            state = proc_stat.read_text(encoding="utf-8").split()[2]
+        except (IndexError, OSError):
+            return False
+        return state != "Z"
+    try:
+        os.kill(process_id, 0)
+    except OSError:
+        return False
+    return True
+
+
+def terminate_process_group(process_id: Optional[int]) -> None:
+    if not process_id or process_id <= 0:
+        return
+    try:
+        os.killpg(process_id, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    except OSError:
+        try:
+            os.kill(process_id, signal.SIGTERM)
+        except OSError:
+            return
+
+
+def build_runtime_env(runtime_home: Optional[Path]) -> dict[str, str]:
+    env = dict(os.environ)
+    if runtime_home is not None:
+        runtime_home.mkdir(parents=True, exist_ok=True)
+        env["HOME"] = str(runtime_home)
+    return env
+
+
+def run_logged_subprocess(
+    command: List[str],
+    workspace_root: Path,
+    env: dict[str, str],
+    timeout_seconds: int,
+    *,
+    agent_run_id: Optional[str] = None,
+    db_path: Optional[Path] = None,
+) -> Tuple[int, str, str]:
+    process = subprocess.Popen(
+        command,
+        cwd=str(workspace_root),
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=1,
+        start_new_session=True,
+    )
+    if agent_run_id and db_path:
+        with connect(db_path) as conn:
+            update_agent_run(conn, agent_run_id, process_id=process.pid)
+            append_agent_run_log_conn(
+                conn,
+                agent_run_id,
+                format_agent_log_line(f"pid: {process.pid}"),
+            )
+            conn.commit()
+
+    stdout_chunks: List[str] = []
+    stderr_chunks: List[str] = []
+
+    def consume(stream, target: List[str], channel: str) -> None:
+        if stream is None:
+            return
+        try:
+            for line in iter(stream.readline, ""):
+                target.append(line)
+                if agent_run_id and db_path and line:
+                    append_agent_run_log(
+                        db_path,
+                        agent_run_id,
+                        format_agent_log_line(line.rstrip("\n"), channel=channel),
+                    )
+        finally:
+            stream.close()
+
+    stdout_thread = threading.Thread(
+        target=consume,
+        args=(process.stdout, stdout_chunks, "stdout"),
+        daemon=True,
+    )
+    stderr_thread = threading.Thread(
+        target=consume,
+        args=(process.stderr, stderr_chunks, "stderr"),
+        daemon=True,
+    )
+    stdout_thread.start()
+    stderr_thread.start()
+    try:
+        returncode = process.wait(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        terminate_process_group(process.pid)
+        stdout_thread.join(timeout=1)
+        stderr_thread.join(timeout=1)
+        raise
+    stdout_thread.join(timeout=1)
+    stderr_thread.join(timeout=1)
+    return returncode, "".join(stdout_chunks), "".join(stderr_chunks)
+
+
+def detect_test_command(workspace_root: Path, configured: Optional[str]) -> Optional[List[str]]:
+    if configured:
+        return shlex.split(configured)
+
+    local_pytest = workspace_root / ".venv" / "bin" / "pytest"
+    if local_pytest.is_file():
+        return [str(local_pytest), "-q"]
+
+    interpreter_pytest = Path(sys.executable).resolve().with_name("pytest")
+    if interpreter_pytest.is_file():
+        return [str(interpreter_pytest), "-q"]
+
+    pytest_bin = shutil.which("pytest")
+    if pytest_bin:
+        return [pytest_bin, "-q"]
+
+    if importlib.util.find_spec("pytest") is not None:
+        return [sys.executable, "-m", "pytest", "-q"]
+
+    return None
+
+
+def is_pytest_command(command: Sequence[str]) -> bool:
+    if not command:
+        return False
+    joined = " ".join(command).lower()
+    return "pytest" in joined
+
+
+def execute_deterministic_test_task(
+    command: CommandRecord,
+    task: TaskRecord,
+    settings: AppConfig,
+    *,
+    agent_run_id: Optional[str] = None,
+) -> WorkerOutput:
+    workspace_root = Path(command.workspace_root)
+    test_command = detect_test_command(workspace_root, settings.test_command)
+    if not test_command:
+        raise RuntimeError(
+            "No deterministic test command is configured or detected. "
+            "Set [testing] command in wevra.ini."
+        )
+
+    if agent_run_id:
+        append_agent_run_log(
+            settings.db_path,
+            agent_run_id,
+            format_agent_log_line(f"$ {shlex.join(test_command)}"),
+        )
+    stdout_text = ""
+    stderr_text = ""
+    returncode = 0
+    try:
+        returncode, stdout_text, stderr_text = run_logged_subprocess(
+            test_command,
+            workspace_root,
+            build_runtime_env(settings.runtime_home),
+            settings.agent_timeout_seconds,
+            agent_run_id=agent_run_id,
+            db_path=settings.db_path,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise AgentExecutionError(
+            OperatorIssueKind.RUNTIME_TIMEOUT,
+            operator_issue_message(OperatorIssueKind.RUNTIME_TIMEOUT),
+            detail=f"Test command timed out after {settings.agent_timeout_seconds} seconds.",
+        ) from exc
+
+    combined = (stdout_text.strip() + "\n" + stderr_text.strip()).strip()
+    if returncode == 5 and is_pytest_command(test_command):
+        summary = f"No existing tests were found for `{shlex.join(test_command)}`."
+        return WorkerOutput(
+            decision=WorkerDecision.COMPLETE,
+            summary=summary,
+            result={
+                "status": "completed",
+                "task_key": task.task_key,
+                "task_kind": task.kind,
+                "test_command": test_command,
+                "stdout_tail": stdout_text.strip().splitlines()[-20:],
+                "stderr_tail": stderr_text.strip().splitlines()[-20:],
+                "no_tests_collected": True,
+            },
+        )
+
+    if returncode != 0:
+        raise RuntimeError(combined or f"Test command failed with exit code {returncode}.")
+
+    summary = f"Executed existing tests with `{shlex.join(test_command)}`."
+    if stdout_text.strip():
+        summary = f"{summary} Last output: {stdout_text.strip().splitlines()[-1]}"
+    return WorkerOutput(
+        decision=WorkerDecision.COMPLETE,
+        summary=summary,
+        result={
+            "status": "completed",
+            "task_key": task.task_key,
+            "task_kind": task.kind,
+            "test_command": test_command,
+            "stdout_tail": stdout_text.strip().splitlines()[-20:],
+            "stderr_tail": stderr_text.strip().splitlines()[-20:],
+        },
+    )
 
 
 class BackendInterface:
@@ -1441,15 +1943,32 @@ class StructuredCliBackend(BackendInterface):
         planning_mode = "replanning" if command.stage == CommandStage.REPLANNING else "initial_plan"
         requested = requested_mode(command)
         active_mode = effective_mode(command)
+        explicit_paths = extract_explicit_paths(command.goal)
+        explicit_path_block = ""
+        if explicit_paths:
+            explicit_path_lines = "\n".join(f"- {path}" for path in explicit_paths)
+            explicit_path_block = (
+                "The request explicitly names these files or paths. Keep planning anchored to them.\n"
+                "Do not inspect unrelated files, and do not scan the wider repository unless one of these paths forces it.\n"
+                "Only look at directly related tests if you genuinely need to update them.\n"
+                f"{explicit_path_lines}\n"
+            )
         prompt = (
             "You are the Wevra planner.\n"
             "The engine owns all state transitions.\n"
             "Return only JSON that matches the provided schema.\n"
             "Every task must include a stable key, explicit depends_on references, and intended write_files.\n"
+            "Keep planning lightweight: inspect only the minimum files needed to name concrete write targets.\n"
+            "Do not run tests or broad repository sweeps during planning.\n"
+            "Prefer a small plan with one to three tasks unless the request clearly requires more.\n"
+            "For single-file UI, docs, copy, or test updates, prefer exactly one implementer task unless a second task is strictly necessary.\n"
+            "Use only these task capabilities: implementer, investigation, analyst, tester, reviewer.\n"
+            "For UI, docs, test-file, or general code changes, use capability 'implementer'.\n"
             f"Planning mode: {planning_mode}.\n"
             f"Requested workflow mode: {requested.value}.\n"
             f"Current effective workflow mode: {active_mode.value if active_mode else 'unresolved'}.\n"
             f"{mode_prompt_guidance(active_mode if requested != WorkflowMode.AUTO else WorkflowMode.AUTO)}\n"
+            f"{explicit_path_block}"
             "If this is replanning, preserve completed work as fact, reuse still-valid task keys, and only omit tasks that should be superseded.\n\n"
             f"Context:\n{json.dumps(context, indent=2, sort_keys=True)}"
         )
@@ -1474,11 +1993,38 @@ class StructuredCliBackend(BackendInterface):
         agent_run_id: Optional[str] = None,
         db_path: Optional[Path] = None,
     ) -> WorkerOutput:
-        context = build_context_payload(command, tasks, questions, reviews, instructions, task=task)
+        context = build_worker_context_payload(
+            command, task, tasks, questions, reviews, instructions
+        )
+        write_files = task.input_payload.get("write_files", [])
+        write_targets = [
+            f"- {path}" for path in write_files if isinstance(path, str) and path.strip()
+        ]
+        target_block = ""
+        if write_targets:
+            target_block = f"Primary write targets:\n{chr(10).join(write_targets)}\n"
+        explicit_paths = extract_explicit_paths(command.goal)
+        explicit_path_block = ""
+        if explicit_paths:
+            explicit_path_block = (
+                "The original request explicitly named these files or paths. Stay anchored to them unless the task context clearly requires a directly related companion file.\n"
+                f"{chr(10).join(f'- {path}' for path in explicit_paths)}\n"
+            )
+        focus_note = (
+            "Focus on the listed write targets and directly related tests only.\n"
+            if write_targets
+            else "Keep the scope narrow and only touch files directly required for this task.\n"
+        )
         prompt = (
             "You are the Wevra worker.\n"
             "Use the workspace to complete the assigned task if changes are required.\n"
             "Do not mutate engine state. Return only JSON matching the schema.\n\n"
+            f"{focus_note}"
+            f"{explicit_path_block}"
+            "Prefer the smallest coherent change that completes the task.\n"
+            "Avoid broad repository sweeps.\n"
+            "Do not run the full test suite unless the task explicitly requires it.\n"
+            f"{target_block}\n"
             f"Context:\n{json.dumps(context, indent=2, sort_keys=True)}"
         )
         payload = self._run_structured(
@@ -1502,11 +2048,25 @@ class StructuredCliBackend(BackendInterface):
         agent_run_id: Optional[str] = None,
         db_path: Optional[Path] = None,
     ) -> ReviewerOutput:
-        context = build_context_payload(command, tasks, questions, reviews, instructions)
+        context = build_review_context_payload(command, tasks, questions, reviews, instructions)
+        review_targets = [
+            *context["explicit_paths"],
+            *[path for path in context["write_targets"] if path not in context["explicit_paths"]],
+        ]
+        target_block = ""
+        if review_targets:
+            target_block = (
+                "Keep the review anchored to these files or paths. Inspect directly related tests only if they are needed to verify the requested change.\n"
+                f"{chr(10).join(f'- {path}' for path in review_targets)}\n"
+            )
         prompt = (
             f"You are Wevra reviewer #{reviewer_slot}.\n"
             "Inspect the current command context and workspace state.\n"
+            "Keep the review narrow and focused on the requested change.\n"
+            "Do not perform broad repository sweeps.\n"
+            "Validate that the current workspace satisfies the goal and any prior review findings.\n"
             "Return only JSON matching the schema.\n\n"
+            f"{target_block}"
             f"Context:\n{json.dumps(context, indent=2, sort_keys=True)}"
         )
         payload = self._run_structured(
@@ -1529,18 +2089,19 @@ class StructuredCliBackend(BackendInterface):
     ) -> dict:
         root = Path(workspace_root)
         adapter = structured_runtime_adapter(self.backend)
+        prepared_schema = adapter.schema_preparer(schema)
         schema_path: str | None = None
         output_path: str | None = None
         if self.backend == RuntimeBackend.CODEX:
             with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as schema_file:
-                json.dump(schema, schema_file)
+                json.dump(prepared_schema, schema_file)
                 schema_path = schema_file.name
             with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as output_file:
                 output_path = output_file.name
         try:
             command = adapter.command_builder(
                 prompt,
-                schema,
+                prepared_schema,
                 self.model,
                 self.approval_mode,
                 schema_path,
@@ -1596,62 +2157,17 @@ class StructuredCliBackend(BackendInterface):
         agent_run_id: Optional[str] = None,
         db_path: Optional[Path] = None,
     ) -> Tuple[int, str, str]:
-        process = subprocess.Popen(
+        return run_logged_subprocess(
             command,
-            cwd=str(workspace_root),
-            env=env,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            bufsize=1,
+            workspace_root,
+            env,
+            self.timeout_seconds,
+            agent_run_id=agent_run_id,
+            db_path=db_path,
         )
-        stdout_chunks: List[str] = []
-        stderr_chunks: List[str] = []
-
-        def consume(stream, target: List[str], channel: str) -> None:
-            if stream is None:
-                return
-            try:
-                for line in iter(stream.readline, ""):
-                    target.append(line)
-                    if agent_run_id and db_path and line:
-                        append_agent_run_log(
-                            db_path,
-                            agent_run_id,
-                            format_agent_log_line(line.rstrip("\n"), channel=channel),
-                        )
-            finally:
-                stream.close()
-
-        stdout_thread = threading.Thread(
-            target=consume,
-            args=(process.stdout, stdout_chunks, "stdout"),
-            daemon=True,
-        )
-        stderr_thread = threading.Thread(
-            target=consume,
-            args=(process.stderr, stderr_chunks, "stderr"),
-            daemon=True,
-        )
-        stdout_thread.start()
-        stderr_thread.start()
-        try:
-            returncode = process.wait(timeout=self.timeout_seconds)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            stdout_thread.join(timeout=1)
-            stderr_thread.join(timeout=1)
-            raise
-        stdout_thread.join(timeout=1)
-        stderr_thread.join(timeout=1)
-        return returncode, "".join(stdout_chunks), "".join(stderr_chunks)
 
     def _build_runtime_env(self) -> dict[str, str]:
-        env = dict(os.environ)
-        if self.runtime_home is not None:
-            self.runtime_home.mkdir(parents=True, exist_ok=True)
-            env["HOME"] = str(self.runtime_home)
-        return env
+        return build_runtime_env(self.runtime_home)
 
 
 def execution_profile(
@@ -2728,6 +3244,7 @@ def cancel_command_with_repair(
         command = command_from_row(row)
         if command.stage in {CommandStage.DONE, CommandStage.FAILED, CommandStage.CANCELED}:
             raise ValueError(f"Cannot repair a terminal command: {command_id}")
+        terminate_running_agent_runs_for_command(conn, command_id)
 
         conn.execute(
             """
@@ -2825,6 +3342,7 @@ def cancel_command(db_path: Path, command_id: str, reason: Optional[str] = None)
         command = command_from_row(row)
         if command.stage in {CommandStage.DONE, CommandStage.FAILED, CommandStage.CANCELED}:
             raise ValueError(f"Cannot cancel a terminal command: {command_id}")
+        terminate_running_agent_runs_for_command(conn, command_id)
         conn.execute(
             """
             UPDATE tasks
@@ -3259,6 +3777,18 @@ def _pending_agent_runs_for_command(
     query += " ORDER BY created_at ASC"
     rows = conn.execute(query, params).fetchall()
     return [agent_run_from_row(row) for row in rows]
+
+
+def terminate_running_agent_runs_for_command(conn, command_id: str) -> None:
+    rows = conn.execute(
+        """
+        SELECT process_id FROM agent_runs
+        WHERE command_id = ? AND state = ? AND process_id IS NOT NULL
+        """,
+        (command_id, AgentRunState.RUNNING.value),
+    ).fetchall()
+    for row in rows:
+        terminate_process_group(row["process_id"])
 
 
 def approve_agent_run(db_path: Path, agent_run_id: str) -> AgentRunRecord:
@@ -3787,18 +4317,26 @@ def execute_task_batch(
     settings: AppConfig,
 ) -> Dict[str, Tuple[Optional[WorkerOutput], Optional[Exception]]]:
     def run_single(task: TaskRecord) -> Tuple[str, Optional[WorkerOutput], Optional[Exception]]:
-        backend = backend_for(command, settings, task.capability)
         try:
-            output = backend.execute_task(
-                command,
-                task,
-                tasks,
-                questions,
-                reviews,
-                instructions,
-                agent_run_id=agent_run_map[task.id].id,
-                db_path=settings.db_path,
-            )
+            if is_deterministic_test_gate(task):
+                output = execute_deterministic_test_task(
+                    command,
+                    task,
+                    settings,
+                    agent_run_id=agent_run_map[task.id].id,
+                )
+            else:
+                backend = backend_for(command, settings, task.capability)
+                output = backend.execute_task(
+                    command,
+                    task,
+                    tasks,
+                    questions,
+                    reviews,
+                    instructions,
+                    agent_run_id=agent_run_map[task.id].id,
+                    db_path=settings.db_path,
+                )
             return task.id, output, None
         except Exception as exc:
             return task.id, None, exc
@@ -3890,6 +4428,8 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
     precreated_runs: Dict[str, AgentRunRecord] = {}
     approval_runs: List[AgentRunRecord] = []
     for task in batch:
+        if is_deterministic_test_gate(task):
+            continue
         role_name, runtime, model = execution_profile(command, settings, task.capability)
         if not approval_required_for_runtime(command, runtime):
             continue
@@ -3929,6 +4469,9 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
         agent_run = precreated_runs.get(task.id)
         if agent_run is None:
             role_name, runtime, model = execution_profile(command, settings, task.capability)
+            if is_deterministic_test_gate(task):
+                runtime = RuntimeBackend.INHERIT
+                model = ""
             agent_run = ensure_agent_run(
                 conn,
                 command=command,
@@ -4344,6 +4887,13 @@ def reduce_verifying(conn, command: CommandRecord, settings: AppConfig) -> TickO
         slots=list(slot_run_map.keys()),
         agent_run_ids={slot: run.id for slot, run in slot_run_map.items()},
     )
+    latest_command = get_command(settings.db_path, command.id)
+    if latest_command and latest_command.stage == CommandStage.CANCELED:
+        return TickOutcome(
+            action="command_canceled",
+            command=latest_command,
+            note=latest_command.failure_reason or "canceled during final review",
+        )
     recoverable_review_issues: List[Tuple[int, AgentRunRecord, AgentExecutionError]] = []
 
     reviewer_kind = (
@@ -4363,7 +4913,13 @@ def reduce_verifying(conn, command: CommandRecord, settings: AppConfig) -> TickO
                 findings=[],
                 failure_reason=str(error),
             )
-        assert output is not None
+        if output is None:
+            output = ReviewerOutput(
+                decision=ReviewDecision.FAIL,
+                summary=f"Reviewer {slot} ended without returning a result.",
+                findings=[],
+                failure_reason="The reviewer process ended without returning a structured result.",
+            )
         review_outputs.append((slot, output))
 
     created_reviews = [
@@ -4383,7 +4939,14 @@ def reduce_verifying(conn, command: CommandRecord, settings: AppConfig) -> TickO
                 error=error.detail,
             )
             continue
-        assert output is not None
+        if output is None:
+            mark_agent_run_finished(
+                conn,
+                agent_run.id,
+                state=AgentRunState.FAILED,
+                error="The reviewer process ended without returning a structured result.",
+            )
+            continue
         if output.decision == ReviewDecision.FAIL:
             mark_agent_run_finished(
                 conn,
@@ -4514,6 +5077,19 @@ def tick_once(
     initialize_database(db_path)
 
     with connect(db_path) as conn:
+        reconciled_command_ids = reconcile_orphaned_agent_runs(conn)
+        if reconciled_command_ids:
+            target_id = (
+                command_id if command_id in reconciled_command_ids else reconciled_command_ids[0]
+            )
+            row = conn.execute("SELECT * FROM commands WHERE id = ?", (target_id,)).fetchone()
+            if row is not None:
+                reconciled_command = command_from_row(row)
+                return TickOutcome(
+                    action="operator_attention_required",
+                    command=reconciled_command,
+                    note=reconciled_command.operator_issue_detail or RUNTIME_INTERRUPTED_DETAIL,
+                )
         command = select_actionable_command(conn, command_id)
         if command is None:
             return TickOutcome(action="no_op", note="no actionable commands")

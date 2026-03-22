@@ -52,6 +52,7 @@ from wevra.models import (
     WorkerOutput,
     WorkflowMode,
 )
+from wevra.runtime_registry import structured_runtime_adapter
 from wevra.service import (
     AgentExecutionError,
     StructuredCliBackend,
@@ -64,14 +65,18 @@ from wevra.service import (
     backend_for,
     deny_agent_run,
     build_context_payload,
+    build_review_context_payload,
     build_final_response,
     build_final_test_spec,
     create_question_record,
     create_task_records,
+    detect_test_command,
     effective_mode,
+    execute_deterministic_test_task,
     infer_mode_from_goal,
     infer_mode_from_specs,
     ignore_command_dependencies,
+    is_deterministic_test_gate,
     cancel_command_with_repair,
     list_agent_runs,
     list_artifacts,
@@ -120,12 +125,19 @@ def submit_direct(tmp_path, settings, *, goal, workflow_mode, priority, **kwargs
 
 
 def request_json(url: str, *, method: str = "GET", body: Optional[bytes] = None, headers=None):
+    status, payload, _ = request_json_with_headers(url, method=method, body=body, headers=headers)
+    return status, payload
+
+
+def request_json_with_headers(
+    url: str, *, method: str = "GET", body: Optional[bytes] = None, headers=None
+):
     req = request.Request(url, data=body, headers=headers or {}, method=method)
     try:
         with request.urlopen(req) as response:
-            return response.status, json.loads(response.read().decode("utf-8"))
+            return response.status, json.loads(response.read().decode("utf-8")), response.headers
     except error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
+        return exc.code, json.loads(exc.read().decode("utf-8")), exc.headers
 
 
 def test_config_helpers_parse_env_and_resolve_paths(tmp_path):
@@ -176,6 +188,9 @@ language = ja
 agent_timeout_seconds = 321
 home = runtime-home
 
+[testing]
+command = ./custom-test.sh
+
 [ui]
 auto_start = false
 port = 45000
@@ -197,6 +212,11 @@ webhook_url = DISCORD_WEBHOOK_URL
 runtime = codex
 model = gpt-test
 
+[implementer]
+runtime = codex
+model = gpt-test
+count = 4
+
 [reviewer]
 runtime = claude
 model = opus-test
@@ -212,6 +232,7 @@ count = 0
     settings = load_config(tmp_path)
 
     assert settings.language == "ja"
+    assert settings.test_command == "./custom-test.sh"
     assert settings.runtime_home == (tmp_path / "runtime-home").resolve()
     assert settings.agent_timeout_seconds == 321
     assert settings.working_dir == tmp_path.resolve()
@@ -231,6 +252,8 @@ count = 0
     fallback_role = settings.role_for("unknown_capability")
     assert fallback_role.name == "unknown_capability"
     assert fallback_role.count == 4
+    assert fallback_role.runtime == RuntimeBackend.CODEX
+    assert fallback_role.model == "gpt-test"
 
 
 def test_read_example_template_falls_back_to_packaged_templates(monkeypatch):
@@ -239,6 +262,98 @@ def test_read_example_template_falls_back_to_packaged_templates(monkeypatch):
     assert "db_path = .wevra/wevra.db" in read_example_template("wevra.ini")
     assert "[planner]" in read_example_template("agents.ini")
     assert "DISCORD_WEBHOOK_URL=" in read_example_template(".env")
+
+
+def test_detect_test_command_prefers_local_pytest_and_respects_configured_command(tmp_path):
+    local_pytest = tmp_path / ".venv" / "bin" / "pytest"
+    local_pytest.parent.mkdir(parents=True, exist_ok=True)
+    local_pytest.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    local_pytest.chmod(0o755)
+
+    assert detect_test_command(tmp_path, None) == [str(local_pytest), "-q"]
+    assert detect_test_command(tmp_path, "python -m pytest -q") == [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+    ]
+
+
+def test_execute_deterministic_test_task_runs_configured_command(tmp_path):
+    db_path = tmp_path / ".wevra" / "wevra.db"
+    initialize_database(db_path)
+    script = tmp_path / "fake-test.sh"
+    script.write_text("#!/bin/sh\nprintf 'tests ok\\n'\n", encoding="utf-8")
+    script.chmod(0o755)
+    settings = SimpleNamespace(
+        db_path=db_path,
+        runtime_home=None,
+        agent_timeout_seconds=30,
+        test_command=str(script),
+    )
+    command = CommandRecord(
+        id="cmd_test",
+        goal="run tests",
+        stage=CommandStage.RUNNING,
+        workflow_mode=WorkflowMode.IMPLEMENTATION,
+        approval_mode=ApprovalMode.AUTO,
+        effective_mode=WorkflowMode.IMPLEMENTATION,
+        priority=Priority.MEDIUM,
+        backend=RuntimeBackend.INHERIT,
+        workspace_root=str(tmp_path),
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+    )
+    task = TaskRecord(
+        id="task_test_gate",
+        command_id=command.id,
+        task_key="__system_test_gate__",
+        kind="test",
+        capability="tester",
+        title="Run existing feature and unit tests",
+        description="Execute the existing test suite against the completed implementation before the final review pass.",
+        state=TaskState.RUNNING,
+        plan_order=1,
+        input_payload={"system_generated": True, "gate": "final_test"},
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+    )
+
+    assert is_deterministic_test_gate(task) is True
+    output = execute_deterministic_test_task(command, task, settings)
+
+    assert output.decision == WorkerDecision.COMPLETE
+    assert "Executed existing tests" in (output.summary or "")
+    assert output.result["test_command"] == [str(script)]
+    assert output.result["stdout_tail"] == ["tests ok"]
+
+
+def test_codex_schema_preparer_makes_object_schemas_strict():
+    prepared = structured_runtime_adapter(RuntimeBackend.CODEX).schema_preparer(
+        PlannerOutput.model_json_schema()
+    )
+
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("type") == "object" or "properties" in node:
+                properties = node.get("properties", {})
+                assert node.get("additionalProperties") is False
+                assert node.get("required") == list(properties.keys())
+                assert "default" not in node
+                assert "title" not in node
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(prepared)
+
+    input_payload = prepared["$defs"]["PlannerTaskSpec"]["properties"]["input_payload"]
+    assert "title" in prepared["$defs"]["PlannerTaskSpec"]["properties"]
+    assert input_payload["type"] == "object"
+    assert input_payload["additionalProperties"] is False
+    assert input_payload["properties"] == {}
 
 
 def test_cli_public_commands_cover_version_status_and_listing(tmp_path, monkeypatch):
@@ -380,15 +495,16 @@ def test_dashboard_http_handles_errors_and_serves_snapshot(tmp_path, monkeypatch
         assert image_mime == "image/png"
         assert image_bytes.startswith(b"\x89PNG")
 
-        status, payload = request_json(f"{base_url}/api/snapshot")
+        status, payload, headers = request_json_with_headers(f"{base_url}/api/snapshot")
         assert status == 200
         assert payload["commands"]["items"] == []
+        assert headers["Cache-Control"] == "no-store"
 
         status, payload = request_json(f"{base_url}/missing")
         assert status == 404
         assert payload["error"] == "not_found"
 
-        status, payload = request_json(
+        status, payload, headers = request_json_with_headers(
             f"{base_url}/api/commands",
             method="POST",
             body=b"{broken",
@@ -396,6 +512,7 @@ def test_dashboard_http_handles_errors_and_serves_snapshot(tmp_path, monkeypatch
         )
         assert status == 400
         assert payload["error"] == "invalid_json"
+        assert headers["Cache-Control"] == "no-store"
 
         cases = [
             ("/api/commands", {}, "goal_required"),
@@ -570,7 +687,7 @@ def test_dashboard_snapshot_and_agent_approval_endpoints(tmp_path, monkeypatch):
         host, port = server.server_address
         base_url = f"http://{host}:{port}"
 
-        created = request_json(
+        created_status, created_payload, created_headers = request_json_with_headers(
             f"{base_url}/api/commands",
             method="POST",
             body=json.dumps(
@@ -582,13 +699,17 @@ def test_dashboard_snapshot_and_agent_approval_endpoints(tmp_path, monkeypatch):
                 }
             ).encode("utf-8"),
             headers={"Content-Type": "application/json"},
-        )[1]["command"]
+        )
+        assert created_status == 201
+        assert created_headers["Cache-Control"] == "no-store"
+        created = created_payload["command"]
 
-        detail_status, detail_payload = request_json(
+        detail_status, detail_payload, detail_headers = request_json_with_headers(
             f"{base_url}/api/commands/{created['id']}/detail"
         )
         assert detail_status == 200
         assert detail_payload["command"]["id"] == created["id"]
+        assert detail_headers["Cache-Control"] == "no-store"
 
         deadline = time.time() + 5
         pending_run = None
@@ -1023,6 +1144,160 @@ def test_task_operator_issue_requeues_blocked_task_on_retry(tmp_path, monkeypatc
     )
 
 
+def test_tick_reconciles_interrupted_running_agent_run_into_operator_issue(tmp_path, monkeypatch):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    initialize_database(settings.db_path)
+
+    command = submit_direct(
+        tmp_path,
+        settings,
+        goal="reconcile interrupted run",
+        workflow_mode=WorkflowMode.IMPLEMENTATION,
+        priority=Priority.HIGH,
+    )
+    now = service_module.utc_now()
+    with connect(settings.db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO tasks (
+                id, command_id, task_key, kind, capability, title, description, state, plan_order,
+                input_payload, output_payload, error, operator_issue_kind, attempt_count, assigned_run_id,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "task_running_interrupt",
+                command.id,
+                "interrupt_task",
+                "code_change",
+                "implementer",
+                "Interrupted task",
+                "editing ui",
+                TaskState.RUNNING.value,
+                1,
+                json.dumps({"write_files": ["src/wevra/static/index.html"]}),
+                None,
+                None,
+                None,
+                1,
+                "agentrun_interrupt",
+                now,
+                now,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO agent_runs (
+                id, command_id, task_id, reviewer_slot, role_name, capability, runtime, model,
+                run_kind, title, resume_stage, state, approval_required, prompt_excerpt,
+                output_summary, output_log, error, process_id, created_at, started_at, finished_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "agentrun_interrupt",
+                command.id,
+                "task_running_interrupt",
+                None,
+                "implementer",
+                "implementer",
+                RuntimeBackend.CODEX.value,
+                "gpt-test",
+                "task",
+                "Interrupted task",
+                CommandStage.RUNNING.value,
+                "running",
+                0,
+                "interrupted prompt",
+                None,
+                "",
+                None,
+                999999,
+                now,
+                now,
+                None,
+                now,
+            ),
+        )
+        conn.execute(
+            "UPDATE commands SET stage = ?, effective_mode = ?, updated_at = ? WHERE id = ?",
+            (CommandStage.RUNNING.value, WorkflowMode.IMPLEMENTATION.value, now, command.id),
+        )
+        conn.commit()
+
+    monkeypatch.setattr(service_module, "process_is_alive", lambda _pid: False)
+    outcome = tick_once(
+        settings.db_path, command_id=command.id, settings=settings, repo_root=tmp_path
+    )
+    assert outcome.action == "operator_attention_required"
+    assert outcome.command.stage == CommandStage.WAITING_OPERATOR
+    assert outcome.command.operator_issue_kind == OperatorIssueKind.RUNTIME_INTERRUPTED
+
+    tasks = list_tasks(settings.db_path, command_id=command.id)
+    assert tasks[0].state == TaskState.BLOCKED
+    assert tasks[0].operator_issue_kind == OperatorIssueKind.RUNTIME_INTERRUPTED
+
+
+def test_cancel_command_terminates_running_agent_processes(tmp_path, monkeypatch):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    initialize_database(settings.db_path)
+
+    command = submit_direct(
+        tmp_path,
+        settings,
+        goal="cancel kills process group",
+        workflow_mode=WorkflowMode.IMPLEMENTATION,
+        priority=Priority.HIGH,
+    )
+    now = service_module.utc_now()
+    with connect(settings.db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO agent_runs (
+                id, command_id, task_id, reviewer_slot, role_name, capability, runtime, model,
+                run_kind, title, resume_stage, state, approval_required, prompt_excerpt,
+                output_summary, output_log, error, process_id, created_at, started_at, finished_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "agentrun_cancel",
+                command.id,
+                None,
+                None,
+                "planner",
+                "planner",
+                RuntimeBackend.CODEX.value,
+                "gpt-test",
+                "planner",
+                "Planner",
+                CommandStage.PLANNING.value,
+                "running",
+                0,
+                "planner prompt",
+                None,
+                "",
+                None,
+                424242,
+                now,
+                now,
+                None,
+                now,
+            ),
+        )
+        conn.execute(
+            "UPDATE commands SET stage = ?, updated_at = ? WHERE id = ?",
+            (CommandStage.RUNNING.value, now, command.id),
+        )
+        conn.commit()
+
+    seen: list[int] = []
+    monkeypatch.setattr(service_module, "terminate_process_group", lambda pid: seen.append(pid))
+    canceled = cancel_command(settings.db_path, command.id, reason="Stop now.")
+    assert canceled.stage == CommandStage.CANCELED
+    assert seen == [424242]
+
+
 def test_cancel_with_repair_creates_high_priority_repair_job(tmp_path):
     init_repo_config(tmp_path)
     settings = load_config(tmp_path)
@@ -1265,6 +1540,10 @@ def test_service_mode_helpers_and_context_payload_cover_inference_paths(tmp_path
     context = build_context_payload(command, [task], [], [], [], task=task)
     assert context["command"]["id"] == "cmd_helpers"
     assert context["task"]["id"] == "task_helpers"
+    review_context = build_review_context_payload(command, [task], [], [], [])
+    assert review_context["command"]["id"] == "cmd_helpers"
+    assert review_context["completed_tasks"][0]["id"] == "task_helpers"
+    assert review_context["write_targets"] == []
     assert "Completed tasks:" in build_final_response(
         command.model_copy(update={"effective_mode": WorkflowMode.PLANNING}), [task], []
     )
@@ -2111,3 +2390,43 @@ def test_reduce_planning_failure_implicit_gate_and_backend_selection(tmp_path, m
     )
     assert failed.action == "planning_failed"
     assert failed.command.failure_reason == "explicit planner failure"
+
+
+def test_reduce_verifying_returns_canceled_when_job_is_canceled_mid_review(tmp_path, monkeypatch):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    initialize_database(settings.db_path)
+
+    command = submit_direct(
+        tmp_path,
+        settings,
+        goal="cancel during review",
+        workflow_mode=WorkflowMode.REVIEW,
+        priority=Priority.HIGH,
+    )
+    with connect(settings.db_path) as conn:
+        conn.execute(
+            "UPDATE commands SET stage = ?, effective_mode = ? WHERE id = ?",
+            (CommandStage.VERIFYING.value, WorkflowMode.REVIEW.value, command.id),
+        )
+        conn.commit()
+
+    def fake_run_review_batch(*args, **kwargs):
+        cancel_command(
+            settings.db_path,
+            command.id,
+            "Operator canceled the job during a final review pass.",
+        )
+        return [(1, None, None)]
+
+    monkeypatch.setattr(service_module, "run_review_batch", fake_run_review_batch)
+
+    outcome = tick_once(
+        settings.db_path,
+        command_id=command.id,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+    assert outcome.action == "command_canceled"
+    assert outcome.command.stage == CommandStage.CANCELED
+    assert "final review" in (outcome.note or "")

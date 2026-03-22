@@ -18,7 +18,8 @@
       --panel-strong: rgba(15, 22, 36, 0.95);
       --panel-soft: rgba(255, 255, 255, 0.03);
       --line: rgba(151, 176, 214, 0.18);
-      --accent: #7c9cff;
+      --accent: #d7e2ee;
+      --cta-accent: #7c9cff;
       --accent-2: #28d7b8;
       --accent-3: #ff8d57;
       --good: #55e38e;
@@ -33,31 +34,19 @@
     * { box-sizing: border-box; }
     html, body {
       margin: 0;
-      min-height: 100%;
-      background: #05070b;
+      min-height: 100vh;
+      background: #081019;
     }
     body {
       font-family: var(--font-ui);
       color: var(--ink);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
       background:
-        radial-gradient(circle at top left, rgba(124, 156, 255, 0.20), transparent 28%),
-        radial-gradient(circle at top right, rgba(40, 215, 184, 0.12), transparent 22%),
-        radial-gradient(circle at bottom right, rgba(255, 141, 87, 0.10), transparent 24%),
-        linear-gradient(180deg, #06090f, #09111d 52%, #05070b);
+        radial-gradient(circle at top right, rgba(124, 156, 255, 0.14), transparent 24%),
+        linear-gradient(180deg, #070b12 0%, #09111a 46%, #081019 100%);
       background-attachment: fixed;
-    }
-
-    body::before {
-      content: "";
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      background-image:
-        linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-      background-size: 56px 56px;
-      mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 0.75), transparent 90%);
-      opacity: 0.22;
     }
 
     body.locale-ja {
@@ -70,13 +59,15 @@
       margin: 14px auto 22px;
       display: grid;
       gap: 14px;
+      min-height: calc(100vh - 28px);
+      padding-bottom: 8px;
     }
 
     .hero, .panel {
       border: 1px solid var(--line);
       border-radius: var(--radius);
-      background: var(--panel);
-      backdrop-filter: blur(12px);
+      background: rgba(10, 16, 27, 0.96);
+      backdrop-filter: blur(8px);
       box-shadow: var(--shadow);
       position: relative;
       overflow: hidden;
@@ -88,9 +79,7 @@
       position: absolute;
       inset: 0;
       pointer-events: none;
-      background:
-        linear-gradient(145deg, rgba(255, 255, 255, 0.08), transparent 34%),
-        linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 45%);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 30%);
     }
 
     .hero {
@@ -204,7 +193,7 @@
     }
 
     .eyebrow {
-      color: var(--accent);
+      color: rgba(239, 244, 255, 0.56);
       font-family: var(--font-display);
       font-size: 11px;
       letter-spacing: 0.14em;
@@ -288,12 +277,12 @@
 
     textarea, select, input {
       width: 100%;
-      border: 1px solid rgba(151, 176, 214, 0.18);
+      border: 1px solid rgba(255, 255, 255, 0.12);
       border-radius: 14px;
-      background: rgba(7, 12, 20, 0.86);
+      background: rgba(8, 12, 18, 0.94);
       padding: 10px 12px;
-      color: var(--ink);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      color: rgba(245, 248, 255, 0.96);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
     }
 
     select, input {
@@ -323,14 +312,20 @@
 
     button:hover { transform: translateY(-1px); }
     .primary {
-      background: linear-gradient(135deg, var(--accent), #5de2cf);
+      background: linear-gradient(135deg, var(--cta-accent), #5de2cf);
       color: #071019;
       box-shadow: 0 14px 32px rgba(86, 180, 255, 0.26);
     }
     .secondary {
-      background: rgba(255, 255, 255, 0.08);
-      color: var(--ink);
-      border: 1px solid rgba(151, 176, 214, 0.14);
+      background: rgba(255, 255, 255, 0.06);
+      color: rgba(244, 248, 255, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+    }
+
+    button.deny {
+      background: rgba(255, 111, 145, 0.14);
+      color: #ffd5df;
+      border: 1px solid rgba(255, 111, 145, 0.22);
     }
 
     .toolbar-controls .primary {
@@ -422,8 +417,8 @@
     }
 
     .dependency-option:hover {
-      border-color: rgba(124, 156, 255, 0.28);
-      background: rgba(124, 156, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.18);
+      background: rgba(255, 255, 255, 0.05);
     }
 
     .dependency-option input {
@@ -494,7 +489,8 @@
       display: grid;
       grid-template-columns: 320px minmax(0, 1fr);
       gap: 14px;
-      align-items: start;
+      align-items: stretch;
+      min-height: calc(100vh - 118px);
     }
 
     .queue-column {
@@ -503,6 +499,7 @@
       gap: 12px;
       align-content: start;
       min-width: 0;
+      min-height: 100%;
       position: sticky;
       top: 14px;
     }
@@ -510,18 +507,23 @@
     .workspace-shell {
       padding: 14px;
       display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
       gap: 14px;
-      align-content: start;
+      align-content: stretch;
       min-width: 0;
+      min-height: 100%;
     }
 
     .workspace-panel {
-      border: 1px solid rgba(151, 176, 214, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.10);
       border-radius: 20px;
       background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
       padding: 14px;
+      display: grid;
+      align-content: start;
       position: relative;
       overflow: hidden;
+      min-height: 100%;
     }
 
     .workspace-panel::before {
@@ -627,14 +629,16 @@
     }
 
     .command-item .title {
-      font-size: 13px;
-      line-height: 1.25;
+      font-size: 14px;
+      line-height: 1.3;
+      font-weight: 700;
+      letter-spacing: -0.01em;
     }
 
     .command-item .summary {
       color: rgba(239, 244, 255, 0.88);
-      font-size: 12px;
-      line-height: 1.45;
+      font-size: 13px;
+      line-height: 1.5;
       display: -webkit-box;
       -webkit-line-clamp: 3;
       -webkit-box-orient: vertical;
@@ -647,17 +651,17 @@
 
     .command-item[data-command-id]:hover {
       transform: translateY(-1px);
-      border-color: rgba(124, 156, 255, 0.34);
+      border-color: rgba(255, 255, 255, 0.18);
     }
 
     .command-item.selected {
-      border-color: rgba(124, 156, 255, 0.48);
-      background: linear-gradient(180deg, rgba(124, 156, 255, 0.14), rgba(255, 255, 255, 0.03));
-      box-shadow: inset 0 0 0 1px rgba(124, 156, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.26);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
     }
 
     .command-item.selected::before {
-      background: var(--accent);
+      background: rgba(244, 248, 255, 0.9);
     }
 
     .command-item.attention {
@@ -721,12 +725,12 @@
     }
 
     .command-item.done-state {
-      border-color: rgba(124, 156, 255, 0.24);
-      background: linear-gradient(180deg, rgba(124, 156, 255, 0.10), rgba(255, 255, 255, 0.02));
+      border-color: rgba(214, 224, 236, 0.18);
+      background: linear-gradient(180deg, rgba(232, 238, 247, 0.08), rgba(255, 255, 255, 0.02));
     }
 
     .command-item.done-state::before {
-      background: rgba(124, 156, 255, 0.82);
+      background: rgba(232, 238, 247, 0.82);
     }
 
     .command-item.failed-state,
@@ -899,11 +903,13 @@
     }
 
     .workspace-topbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 10px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: end;
+      gap: 18px;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(151, 176, 214, 0.12);
     }
 
     .workspace-heading {
@@ -911,10 +917,10 @@
       gap: 8px;
       padding: 14px;
       border-radius: 18px;
-      border: 1px solid rgba(124, 156, 255, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.10);
       background:
-        radial-gradient(circle at top right, rgba(124, 156, 255, 0.16), transparent 32%),
-        linear-gradient(180deg, rgba(124, 156, 255, 0.08), rgba(255, 255, 255, 0.02));
+        radial-gradient(circle at top right, rgba(255, 255, 255, 0.07), transparent 32%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.02));
     }
 
     .workspace-goal {
@@ -926,7 +932,10 @@
     .workspace-meta {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 10px;
+      justify-content: flex-end;
+      align-items: flex-start;
+      max-width: 320px;
     }
 
     .workspace-actions {
@@ -944,7 +953,7 @@
     }
 
     .workspace-action.result-ready {
-      background: linear-gradient(135deg, var(--accent), #5de2cf);
+      background: linear-gradient(135deg, var(--cta-accent), #5de2cf);
       color: #071019;
       box-shadow: 0 14px 32px rgba(86, 180, 255, 0.22);
     }
@@ -957,10 +966,14 @@
     }
 
     .workspace-action:disabled {
-      opacity: 0.42;
+      opacity: 1;
       cursor: not-allowed;
       box-shadow: none;
       transform: none;
+      filter: saturate(0.18);
+      color: rgba(243, 247, 255, 0.38);
+      border-color: rgba(151, 176, 214, 0.10);
+      background: rgba(255, 255, 255, 0.04);
     }
 
     .detail-card {
@@ -980,98 +993,112 @@
 
     .overview-panel {
       border: 1px solid rgba(151, 176, 214, 0.14);
-      border-radius: 22px;
+      border-radius: 28px;
       background:
-        radial-gradient(circle at top right, rgba(124, 156, 255, 0.12), transparent 34%),
-        linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
-      padding: 18px;
+        linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02)),
+        rgba(8, 12, 20, 0.92);
+      padding: 26px;
       display: grid;
-      gap: 16px;
-      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.015);
+      gap: 22px;
+      box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.015),
+        0 18px 48px rgba(0, 0, 0, 0.22);
     }
 
     .overview-panel-head {
       display: grid;
-      gap: 18px;
+      grid-template-columns: minmax(0, 1.8fr) minmax(260px, 0.78fr);
+      gap: 30px;
+      align-items: start;
     }
 
     .overview-copy {
       display: grid;
-      gap: 10px;
+      gap: 14px;
       min-width: 0;
     }
 
     .overview-kicker {
-      color: var(--muted);
-      font-size: 10px;
+      color: rgba(239, 244, 255, 0.46);
+      font-size: 11px;
       font-weight: 700;
-      letter-spacing: 0.14em;
+      letter-spacing: 0.16em;
       text-transform: uppercase;
     }
 
     .overview-title {
       margin: 0;
-      font-size: 20px;
-      line-height: 1.35;
-      color: var(--ink);
+      max-width: none;
+      font-size: clamp(31px, 3.25vw, 46px);
+      line-height: 1.06;
+      letter-spacing: -0.045em;
+      color: rgba(244, 248, 255, 0.97);
+      font-family: var(--font-display);
+      text-wrap: pretty;
     }
 
     .overview-path-shell {
       display: grid;
-      gap: 6px;
+      gap: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(151, 176, 214, 0.12);
     }
 
     .overview-path-label {
-      color: var(--muted);
+      color: rgba(239, 244, 255, 0.46);
       font-size: 10px;
       font-weight: 700;
-      letter-spacing: 0.1em;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
     }
 
     .overview-path {
-      border-radius: 14px;
+      border-radius: 18px;
       border: 1px solid rgba(151, 176, 214, 0.12);
-      background: rgba(4, 8, 14, 0.48);
-      padding: 11px 12px;
-      color: rgba(239, 244, 255, 0.92);
-      font-size: 12px;
-      line-height: 1.5;
+      background: rgba(7, 11, 18, 0.72);
+      padding: 14px 15px;
+      color: rgba(241, 246, 255, 0.93);
+      font-size: 14px;
+      line-height: 1.6;
       word-break: break-word;
     }
 
     .overview-facts {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 0 22px;
-      padding-top: 10px;
-      border-top: 1px solid rgba(151, 176, 214, 0.12);
+      gap: 0;
+      align-content: start;
+      border-left: 1px solid rgba(151, 176, 214, 0.14);
+      padding-left: 26px;
     }
 
     .overview-fact {
       display: grid;
-      gap: 6px;
+      gap: 8px;
       min-width: 0;
       padding: 14px 0;
       border-bottom: 1px solid rgba(151, 176, 214, 0.10);
     }
 
+    .overview-fact:first-child {
+      padding-top: 2px;
+    }
+
     .overview-fact-wide {
-      grid-column: 1 / -1;
+      grid-column: auto;
     }
 
     .overview-section {
       display: grid;
-      gap: 10px;
-      padding-top: 10px;
+      gap: 12px;
+      padding-top: 14px;
       border-top: 1px solid rgba(151, 176, 214, 0.12);
     }
 
     .overview-section-head {
-      color: var(--muted);
-      font-size: 10px;
+      color: rgba(239, 244, 255, 0.54);
+      font-size: 11px;
       font-weight: 700;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
     }
 
@@ -1107,10 +1134,11 @@
     }
 
     .overview-note {
-      color: rgba(239, 244, 255, 0.86);
-      font-size: 13px;
-      line-height: 1.6;
+      color: rgba(239, 244, 255, 0.88);
+      font-size: 14px;
+      line-height: 1.7;
       word-break: break-word;
+      max-width: 82ch;
     }
 
     .overview-actions {
@@ -1136,18 +1164,19 @@
     }
 
     .overview-fact-label {
-      color: var(--muted);
+      color: rgba(239, 244, 255, 0.44);
       font-size: 10px;
       font-weight: 700;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.14em;
       text-transform: uppercase;
     }
 
     .overview-fact-value {
-      color: var(--ink);
-      font-size: 14px;
-      line-height: 1.45;
+      color: rgba(244, 248, 255, 0.94);
+      font-size: 17px;
+      line-height: 1.42;
       word-break: break-word;
+      font-weight: 600;
     }
 
     .detail-banner {
@@ -1240,27 +1269,54 @@
     .workspace-tabs {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 18px;
+      align-items: flex-end;
       padding: 0;
+      min-height: 46px;
     }
 
     .workspace-tab {
-      min-height: 36px;
-      padding: 0 12px;
-      border-radius: 999px;
-      border: 1px solid rgba(151, 176, 214, 0.14);
-      background: rgba(255, 255, 255, 0.04);
-      color: var(--muted);
-      font-size: 11px;
+      position: relative;
+      min-height: 42px;
+      padding: 0 0 10px;
+      border-radius: 0;
+      border: 0;
+      background: transparent;
+      color: rgba(239, 244, 255, 0.52);
+      font-size: 12px;
       font-weight: 700;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .workspace-tab::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 2px;
+      border-radius: 999px;
+      background: transparent;
+      opacity: 0;
+      transition: background 0.18s ease, opacity 0.18s ease;
+    }
+
+    .workspace-tab:hover {
+      color: rgba(243, 247, 255, 0.82);
+      transform: none;
     }
 
     .workspace-tab.active {
-      background: linear-gradient(135deg, rgba(124, 156, 255, 0.20), rgba(93, 226, 207, 0.16));
       color: var(--ink);
-      border-color: rgba(124, 156, 255, 0.32);
-      box-shadow: inset 0 0 0 1px rgba(124, 156, 255, 0.08);
+      background: transparent;
+      border: 0;
+      box-shadow: none;
+    }
+
+    .workspace-tab.active::after {
+      background: linear-gradient(90deg, var(--cta-accent), var(--accent-2));
+      opacity: 1;
     }
 
     .tab-panel {
@@ -1372,12 +1428,6 @@
       border-radius: 12px;
       padding: 0 14px;
       font-size: 12px;
-    }
-
-    .agent-actions .deny {
-      background: rgba(255, 111, 145, 0.14);
-      color: #ffd5df;
-      border: 1px solid rgba(255, 111, 145, 0.22);
     }
 
     #agentRunsList {
@@ -1597,6 +1647,11 @@
       gap: 12px;
       padding: 16px 18px;
       border-bottom: 1px solid rgba(151, 176, 214, 0.12);
+    }
+
+    .modal-header h2,
+    .modal-body h3 {
+      color: rgba(245, 248, 255, 0.97);
     }
 
     .modal-body {
@@ -1850,14 +1905,26 @@
       .detail-grid { grid-template-columns: 1fr; }
       .list { max-height: none; }
       .agent-role-grid { grid-template-columns: 1fr; }
+      .shell,
+      .grid,
+      .workspace-shell,
+      .workspace-panel {
+        min-height: 0;
+      }
       .question-alert-shell {
         grid-template-columns: 1fr;
       }
+      .overview-panel {
+        padding: 20px;
+      }
       .overview-panel-head {
-        flex-direction: column;
+        grid-template-columns: 1fr;
       }
       .overview-facts {
-        grid-template-columns: 1fr;
+        border-left: 0;
+        padding-left: 0;
+        border-top: 1px solid rgba(151, 176, 214, 0.12);
+        padding-top: 6px;
       }
       .overview-fact {
         padding: 12px 0;
@@ -1887,7 +1954,15 @@
         min-height: 96px;
       }
       .workspace-topbar {
-        display: grid;
+        grid-template-columns: 1fr;
+        align-items: start;
+      }
+      .workspace-tabs {
+        gap: 12px;
+      }
+      .workspace-meta {
+        justify-content: flex-start;
+        max-width: none;
       }
       .modal-form .toolbar-controls {
         grid-template-columns: 1fr;
@@ -1942,7 +2017,7 @@
               <button class="workspace-tab active" data-tab="overview" id="overviewTab">Overview</button>
               <button class="workspace-tab" data-tab="tasks" id="tasksTab">Tasks</button>
               <button class="workspace-tab" data-tab="reviews" id="reviewsTab">Reviews</button>
-              <button class="workspace-tab" data-tab="agents" id="agentsTab">Agents</button>
+              <button class="workspace-tab" data-tab="agents" id="agentsTab">AI Runs</button>
               <button class="workspace-tab" data-tab="activity" id="activityTab">Activity</button>
             </div>
             <div class="workspace-actions" id="workspaceActions">
@@ -2052,7 +2127,7 @@
           </div>
           <div class="toolbar-notice" id="approvalModeNotice" aria-live="polite">
             <div class="toolbar-notice-title" id="approvalModeNoticeTitle">Manual approval is enabled</div>
-            <div class="toolbar-notice-body" id="approvalModeNoticeBody">When manual approval is enabled, Wevra pauses before each external AI step and waits in the Agents tab until you allow or deny it.</div>
+            <div class="toolbar-notice-body" id="approvalModeNoticeBody">When manual approval is enabled, Wevra pauses before each external AI step and waits in the AI Runs tab until you allow or deny it.</div>
           </div>
           <div class="toolbar-notice danger" id="workspaceOverlapNotice" aria-live="polite">
             <div class="toolbar-notice-title" id="workspaceOverlapNoticeTitle">Workspace overlap detected</div>
@@ -2133,6 +2208,34 @@
     </div>
   </div>
 
+  <div class="modal-backdrop" id="agentDenyModal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="agentDenyModalTitle">
+      <div class="modal-header">
+        <div>
+          <div class="eyebrow" id="agentDenyModalEyebrow">Deny agent run</div>
+          <h2 id="agentDenyModalTitle" style="margin: 6px 0 0; font-size: 24px;">Reject this agent run?</h2>
+        </div>
+        <button class="secondary" id="closeAgentDenyBtn">Cancel</button>
+      </div>
+      <div class="modal-body" style="display:grid; gap: 14px;">
+        <div class="meta" id="agentDenyModalContext">Rejecting this pending run will fail the selected job.</div>
+        <div class="field-stack">
+          <label class="field-label" id="agentDenyReasonLabel" for="agentDenyReason">Operator note</label>
+          <textarea
+            id="agentDenyReason"
+            style="min-height: 120px;"
+            maxlength="240"
+            placeholder="Optional note for why this run was denied."
+          ></textarea>
+          <div class="meta" id="agentDenyReasonHelp">Optional. This note appears on the denied run and the failed job.</div>
+        </div>
+        <div class="actions" style="justify-content: flex-end;">
+          <button class="deny" id="agentDenySubmitBtn">Deny agent run</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-backdrop" id="operatorIssueModal">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="operatorIssueModalTitle">
       <div class="modal-header">
@@ -2205,6 +2308,8 @@
       appending: false,
       answeringQuestionId: null,
       agentDecisionInFlight: null,
+      agentDenyModalAgentRunId: null,
+      agentDenyReasonDrafts: {},
       commandControlInFlight: null,
       dependencyActionInFlight: null,
       operatorIssueActionInFlight: null,
@@ -2248,6 +2353,15 @@
     const reviewModalFindingsEl = document.getElementById('reviewModalFindings');
     const appendModalEl = document.getElementById('appendModal');
     const appendModalInputEl = document.getElementById('appendModalInput');
+    const agentDenyModalEl = document.getElementById('agentDenyModal');
+    const agentDenyModalEyebrowEl = document.getElementById('agentDenyModalEyebrow');
+    const agentDenyModalTitleEl = document.getElementById('agentDenyModalTitle');
+    const agentDenyModalContextEl = document.getElementById('agentDenyModalContext');
+    const agentDenyReasonLabelEl = document.getElementById('agentDenyReasonLabel');
+    const agentDenyReasonEl = document.getElementById('agentDenyReason');
+    const agentDenyReasonHelpEl = document.getElementById('agentDenyReasonHelp');
+    const closeAgentDenyBtnEl = document.getElementById('closeAgentDenyBtn');
+    const agentDenySubmitBtnEl = document.getElementById('agentDenySubmitBtn');
     const operatorIssueModalEl = document.getElementById('operatorIssueModal');
     const operatorIssueModalTitleEl = document.getElementById('operatorIssueModalTitle');
     const operatorIssueModalContextEl = document.getElementById('operatorIssueModalContext');
@@ -2746,6 +2860,13 @@
       document.getElementById('closeAppendBtn').textContent = t('closeAppendBtn');
       document.getElementById('appendModalEyebrow').textContent = t('appendModalEyebrow');
       document.getElementById('appendModalTitle').textContent = t('appendModalTitle');
+      agentDenyModalEyebrowEl.textContent = t('agentDenyModalEyebrow');
+      agentDenyModalTitleEl.textContent = t('agentDenyModalTitle');
+      agentDenyModalContextEl.textContent = t('agentDenyModalContext');
+      agentDenyReasonLabelEl.textContent = t('agentDenyReasonLabel');
+      agentDenyReasonHelpEl.textContent = t('agentDenyReasonHelp');
+      closeAgentDenyBtnEl.textContent = t('operatorIssueClose');
+      agentDenySubmitBtnEl.textContent = t('agentDenySubmitAction');
       document.getElementById('openSubmitBtn').textContent = t('openSubmitBtn');
       document.getElementById('closeSubmitBtn').textContent = t('closeSubmitBtn');
       document.getElementById('workspaceRootLabel').textContent = t('workspaceRootLabel');
@@ -2792,6 +2913,7 @@
       goalInputEl.placeholder = t('goalPlaceholder');
       workspaceRootEl.placeholder = t('workspaceRootPlaceholder');
       appendModalInputEl.placeholder = t('appendPlaceholder');
+      agentDenyReasonEl.placeholder = t('agentDenyReasonPlaceholder');
       document.getElementById('instructionsHeading').textContent = t('instructionsHeading');
       document.getElementById('questionHistoryHeading').textContent = t('questionHistory');
       document.getElementById('languageSelect').value = locale;
@@ -2825,6 +2947,12 @@
         const command = commandById(state.operatorResumeModalCommandId) || selectedCommand();
         if (command) {
           renderOperatorResumeModal(command);
+        }
+      }
+      if (state.agentDenyModalAgentRunId) {
+        const agentRun = agentRunById(state.agentDenyModalAgentRunId);
+        if (agentRun && agentRun.state === 'pending_approval') {
+          renderAgentDenyModal(agentRun);
         }
       }
       if (!state.snapshot) {
@@ -3006,6 +3134,13 @@
       return snapshot.commands.items.find((item) => item.id === selected) || null;
     }
 
+    function agentRunById(agentRunId, snapshot = state.snapshot) {
+      if (!snapshot || !agentRunId) return null;
+      return snapshot.agent_runs.items.find((item) => item.id === agentRunId)
+        || snapshot.agent_runs.pending.find((item) => item.id === agentRunId)
+        || null;
+    }
+
     function selectedPendingApprovals(snapshot = state.snapshot) {
       const command = selectedCommand(snapshot);
       if (!snapshot || !command) return [];
@@ -3124,6 +3259,61 @@
       reviewModalEl.classList.remove('open');
     }
 
+    function syncAgentDenySubmitState(agentRunId = state.agentDenyModalAgentRunId) {
+      if (!agentDenySubmitBtnEl) return;
+      const busy = agentRunId && state.agentDecisionInFlight === agentRunId;
+      agentDenySubmitBtnEl.disabled = Boolean(busy || !agentRunId);
+      closeAgentDenyBtnEl.disabled = Boolean(busy);
+      agentDenyReasonEl.disabled = Boolean(busy);
+    }
+
+    function renderAgentDenyModal(agentRun) {
+      if (!agentRun) return;
+      const draft = state.agentDenyReasonDrafts[agentRun.id] || '';
+      const command = commandById(agentRun.command_id) || selectedCommand();
+      agentDenyModalEyebrowEl.textContent = t('agentDenyModalEyebrow');
+      agentDenyModalTitleEl.textContent = t('agentDenyModalTitle');
+      agentDenyModalContextEl.textContent = formatText(
+        t('agentDenyModalContext'),
+        {
+          role: roleLabel(agentRun.role_name),
+          title: commandTitle(command) || displayGoal(agentRun.title || agentRun.id),
+        }
+      );
+      agentDenyReasonLabelEl.textContent = t('agentDenyReasonLabel');
+      agentDenyReasonHelpEl.textContent = t('agentDenyReasonHelp');
+      agentDenyReasonEl.placeholder = t('agentDenyReasonPlaceholder');
+      if (agentDenyReasonEl.value !== draft) {
+        agentDenyReasonEl.value = draft;
+      }
+      closeAgentDenyBtnEl.textContent = t('operatorIssueClose');
+      agentDenySubmitBtnEl.textContent = t('agentDenySubmitAction');
+      syncAgentDenySubmitState(agentRun.id);
+    }
+
+    function openAgentDenyModal(agentRunId) {
+      const agentRun = agentRunById(agentRunId);
+      if (!agentRun || agentRun.state !== 'pending_approval') return;
+      state.agentDenyModalAgentRunId = agentRun.id;
+      if (!(agentRun.id in state.agentDenyReasonDrafts)) {
+        state.agentDenyReasonDrafts[agentRun.id] = '';
+      }
+      renderAgentDenyModal(agentRun);
+      agentDenyModalEl.classList.add('open');
+      queueMicrotask(() => agentDenyReasonEl.focus());
+    }
+
+    function closeAgentDenyModal(options = {}) {
+      const clearDraft = Boolean(options.clearDraft);
+      const agentRunId = state.agentDenyModalAgentRunId;
+      if (clearDraft && agentRunId) {
+        delete state.agentDenyReasonDrafts[agentRunId];
+      }
+      state.agentDenyModalAgentRunId = null;
+      agentDenyModalEl.classList.remove('open');
+      syncAgentDenySubmitState(null);
+    }
+
     function composeSnapshot(summary, detail) {
       if (!summary) return null;
       return {
@@ -3176,6 +3366,14 @@
         const modalCommand = commandById(state.operatorResumeModalCommandId) || selectedCommand();
         if (modalCommand) {
           renderOperatorResumeModal(modalCommand);
+        }
+      }
+      if (state.agentDenyModalAgentRunId) {
+        const agentRun = agentRunById(state.agentDenyModalAgentRunId);
+        if (agentRun && agentRun.state === 'pending_approval') {
+          renderAgentDenyModal(agentRun);
+        } else {
+          closeAgentDenyModal({ clearDraft: true });
         }
       }
       syncAppendSubmitState();
@@ -3489,7 +3687,7 @@
       });
     }
 
-    async function submitAgentDecision(agentRunId, decision) {
+    async function submitAgentDecision(agentRunId, decision, reason = null) {
       if (state.agentDecisionInFlight) return;
       state.agentDecisionInFlight = agentRunId;
       if (state.snapshot) {
@@ -3503,8 +3701,14 @@
       try {
         await api(`/api/agent-runs/${decision}`, {
           method: 'POST',
-          body: JSON.stringify({ agent_run_id: agentRunId }),
+          body: JSON.stringify({
+            agent_run_id: agentRunId,
+            reason: decision === 'deny' ? (reason || null) : null,
+          }),
         });
+        if (decision === 'deny') {
+          closeAgentDenyModal({ clearDraft: true });
+        }
         await refreshSnapshot();
       } finally {
         state.agentDecisionInFlight = null;
@@ -3689,7 +3893,7 @@
         node.addEventListener('click', () => submitAgentDecision(node.dataset.agentAllow, 'approve'));
       });
       agentRunsListEl.querySelectorAll('[data-agent-deny]').forEach((node) => {
-        node.addEventListener('click', () => submitAgentDecision(node.dataset.agentDeny, 'deny'));
+        node.addEventListener('click', () => openAgentDenyModal(node.dataset.agentDeny));
       });
       agentRunsListEl.querySelectorAll('[data-agent-allow-batch]').forEach((node) => {
         node.addEventListener('click', () => submitAgentBatchDecision(node.dataset.agentAllowBatch));
@@ -3757,12 +3961,14 @@
       if (!selected) {
         runControlBtnEl.textContent = t('stopJob');
         runControlBtnEl.disabled = true;
+        runControlBtnEl.removeAttribute('title');
         runControlBtnEl.onclick = null;
         viewResultBtnEl.textContent = t('resultUnavailable');
         viewResultBtnEl.disabled = true;
         viewResultBtnEl.classList.remove('result-ready');
         openAppendBtnEl.textContent = t('appendAction');
         openAppendBtnEl.disabled = true;
+        openAppendBtnEl.removeAttribute('title');
         commandDetailEl.innerHTML = `<div class="meta">${escapeHtml(t('noCommandSelected'))}</div>`;
         return;
       }
@@ -3772,6 +3978,7 @@
       const resultSections = resultSectionsForCommand(snapshot, command);
       const hasResult = resultSections.length > 0;
       const appendLocked = Boolean(command?.final_response) || ['done', 'failed', 'canceled'].includes(command.stage);
+      const appendClosed = Boolean(command?.final_response) || ['done', 'canceled'].includes(command.stage);
       const terminal = ['done', 'failed', 'canceled'].includes(command.stage);
       const paused = command.stage === 'paused';
       const waitingOperator = command.stage === 'waiting_operator';
@@ -3785,25 +3992,38 @@
       if (terminal || waitingOperator) {
         runControlBtnEl.textContent = t('stopJob');
         runControlBtnEl.disabled = true;
+        runControlBtnEl.removeAttribute('title');
         runControlBtnEl.onclick = null;
       } else if (paused) {
         runControlBtnEl.textContent = t('resumeJob');
         runControlBtnEl.disabled = stopBusy;
+        if (stopBusy) {
+          runControlBtnEl.removeAttribute('title');
+        } else {
+          runControlBtnEl.setAttribute('title', t('resumeJobTooltip'));
+        }
         runControlBtnEl.onclick = () => submitCommandControl('resume', command.id);
       } else if (command.stop_requested || stopBusy) {
         runControlBtnEl.textContent = t('stoppingJob');
         runControlBtnEl.disabled = true;
+        runControlBtnEl.removeAttribute('title');
         runControlBtnEl.onclick = null;
       } else {
         runControlBtnEl.textContent = t('stopJob');
         runControlBtnEl.disabled = false;
+        runControlBtnEl.removeAttribute('title');
         runControlBtnEl.onclick = () => submitCommandControl('stop', command.id);
       }
       viewResultBtnEl.textContent = hasResult ? t('viewResult') : t('resultUnavailable');
       viewResultBtnEl.disabled = !hasResult;
       viewResultBtnEl.classList.toggle('result-ready', hasResult);
-      openAppendBtnEl.textContent = t('appendAction');
+      openAppendBtnEl.textContent = appendClosed ? t('appendUnavailable') : t('appendAction');
       openAppendBtnEl.disabled = appendLocked || state.appending;
+      if (appendClosed) {
+        openAppendBtnEl.setAttribute('title', t('appendUnavailableTooltip'));
+      } else {
+        openAppendBtnEl.removeAttribute('title');
+      }
 
       commandDetailEl.innerHTML = `
         ${pendingApprovals.length ? `
@@ -4076,6 +4296,12 @@
     document.getElementById('approvalMode').addEventListener('change', syncApprovalModeNotice);
     workspaceRootEl.addEventListener('input', syncSubmitModalState);
     allowParallelEl.addEventListener('change', syncSubmitModalState);
+    agentDenyReasonEl.addEventListener('input', () => {
+      const agentRunId = state.agentDenyModalAgentRunId;
+      if (!agentRunId) return;
+      state.agentDenyReasonDrafts[agentRunId] = agentDenyReasonEl.value;
+      syncAgentDenySubmitState(agentRunId);
+    });
     operatorResumeBackendEl.addEventListener('change', () => {
       if (state.operatorResumeModalCommandId) {
         state.operatorRetryBackendByCommand[state.operatorResumeModalCommandId] = operatorResumeBackendEl.value;
@@ -4152,6 +4378,16 @@
     document.getElementById('closeResultBtn').addEventListener('click', closeResultModal);
     document.getElementById('closeReviewBtn').addEventListener('click', closeReviewModal);
     document.getElementById('closeAppendBtn').addEventListener('click', closeAppendModal);
+    closeAgentDenyBtnEl.addEventListener('click', () => closeAgentDenyModal());
+    agentDenySubmitBtnEl.addEventListener('click', async () => {
+      const agentRunId = state.agentDenyModalAgentRunId;
+      if (!agentRunId) return;
+      await submitAgentDecision(
+        agentRunId,
+        'deny',
+        state.agentDenyReasonDrafts[agentRunId] || ''
+      );
+    });
     closeOperatorIssueBtnEl.addEventListener('click', closeOperatorIssueModal);
     closeOperatorResumeBtnEl.addEventListener('click', closeOperatorResumeModal);
     submitModalEl.addEventListener('click', (event) => {
@@ -4165,6 +4401,9 @@
     });
     appendModalEl.addEventListener('click', (event) => {
       if (event.target === appendModalEl) closeAppendModal();
+    });
+    agentDenyModalEl.addEventListener('click', (event) => {
+      if (event.target === agentDenyModalEl) closeAgentDenyModal();
     });
     operatorIssueModalEl.addEventListener('click', (event) => {
       if (event.target === operatorIssueModalEl) closeOperatorIssueModal();

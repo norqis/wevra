@@ -37,6 +37,7 @@ class OperatorIssueKind(str, Enum):
     AUTH_REQUIRED = "auth_required"
     INTERACTIVE_PROMPT = "interactive_prompt"
     RUNTIME_TIMEOUT = "runtime_timeout"
+    RUNTIME_INTERRUPTED = "runtime_interrupted"
 
 
 class CommandStage(str, Enum):
@@ -228,6 +229,7 @@ class AgentRunRecord(BaseModel):
     output_summary: Optional[str] = None
     output_log: str = ""
     error: Optional[str] = None
+    process_id: Optional[int] = None
     created_at: str
     started_at: Optional[str] = None
     finished_at: Optional[str] = None

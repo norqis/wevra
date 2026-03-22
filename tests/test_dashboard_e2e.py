@@ -102,6 +102,10 @@ def test_dashboard_browser_submit_and_view_result(tmp_path, monkeypatch):
     with dashboard_server(tmp_path) as base_url, browser_page() as page:
         page.goto(base_url)
 
+        expect(page.locator("#openAppendBtn")).to_have_text("Append Instruction")
+        expect(page.locator("#openAppendBtn")).to_be_disabled()
+        assert page.locator("#openAppendBtn").get_attribute("title") is None
+
         page.locator("#openSubmitBtn").click()
         expect(page.locator("#submitModal")).to_be_visible()
         page.locator("#workspaceRoot").fill(str(tmp_path))
@@ -313,7 +317,7 @@ def test_dashboard_browser_submit_modal_manual_notice_and_workspace_root(tmp_pat
 
         page.locator("#approvalMode").select_option("manual")
         expect(page.locator("#approvalModeNotice")).to_be_visible()
-        expect(page.locator("#approvalModeNoticeBody")).to_contain_text("エージェントタブ")
+        expect(page.locator("#approvalModeNoticeBody")).to_contain_text("AI 実行タブ")
 
         page.locator("#workflowMode").select_option("research")
         page.locator("#workspaceRoot").fill(str(workspace_root))
@@ -403,17 +407,22 @@ def test_dashboard_browser_stop_and_resume_from_workspace_actions(tmp_path, monk
 
         expect(page.locator("#questionAlert")).to_be_visible()
         expect(page.locator("#runControlBtn")).to_have_text("一時停止")
+        assert page.locator("#runControlBtn").get_attribute("title") is None
         page.locator("#runControlBtn").click()
 
         wait_for_refresh_condition(
             page,
             lambda: page.locator("#runControlBtn").inner_text() == "再開",
         )
+        expect(page.locator("#runControlBtn")).to_have_attribute(
+            "title", "この一時停止中のジョブを現在の段階から再開します。"
+        )
         page.locator("#runControlBtn").click()
         wait_for_refresh_condition(
             page,
             lambda: page.locator("#runControlBtn").inner_text() == "一時停止",
         )
+        assert page.locator("#runControlBtn").get_attribute("title") is None
 
         page.locator("#questionAlertAnswer").fill("再開して進めてください。")
         expect(page.locator("#questionAlertSubmit")).to_be_enabled()
@@ -454,6 +463,11 @@ def test_dashboard_browser_append_instruction_in_japanese_locale(tmp_path, monke
         page.locator("#questionAlertSubmit").click()
 
         expect(page.locator("#viewResultBtn")).to_be_enabled()
+        expect(page.locator("#openAppendBtn")).to_have_text("受付終了")
+        expect(page.locator("#openAppendBtn")).to_be_disabled()
+        expect(page.locator("#openAppendBtn")).to_have_attribute(
+            "title", "完了または取り下げ済みのジョブには、追加指示を送れません。"
+        )
 
 
 @pytest.mark.parametrize(
@@ -481,7 +495,12 @@ def test_dashboard_browser_workflow_modes_complete_from_ui(
         page.locator("#submitBtn").click()
 
         expect(page.locator("#viewResultBtn")).to_be_enabled()
+        expect(page.locator("#openAppendBtn")).to_have_text("Job Closed")
         expect(page.locator("#openAppendBtn")).to_be_disabled()
+        expect(page.locator("#openAppendBtn")).to_have_attribute(
+            "title",
+            "Follow-up instructions are unavailable after a job is completed or canceled.",
+        )
         if expect_reviews:
             wait_for_python_condition(lambda: len(list_reviews(settings.db_path)) == 2)
         page.locator("#refreshBtn").click()
@@ -599,6 +618,97 @@ def test_dashboard_browser_agents_tab_handles_manual_approval(tmp_path, monkeypa
         page.locator("#refreshBtn").click()
         page.locator("#overviewTab").click()
         expect(page.locator("#viewResultBtn")).to_be_enabled()
+
+
+def test_dashboard_browser_agents_tab_denies_with_operator_note(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    agents_path = tmp_path / "agents.ini"
+    parser = configparser.ConfigParser()
+    parser.read(agents_path, encoding="utf-8")
+    parser.set("implementer", "runtime", "codex")
+    parser.set("implementer", "model", "mock-implementer")
+    with agents_path.open("w", encoding="utf-8") as handle:
+        parser.write(handle)
+    settings = load_config(tmp_path)
+    monkeypatch.setattr(
+        service_module, "backend_for", lambda *args, **kwargs: service_module.MockBackend()
+    )
+
+    with dashboard_server(tmp_path) as base_url, browser_page() as page:
+        page.goto(base_url)
+
+        page.locator("#openSubmitBtn").click()
+        page.locator("#workflowMode").select_option("implementation")
+        page.locator("#approvalMode").select_option("manual")
+        page.locator("#workspaceRoot").fill(str(tmp_path))
+        page.locator("#goal").fill("agent deny note coverage")
+        page.locator("#submitBtn").click()
+
+        pending_run = wait_for_python_condition(
+            lambda: next(
+                (
+                    agent_run
+                    for agent_run in list_agent_runs(settings.db_path)
+                    if agent_run.state.value == "pending_approval"
+                ),
+                None,
+            )
+        )
+        deny_reason = "Need a human to inspect the current workspace first."
+
+        page.locator("#refreshBtn").click()
+        page.locator("#agentsTab").click()
+        page.locator(f'[data-agent-deny="{pending_run.id}"]').click()
+
+        expect(page.locator("#agentDenyModal")).to_be_visible()
+        expect(page.locator("#agentDenyModalContext")).to_contain_text("agent deny note coverage")
+        assert (
+            next(
+                run for run in list_agent_runs(settings.db_path) if run.id == pending_run.id
+            ).state.value
+            == "pending_approval"
+        )
+
+        page.locator("#agentDenyReason").fill(deny_reason)
+        page.locator("#agentDenySubmitBtn").click()
+
+        denied_run = wait_for_python_condition(
+            lambda: next(
+                (
+                    run
+                    for run in list_agent_runs(settings.db_path)
+                    if run.id == pending_run.id
+                    and run.state.value == "denied"
+                    and run.error == deny_reason
+                ),
+                None,
+            )
+        )
+        failed_command = wait_for_python_condition(
+            lambda: next(
+                (
+                    command
+                    for command in list_commands(settings.db_path)
+                    if command.id == pending_run.command_id
+                    and command.stage.value == "failed"
+                    and command.failure_reason == deny_reason
+                ),
+                None,
+            )
+        )
+
+        assert denied_run.error == deny_reason
+        assert failed_command.failure_reason == deny_reason
+
+        page.locator("#refreshBtn").click()
+        expect(page.locator("#agentDenyModal")).not_to_be_visible()
+        page.locator("#overviewTab").click()
+        expect(page.locator("#commandDetail")).to_contain_text(deny_reason)
+        expect(page.locator("#openAppendBtn")).to_have_text("Append Instruction")
+        expect(page.locator("#openAppendBtn")).to_be_disabled()
+        assert page.locator("#openAppendBtn").get_attribute("title") is None
 
 
 def test_dashboard_browser_agents_tab_groups_runs_by_role_for_completed_implementation(

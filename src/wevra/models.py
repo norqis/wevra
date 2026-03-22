@@ -25,6 +25,7 @@ class WorkflowMode(str, Enum):
     RESEARCH = "research"
     REVIEW = "review"
     PLANNING = "planning"
+    DOGFOODING = "dogfooding"
 
 
 class ApprovalMode(str, Enum):
@@ -119,6 +120,7 @@ class CommandRecord(BaseModel):
     priority: Priority
     backend: RuntimeBackend
     workspace_root: str
+    runbook_path: Optional[str] = None
     allow_parallel: bool = False
     depends_on: List[str] = Field(default_factory=list)
     dependency_state: str = "none"
@@ -263,6 +265,41 @@ class PlannerOutput(BaseModel):
     question: Optional[str] = None
     final_response: Optional[str] = None
     failure_reason: Optional[str] = None
+
+
+class JobSplitDraftItem(BaseModel):
+    key: str
+    title: str
+    goal: str
+    workflow_mode: WorkflowMode
+    workspace_path: str = "."
+    depends_on: List[str] = Field(default_factory=list)
+    allow_parallel: bool = False
+    runbook_path: Optional[str] = None
+    rationale: Optional[str] = None
+
+
+class JobSplitDraftOutput(BaseModel):
+    summary: Optional[str] = None
+    items: List[JobSplitDraftItem] = Field(default_factory=list)
+    failure_reason: Optional[str] = None
+
+
+class JobSplitPreviewItem(BaseModel):
+    key: str
+    title: str
+    goal: str
+    workflow_mode: WorkflowMode
+    workspace_root: str
+    depends_on: List[str] = Field(default_factory=list)
+    allow_parallel: bool = False
+    runbook_path: Optional[str] = None
+    rationale: Optional[str] = None
+
+
+class JobSplitPreview(BaseModel):
+    summary: Optional[str] = None
+    items: List[JobSplitPreviewItem] = Field(default_factory=list)
 
 
 class WorkerOutput(BaseModel):

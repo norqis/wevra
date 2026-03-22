@@ -127,7 +127,7 @@ def submit(
     workflow_mode: WorkflowMode = typer.Option(
         WorkflowMode.AUTO,
         "--mode",
-        help="Workflow mode: auto, implementation, research, review, or planning.",
+        help="Workflow mode: auto, implementation, research, review, planning, or dogfooding.",
     ),
     approval_mode: ApprovalMode = typer.Option(
         ApprovalMode.AUTO,
@@ -153,6 +153,11 @@ def submit(
         "--workspace-dir",
         help="Working directory for this job.",
     ),
+    runbook_path: Optional[Path] = typer.Option(
+        None,
+        "--runbook-path",
+        help="Runbook path for dogfooding jobs.",
+    ),
     db_path: Optional[Path] = typer.Option(
         None, help="Optional path to the SQLite runtime database."
     ),
@@ -167,6 +172,7 @@ def submit(
         priority=priority,
         backend=backend,
         workspace_root=workspace_root,
+        runbook_path=runbook_path,
         depends_on_command_ids=depends_on or [],
         allow_parallel=allow_parallel,
         settings=config,

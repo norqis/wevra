@@ -13,6 +13,8 @@ import wevra.service as service_module
 from wevra.cli import app
 from wevra.config import load_config
 from wevra.dashboard import create_server
+from wevra.db import connect
+from wevra.models import CommandStage
 from wevra.service import list_agent_runs, list_commands, list_instructions, list_reviews
 
 
@@ -328,6 +330,76 @@ def test_dashboard_browser_submit_modal_manual_notice_and_workspace_root(tmp_pat
         expect(page.locator("#commandDetail")).to_contain_text(str(workspace_root))
 
 
+def test_dashboard_browser_submit_modal_dogfooding_mode_shows_description_notice_and_runbook(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+    runbook = tmp_path / "docs" / "RUNBOOK.md"
+    runbook.parent.mkdir(parents=True, exist_ok=True)
+    runbook.write_text("# Runbook\n\n1. Start the app.\n", encoding="utf-8")
+
+    with dashboard_server(tmp_path) as base_url, browser_page() as page:
+        page.goto(f"{base_url}/?lang=ja")
+
+        page.locator("#openSubmitBtn").click()
+        expect(page.locator("#submitModal")).to_be_visible()
+        expect(page.locator("#modeIntroBody")).to_contain_text("最適な実行モードを自動で選びます")
+        expect(page.locator("#dogfoodingNotice")).not_to_be_visible()
+        expect(page.locator("#runbookPathField")).not_to_be_visible()
+
+        page.locator("#workflowMode").select_option("dogfooding")
+        expect(page.locator("#modeIntroBody")).to_contain_text("運用手順に沿って実際のフローを試し")
+        expect(page.locator("#dogfoodingNotice")).to_be_visible()
+        expect(page.locator("#dogfoodingNoticeBody")).to_contain_text("トークン消費量")
+        expect(page.locator("#runbookPathField")).to_be_visible()
+
+        page.locator("#workspaceRoot").fill(str(tmp_path))
+        page.locator("#runbookPath").fill(str(runbook))
+        page.locator("#goal").fill("release candidate を dogfooding する")
+        page.locator("#submitBtn").click()
+
+        expect(page.locator("#submitModal")).not_to_be_visible()
+        expect(page.locator("#commandDetail")).to_contain_text(str(runbook.resolve()))
+
+
+def test_dashboard_browser_job_split_preview_and_apply(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+    settings = load_config(tmp_path)
+
+    with dashboard_server(tmp_path) as base_url, browser_page() as page:
+        page.goto(f"{base_url}/?lang=ja")
+
+        page.locator("#openSubmitBtn").click()
+        expect(page.locator("#submitModal")).to_be_visible()
+        page.locator("#submitModeSplitTab").click()
+
+        expect(page.locator("#splitModeHelper")).to_contain_text(
+            "AI が依存関係つきの複数ジョブ案を作成します。投入前に確認ができます。"
+        )
+        expect(page.locator("#singleWorkflowField")).to_be_hidden()
+
+        page.locator("#workspaceRoot").fill(str(tmp_path))
+        page.locator("#backend").select_option("mock")
+        page.locator("#goal").fill("Update docs and implementation for the same change")
+        page.locator("#generateSplitPreviewBtn").click()
+
+        expect(page.locator("#splitPreviewSection")).to_be_visible()
+        expect(page.locator("#splitPreviewTabs [data-split-preview-tab]")).to_have_count(3)
+        expect(page.locator("#splitPreviewDetail")).to_contain_text("実装を進める")
+        page.locator('#splitPreviewTabs [data-split-preview-tab="1"]').click()
+        expect(page.locator("#splitPreviewDetail")).to_contain_text("仕様書と案内を更新する")
+        page.locator('#splitPreviewTabs [data-split-preview-tab="2"]').click()
+        expect(page.locator("#splitPreviewDetail")).to_contain_text("仕上がりを確認する")
+
+        page.locator("#applySplitPreviewBtn").click()
+
+        wait_for_python_condition(lambda: len(list_commands(settings.db_path)) == 3)
+        expect(page.locator("#commandsList .command-item")).to_have_count(3)
+        expect(page.locator("#submitModal")).not_to_be_visible()
+
+
 def test_dashboard_browser_dependency_picker_and_overlap_warning(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
@@ -350,14 +422,190 @@ def test_dashboard_browser_dependency_picker_and_overlap_warning(tmp_path, monke
         expect(page.locator("#workspaceOverlapNoticeBody")).to_contain_text("先行ジョブ")
         expect(page.locator("#allowParallel")).to_be_disabled()
 
-        page.locator('#dependencyOptions input[type="checkbox"]').check()
+        first_command = service_module.list_commands(load_config(tmp_path).db_path)[0]
+        with connect(load_config(tmp_path).db_path) as conn:
+            conn.execute(
+                "UPDATE commands SET stage = ?, updated_at = ? WHERE id = ?",
+                (CommandStage.DONE.value, service_module.utc_now(), first_command.id),
+            )
+            conn.commit()
+
+        page.wait_for_timeout(3200)
         expect(page.locator("#workspaceOverlapNotice")).not_to_be_visible()
-        expect(page.locator("#allowParallel")).to_be_disabled()
+        expect(page.locator("#allowParallel")).to_be_enabled()
+        expect(page.locator("#dependencyOptions")).not_to_contain_text("先行ジョブ")
+
         page.locator("#goal").fill("後続ジョブ")
+        page.locator("#allowParallel").check()
         page.locator("#submitBtn").click()
 
-        expect(page.locator("#commandDetail")).to_contain_text("依存ジョブ")
-        expect(page.locator("#commandDetail")).to_contain_text("先行ジョブ")
+        expect(page.locator("#commandDetail")).to_contain_text("並列")
+
+
+def test_dashboard_browser_dependency_canceled_state_disables_workspace_actions(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+    settings = load_config(tmp_path)
+
+    dependency = service_module.submit_command(
+        settings.db_path,
+        goal="先行ジョブ",
+        workflow_mode=service_module.WorkflowMode.RESEARCH,
+        priority=service_module.Priority.HIGH,
+        workspace_root=tmp_path / "workspace-a",
+        settings=settings,
+        repo_root=tmp_path,
+    )
+    blocked = service_module.submit_command(
+        settings.db_path,
+        goal="後続ジョブ",
+        workflow_mode=service_module.WorkflowMode.RESEARCH,
+        priority=service_module.Priority.HIGH,
+        workspace_root=tmp_path / "workspace-b",
+        depends_on_command_ids=[dependency.id],
+        settings=settings,
+        repo_root=tmp_path,
+    )
+    service_module.cancel_command(
+        settings.db_path,
+        dependency.id,
+        reason="先行ジョブを取り下げました。",
+    )
+
+    with dashboard_server(tmp_path) as base_url, browser_page() as page:
+        page.goto(f"{base_url}/?lang=ja")
+
+        page.locator(f'#commandsList [data-command-id="{blocked.id}"]').click()
+        expect(page.locator("#commandDetail")).to_contain_text("依存ジョブが取り下げられました")
+        expect(page.locator("#commandDetail")).to_contain_text(
+            "このジョブをどうするか選んでください"
+        )
+        expect(page.locator("#runControlBtn")).to_be_disabled()
+        expect(page.locator("#cancelJobBtn")).to_be_disabled()
+        expect(page.locator("#commandsList")).to_contain_text("取り下げ済み")
+
+        page.locator("[data-cancel-command]").click()
+        wait_for_refresh_condition(
+            page,
+            lambda: expect(page.locator("#commandDetail")).not_to_contain_text(
+                "依存ジョブが取り下げられました"
+            ),
+        )
+        expect(page.locator("#commandDetail")).not_to_contain_text("Canceled by operator.")
+        expect(page.locator("#commandDetail")).not_to_contain_text(
+            "このジョブをどうするか選んでください"
+        )
+        expect(page.locator("[data-ignore-dependencies]")).to_have_count(0)
+        expect(page.locator("[data-cancel-command]")).to_have_count(0)
+
+
+def test_dashboard_browser_command_list_orders_active_waiting_then_terminal_and_fills_height(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+    settings = load_config(tmp_path)
+    monkeypatch.setattr(
+        "wevra.dashboard.tick_once",
+        lambda *args, **kwargs: service_module.TickOutcome(action="idle"),
+    )
+
+    running = service_module.submit_command(
+        settings.db_path,
+        goal="実行中ジョブ",
+        workflow_mode=service_module.WorkflowMode.RESEARCH,
+        priority=service_module.Priority.HIGH,
+        workspace_root=tmp_path / "workspace-running",
+        settings=settings,
+        repo_root=tmp_path,
+    )
+    waiting_one = service_module.submit_command(
+        settings.db_path,
+        goal="待機ジョブ1",
+        workflow_mode=service_module.WorkflowMode.RESEARCH,
+        priority=service_module.Priority.HIGH,
+        workspace_root=tmp_path / "workspace-waiting-1",
+        depends_on_command_ids=[running.id],
+        settings=settings,
+        repo_root=tmp_path,
+    )
+    service_module.submit_command(
+        settings.db_path,
+        goal="待機ジョブ2",
+        workflow_mode=service_module.WorkflowMode.RESEARCH,
+        priority=service_module.Priority.HIGH,
+        workspace_root=tmp_path / "workspace-waiting-2",
+        depends_on_command_ids=[running.id, waiting_one.id],
+        settings=settings,
+        repo_root=tmp_path,
+    )
+    done = service_module.submit_command(
+        settings.db_path,
+        goal="完了ジョブ",
+        workflow_mode=service_module.WorkflowMode.RESEARCH,
+        priority=service_module.Priority.HIGH,
+        workspace_root=tmp_path / "workspace-done",
+        settings=settings,
+        repo_root=tmp_path,
+    )
+    canceled = service_module.submit_command(
+        settings.db_path,
+        goal="取り下げジョブ",
+        workflow_mode=service_module.WorkflowMode.RESEARCH,
+        priority=service_module.Priority.HIGH,
+        workspace_root=tmp_path / "workspace-canceled",
+        settings=settings,
+        repo_root=tmp_path,
+    )
+
+    with connect(settings.db_path) as conn:
+        conn.execute(
+            "UPDATE commands SET stage = ?, updated_at = ? WHERE id = ?",
+            (CommandStage.RUNNING.value, "2026-03-23T10:00:00+00:00", running.id),
+        )
+        conn.execute(
+            "UPDATE commands SET stage = ?, updated_at = ? WHERE id = ?",
+            (CommandStage.DONE.value, "2026-03-23T10:05:00+00:00", done.id),
+        )
+        conn.execute(
+            "UPDATE commands SET stage = ?, updated_at = ?, failure_reason = ? WHERE id = ?",
+            (
+                CommandStage.CANCELED.value,
+                "2026-03-23T10:10:00+00:00",
+                "取り下げました。",
+                canceled.id,
+            ),
+        )
+        conn.commit()
+
+    with dashboard_server(tmp_path) as base_url, browser_page() as page:
+        page.goto(f"{base_url}/?lang=ja")
+
+        titles = page.locator("#commandsList .command-item .title").all_inner_texts()
+        assert titles[:5] == [
+            "実行中ジョブ",
+            "待機ジョブ1",
+            "待機ジョブ2",
+            "取り下げジョブ",
+            "完了ジョブ",
+        ]
+
+        metrics = page.evaluate(
+            """
+            () => {
+              const list = document.querySelector('#commandsList');
+              const rect = list.getBoundingClientRect();
+              return {
+                bottomGap: window.innerHeight - rect.bottom,
+                height: rect.height,
+              };
+            }
+            """
+        )
+        assert metrics["bottomGap"] < 40
+        assert metrics["height"] > 700
 
 
 def test_dashboard_browser_question_answer_survives_refresh_and_resumes(tmp_path, monkeypatch):
@@ -407,7 +655,18 @@ def test_dashboard_browser_stop_and_resume_from_workspace_actions(tmp_path, monk
 
         expect(page.locator("#questionAlert")).to_be_visible()
         expect(page.locator("#runControlBtn")).to_have_text("一時停止")
+        expect(page.locator("#cancelJobBtn")).to_have_text("キャンセル")
         assert page.locator("#runControlBtn").get_attribute("title") is None
+        page.locator("#cancelJobBtn").click()
+        expect(page.locator("#operatorIssueModal")).to_be_visible()
+        expect(page.locator("#operatorIssueModalTitle")).to_contain_text(
+            "このジョブを取り下げますか"
+        )
+        expect(page.locator("#operatorIssueModalContext")).to_contain_text(
+            "途中までの変更が残ることがあります"
+        )
+        page.locator("#closeOperatorIssueBtn").click()
+        expect(page.locator("#operatorIssueModal")).not_to_be_visible()
         page.locator("#runControlBtn").click()
 
         wait_for_refresh_condition(
@@ -463,7 +722,7 @@ def test_dashboard_browser_append_instruction_in_japanese_locale(tmp_path, monke
         page.locator("#questionAlertSubmit").click()
 
         expect(page.locator("#viewResultBtn")).to_be_enabled()
-        expect(page.locator("#openAppendBtn")).to_have_text("受付終了")
+        expect(page.locator("#openAppendBtn")).to_have_text("追加指示")
         expect(page.locator("#openAppendBtn")).to_be_disabled()
         expect(page.locator("#openAppendBtn")).to_have_attribute(
             "title", "完了または取り下げ済みのジョブには、追加指示を送れません。"
@@ -495,7 +754,7 @@ def test_dashboard_browser_workflow_modes_complete_from_ui(
         page.locator("#submitBtn").click()
 
         expect(page.locator("#viewResultBtn")).to_be_enabled()
-        expect(page.locator("#openAppendBtn")).to_have_text("Job Closed")
+        expect(page.locator("#openAppendBtn")).to_have_text("Append Instruction")
         expect(page.locator("#openAppendBtn")).to_be_disabled()
         expect(page.locator("#openAppendBtn")).to_have_attribute(
             "title",

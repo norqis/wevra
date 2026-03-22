@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS commands (
     priority TEXT NOT NULL,
     backend TEXT NOT NULL DEFAULT 'inherit',
     workspace_root TEXT NOT NULL DEFAULT '.',
+    runbook_path TEXT,
     allow_parallel INTEGER NOT NULL DEFAULT 0,
     resume_stage TEXT,
     resume_hint TEXT,
@@ -186,6 +187,7 @@ def initialize_database(db_path: Path) -> Path:
         ensure_column(conn, "commands", "effective_mode", "TEXT")
         ensure_column(conn, "commands", "backend", "TEXT NOT NULL DEFAULT 'inherit'")
         ensure_column(conn, "commands", "workspace_root", "TEXT NOT NULL DEFAULT '.'")
+        ensure_column(conn, "commands", "runbook_path", "TEXT")
         ensure_column(conn, "commands", "allow_parallel", "INTEGER NOT NULL DEFAULT 0")
         ensure_column(conn, "commands", "resume_stage", "TEXT")
         ensure_column(conn, "commands", "resume_hint", "TEXT")

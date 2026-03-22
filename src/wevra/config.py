@@ -5,7 +5,7 @@ import os
 from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
 from wevra.models import RuntimeBackend
 
@@ -58,6 +58,7 @@ class AppConfig:
     language: str
     runtime_home: Path | None
     agent_timeout_seconds: int
+    test_command: Optional[str]
     ui_port: int
     ui_auto_start: bool
     ui_open_browser: bool
@@ -70,10 +71,19 @@ class AppConfig:
         role_name = CAPABILITY_TO_ROLE.get(capability, capability)
         if role_name in self.roles:
             return self.roles[role_name]
+        implementer_role = self.roles.get("implementer")
+        if implementer_role is not None:
+            return RoleConfig(
+                name=role_name,
+                runtime=implementer_role.runtime,
+                model=implementer_role.model,
+                count=implementer_role.count,
+            )
         default = ROLE_DEFAULTS.get("implementer")
         return RoleConfig(
             name=role_name,
             runtime=default["runtime"],
+            model="",
             count=default["count"],
         )
 
@@ -190,6 +200,7 @@ def load_config(repo_root: Path) -> AppConfig:
         language=parser.get("runtime", "language", fallback="en").strip() or "en",
         runtime_home=runtime_home,
         agent_timeout_seconds=agent_timeout_seconds,
+        test_command=parser.get("testing", "command", fallback="").strip() or None,
         ui_port=parser.getint("ui", "port", fallback=43861),
         ui_auto_start=normalize_bool(parser.get("ui", "auto_start", fallback="true")),
         ui_open_browser=normalize_bool(parser.get("ui", "open_browser", fallback="true")),

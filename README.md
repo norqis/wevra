@@ -2,9 +2,7 @@
 
 [日本語](README.ja.md)
 
-Wevra is an orchestration engine for AI jobs.
-
-It is built for AI job workflows with approval gates, dependencies, and a live dashboard for Codex and Claude Code.
+Wevra is an orchestration engine for AI jobs, with approval gates, dependencies, and a browser dashboard for Codex and Claude Code.
 
 With a single job, Wevra can carry work from planning and implementation through tests and final review.
 
@@ -24,12 +22,12 @@ Wevra can run a job in these execution modes:
 
 Also:
 
-- question handling with pause-and-resume flow
+- question handling and resume after operator input
 - interrupted AI recovery with runtime switching
 - explicit dependencies and safe parallel execution for independent workspaces
 - operator approval gates for risky agent actions
-- browser-based dashboard for daily operation
-- follow-up instructions that can be appended while active work is in progress
+- browser dashboard for day-to-day operation
+- follow-up instructions for active jobs
 - structured markdown results with in-dashboard viewing and download
 - live visibility into tasks, reviews, agents, and results
 
@@ -72,7 +70,6 @@ From the dashboard you can:
 - start a new job and choose its execution mode, approval style, AI, working directory, and optional dependencies
 - watch progress, tasks, reviews, live agent logs, and results in real time
 - answer questions, approve or deny agent actions, and recover interrupted AI runs
-- pause a running job at a safe boundary and resume it later
 - run independent jobs in parallel when their workspaces do not overlap
 - append follow-up instructions to active work
 - open structured result sections in the dashboard and download the current section as `.md`
@@ -137,7 +134,6 @@ Retry or repair an interrupted AI run:
 4. Top-level jobs stay serial by default. Independent jobs can opt into safe parallel execution when their workspaces do not overlap.
 5. If clarification is needed, Wevra pauses and asks the user.
 6. If agent actions require operator approval, Wevra pauses and waits in the `Agents` tab until each run is allowed or denied.
-   You can also approve the whole job, or a whole role such as `implementer`, in one action.
 7. If a dependency fails, the blocked job stays out of execution until you ignore the dependency or cancel the job from the overview.
 8. In `implementation` mode, Wevra runs the existing test suite and then the final review pass.
 9. Work is only complete when the final review passes.

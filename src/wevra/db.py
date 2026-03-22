@@ -143,6 +143,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     output_summary TEXT,
     output_log TEXT NOT NULL DEFAULT '',
     error TEXT,
+    process_id INTEGER,
     created_at TEXT NOT NULL,
     started_at TEXT,
     finished_at TEXT,
@@ -253,6 +254,7 @@ def initialize_database(db_path: Path) -> Path:
                 output_summary TEXT,
                 output_log TEXT NOT NULL DEFAULT '',
                 error TEXT,
+                process_id INTEGER,
                 created_at TEXT NOT NULL,
                 started_at TEXT,
                 finished_at TEXT,
@@ -263,5 +265,6 @@ def initialize_database(db_path: Path) -> Path:
         ensure_column(conn, "artifacts", "body", "TEXT NOT NULL DEFAULT ''")
         ensure_column(conn, "agent_runs", "resume_stage", "TEXT NOT NULL DEFAULT 'running'")
         ensure_column(conn, "agent_runs", "output_log", "TEXT NOT NULL DEFAULT ''")
+        ensure_column(conn, "agent_runs", "process_id", "INTEGER")
         conn.commit()
     return db_path

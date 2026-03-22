@@ -1,0 +1,29 @@
+[coordinator]
+runtime = mock
+model =
+
+[planner]
+runtime = mock
+model =
+
+[investigation]
+runtime = mock
+model =
+
+[analyst]
+runtime = mock
+model =
+
+[tester]
+runtime = mock
+model =
+
+[implementer]
+runtime = mock
+model =
+count = 4
+
+[reviewer]
+runtime = mock
+model =
+count = 2

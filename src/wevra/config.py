@@ -3,69 +3,17 @@ from __future__ import annotations
 import configparser
 import os
 from dataclasses import dataclass, field
+from importlib import resources
 from pathlib import Path
 from typing import Dict
 
 from wevra.models import RuntimeBackend
 
-
-DEFAULT_WEVRA_INI = """[runtime]
-db_path = .wevra/wevra.db
-language = en
-agent_timeout_seconds = 1800
-home =
-
-[ui]
-auto_start = true
-port = 43861
-open_browser = true
-language =
-
-[notification]
-question_opened = false
-workflow_completed = false
-
-[discord]
-enable = false
-webhook_url = DISCORD_WEBHOOK_URL
-"""
-
-
-DEFAULT_AGENTS_INI = """[coordinator]
-runtime = mock
-model =
-
-[planner]
-runtime = mock
-model =
-
-[investigation]
-runtime = mock
-model =
-
-[analyst]
-runtime = mock
-model =
-
-[tester]
-runtime = mock
-model =
-
-[implementer]
-runtime = mock
-model =
-count = 4
-
-[reviewer]
-runtime = mock
-model =
-count = 2
-"""
-
-
-DEFAULT_ENV = """# Local notification secrets for Wevra.
-DISCORD_WEBHOOK_URL=
-"""
+EXAMPLE_FILENAMES = {
+    "wevra.ini": "wevra.ini.example",
+    "agents.ini": "agents.ini.example",
+    ".env": ".env.example",
+}
 
 
 ROLE_DEFAULTS = {
@@ -157,18 +105,28 @@ def resolve_optional_config_path(value: str, repo_root: Path) -> Path | None:
     return path
 
 
+def template_repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def read_example_template(filename: str) -> str:
+    example_name = EXAMPLE_FILENAMES[filename]
+    template_path = template_repo_root() / example_name
+    if template_path.is_file():
+        return template_path.read_text(encoding="utf-8")
+    return (
+        resources.files("wevra").joinpath(f"templates/{example_name}").read_text(encoding="utf-8")
+    )
+
+
 def init_repo_config(repo_root: Path) -> Dict[str, str]:
     repo_root = repo_root.resolve()
     created: Dict[str, str] = {}
-    files = {
-        repo_root / "wevra.ini": DEFAULT_WEVRA_INI,
-        repo_root / "agents.ini": DEFAULT_AGENTS_INI,
-        repo_root / ".env": DEFAULT_ENV,
-    }
-    for path, content in files.items():
+    for target_name in EXAMPLE_FILENAMES:
+        path = repo_root / target_name
         if path.exists():
             continue
-        path.write_text(content, encoding="utf-8")
+        path.write_text(read_example_template(target_name), encoding="utf-8")
         created[path.name] = str(path)
     return created
 

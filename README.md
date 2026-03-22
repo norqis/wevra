@@ -43,7 +43,7 @@ python3 -m venv .venv
 ./wevra init
 ```
 
-`wevra init` creates local config files such as `wevra.ini`, `agents.ini`, and `.env`.
+`wevra init` copies `wevra.ini.example`, `agents.ini.example`, and `.env.example` into local working files.
 
 ## Configure Wevra
 
@@ -52,6 +52,8 @@ After `./wevra init`, adjust the generated local config files if needed:
 - `wevra.ini`: dashboard port, notifications, runtime defaults, and an optional CLI `HOME` override
 - `agents.ini`: which runtime and model each role should use
 - `.env`: local secrets such as `DISCORD_WEBHOOK_URL`
+
+If you want to inspect the default values before running `init`, open the `*.example` files in the repository root.
 
 ## Quick Start
 
@@ -150,7 +152,7 @@ You can also manage the dashboard from the CLI:
 
 ## Configuration Reference
 
-`wevra init` creates these local files:
+`wevra init` creates these local files from the matching `*.example` files in the repository root:
 
 - `wevra.ini`
 - `agents.ini`
@@ -193,9 +195,7 @@ Controls which runtime and model each role uses.
 | `implementer` | `runtime`, `model`, `count` | Runtime, model, and parallel worker count for implementation work. |
 | `reviewer` | `runtime`, `model`, `count` | Runtime, model, and parallel reviewer count for final review. |
 
-Supported `runtime` values are `mock`, `codex`, and `claude`.
-
-`mock` is for demos, local development, CI, and flow verification. It does not perform real implementation or review work through Codex or Claude. Before using Wevra for real work, switch roles such as `planner`, `implementer`, and `reviewer` to `codex` or `claude`.
+Use the runtime identifiers shown in the generated `agents.ini` for each role.
 
 Approval is chosen per job from the dashboard or CLI. Use `auto` when you want Codex or Claude runs to proceed without an operator step, or `manual` when you want Wevra to pause in the `Agents` tab and wait for allow or deny decisions.
 

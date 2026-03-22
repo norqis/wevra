@@ -75,6 +75,7 @@ from wevra.service import (
     execute_deterministic_test_task,
     infer_mode_from_goal,
     infer_mode_from_specs,
+    generate_job_split_preview,
     ignore_command_dependencies,
     is_deterministic_test_gate,
     cancel_command_with_repair,
@@ -92,7 +93,9 @@ from wevra.service import (
     resolve_settings,
     select_actionable_command,
     select_ready_batch,
+    _split_preview_prompt,
     submit_command,
+    submit_job_split_preview,
     tick_once,
     cancel_command,
     workspace_roots_overlap,
@@ -326,6 +329,134 @@ def test_execute_deterministic_test_task_runs_configured_command(tmp_path):
     assert "Executed existing tests" in (output.summary or "")
     assert output.result["test_command"] == [str(script)]
     assert output.result["stdout_tail"] == ["tests ok"]
+
+
+def test_submit_command_requires_existing_runbook_path_for_dogfooding(tmp_path):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+
+    with pytest.raises(ValueError, match="runbook_path_required"):
+        submit_direct(
+            tmp_path,
+            settings,
+            goal="dogfood this workspace",
+            workflow_mode=WorkflowMode.DOGFOODING,
+            priority=Priority.HIGH,
+        )
+
+    with pytest.raises(ValueError, match="runbook_path_not_found"):
+        submit_direct(
+            tmp_path,
+            settings,
+            goal="dogfood this workspace",
+            workflow_mode=WorkflowMode.DOGFOODING,
+            priority=Priority.HIGH,
+            runbook_path=tmp_path / "missing-runbook.md",
+        )
+
+    runbook = tmp_path / "RUNBOOK.md"
+    runbook.write_text("# Runbook\n\n1. Start the app.\n", encoding="utf-8")
+
+    command = submit_direct(
+        tmp_path,
+        settings,
+        goal="dogfood this workspace",
+        workflow_mode=WorkflowMode.DOGFOODING,
+        priority=Priority.HIGH,
+        runbook_path=runbook,
+    )
+
+    assert command.runbook_path == str(runbook.resolve())
+
+
+def test_generate_job_split_preview_returns_dependency_graph(tmp_path):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+
+    preview = generate_job_split_preview(
+        goal="Update docs and implementation for the same change",
+        workspace_root=tmp_path,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+
+    assert len(preview.items) == 3
+    assert preview.items[0].key == "implement"
+    assert preview.items[1].key == "docs"
+    assert preview.items[0].title == "Implement the requested change"
+    assert "Apply the requested code changes in the main workspace" in preview.items[0].goal
+    assert preview.items[1].allow_parallel is False
+    assert preview.items[2].depends_on == ["implement", "docs"]
+    assert preview.items[1].workspace_root == str((tmp_path / "docs").resolve())
+    assert "documentation and usage notes" in preview.items[1].goal
+    assert "implementation and documentation updates together" in preview.items[2].goal
+
+
+def test_generate_job_split_preview_uses_requested_locale(tmp_path):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+
+    preview = generate_job_split_preview(
+        goal="README と CLI 表示を整理する",
+        workspace_root=tmp_path,
+        settings=settings,
+        repo_root=tmp_path,
+        locale="ja",
+    )
+
+    assert preview.summary == "計画、実装、確認の3段階に分けて進めます。"
+    assert preview.items[0].title == "変更計画を固める"
+    assert "具体的な計画を作成する" in preview.items[0].goal
+    assert preview.items[1].title == "変更を実装する"
+    assert preview.items[2].title == "仕上がりをレビューする"
+
+
+def test_submit_job_split_preview_creates_commands_with_dependencies(tmp_path):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+
+    preview = generate_job_split_preview(
+        goal="Update docs and implementation for the same change",
+        workspace_root=tmp_path,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+
+    created = submit_job_split_preview(
+        settings.db_path,
+        preview=preview,
+        approval_mode=ApprovalMode.AUTO,
+        priority=Priority.HIGH,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+
+    assert len(created) == 3
+    assert {command.goal for command in created} == {item.goal for item in preview.items}
+    docs_command = next(command for command in created if command.workspace_root.endswith("/docs"))
+    verify_command = next(
+        command
+        for command in created
+        if "Review the finished implementation and documentation updates together" in command.goal
+    )
+    assert docs_command.depends_on == []
+    assert docs_command.allow_parallel is False
+    assert len(verify_command.depends_on) == 2
+
+
+def test_split_preview_prompt_requires_concrete_job_goals(tmp_path):
+    prompt = _split_preview_prompt(
+        "Rename CLI flags and update the README usage examples",
+        str(tmp_path),
+        None,
+        locale="ja",
+    )
+
+    assert "Write each goal as a self-contained job brief" in prompt
+    assert "Avoid vague goals such as 'prepare the approach'" in prompt
+    assert "For planning jobs, state what plan or specification should be produced." in prompt
+    assert "Update the README and CLI help text to match the new flag names." in prompt
+    assert "Write the summary, titles, goals, and rationale in Japanese." in prompt
 
 
 def test_codex_schema_preparer_makes_object_schemas_strict():
@@ -1474,10 +1605,13 @@ def test_service_mode_helpers_and_context_payload_cover_inference_paths(tmp_path
     assert requested_mode(command) == WorkflowMode.AUTO
     assert effective_mode(command) == WorkflowMode.IMPLEMENTATION
     assert mode_requires_review(WorkflowMode.REVIEW) is True
+    assert mode_requires_review(WorkflowMode.DOGFOODING) is True
     assert mode_requires_test(WorkflowMode.RESEARCH) is False
+    assert mode_requires_test(WorkflowMode.DOGFOODING) is True
     assert infer_mode_from_goal("Please investigate and report") == WorkflowMode.RESEARCH
     assert infer_mode_from_goal("Please review this diff") == WorkflowMode.REVIEW
     assert infer_mode_from_goal("Please design a rollout plan") == WorkflowMode.PLANNING
+    assert infer_mode_from_goal("Dogfood the release runbook") == WorkflowMode.DOGFOODING
     assert (
         infer_mode_from_specs(
             [
@@ -1520,6 +1654,9 @@ def test_service_mode_helpers_and_context_payload_cover_inference_paths(tmp_path
     assert "## Plan" in planning_guidance
     assert "## Design Direction" in planning_guidance
     assert "## Task Breakdown" in planning_guidance
+    dogfooding_guidance = mode_prompt_guidance(WorkflowMode.DOGFOODING)
+    assert "dogfooding mode" in dogfooding_guidance
+    assert "runbook path" in dogfooding_guidance
 
     specs = add_mode_control_tasks(
         WorkflowMode.IMPLEMENTATION,
@@ -1536,6 +1673,14 @@ def test_service_mode_helpers_and_context_payload_cover_inference_paths(tmp_path
     assert specs[-1].capability == "tester"
     assert add_mode_control_tasks(WorkflowMode.REVIEW, specs[:-1]) == specs[:-1]
     assert build_final_test_spec(["impl"]).depends_on == ["impl"]
+    dogfood_specs = add_mode_control_tasks(
+        WorkflowMode.DOGFOODING,
+        specs[:-1],
+        runbook_path="/tmp/RUNBOOK.md",
+    )
+    assert dogfood_specs[-1].input_payload["gate"] == "dogfooding_runbook"
+    assert dogfood_specs[-1].input_payload["runbook_path"] == "/tmp/RUNBOOK.md"
+    assert dogfood_specs[-1].kind == "dogfooding"
 
     context = build_context_payload(command, [task], [], [], [], task=task)
     assert context["command"]["id"] == "cmd_helpers"
@@ -1895,6 +2040,69 @@ def test_parallel_jobs_can_start_when_workspaces_do_not_overlap(tmp_path):
     assert first_tick.command.id == first.id
     second_tick = tick_once(settings.db_path, settings=settings, repo_root=tmp_path)
     assert second_tick.command.id == second.id
+
+
+def test_submit_command_rejects_parallel_overlap_with_active_job(tmp_path):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    initialize_database(settings.db_path)
+
+    submit_command(
+        settings.db_path,
+        goal="active first",
+        workflow_mode=WorkflowMode.PLANNING,
+        priority=Priority.HIGH,
+        workspace_root=tmp_path / "workspace-a",
+        settings=settings,
+        repo_root=tmp_path,
+    )
+
+    with pytest.raises(ValueError, match="parallel_workspace_overlap"):
+        submit_command(
+            settings.db_path,
+            goal="parallel overlap",
+            workflow_mode=WorkflowMode.PLANNING,
+            priority=Priority.HIGH,
+            workspace_root=tmp_path / "workspace-a" / "child",
+            allow_parallel=True,
+            settings=settings,
+            repo_root=tmp_path,
+        )
+
+
+def test_submit_command_allows_parallel_when_overlapping_job_is_done(tmp_path):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    initialize_database(settings.db_path)
+
+    first = submit_command(
+        settings.db_path,
+        goal="finished first",
+        workflow_mode=WorkflowMode.PLANNING,
+        priority=Priority.HIGH,
+        workspace_root=tmp_path / "workspace-a",
+        settings=settings,
+        repo_root=tmp_path,
+    )
+    with connect(settings.db_path) as conn:
+        conn.execute(
+            "UPDATE commands SET stage = ?, updated_at = ? WHERE id = ?",
+            (CommandStage.DONE.value, service_module.utc_now(), first.id),
+        )
+        conn.commit()
+
+    second = submit_command(
+        settings.db_path,
+        goal="parallel after done",
+        workflow_mode=WorkflowMode.PLANNING,
+        priority=Priority.HIGH,
+        workspace_root=tmp_path / "workspace-a" / "child",
+        allow_parallel=True,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+
+    assert second.allow_parallel is True
 
 
 def test_ignore_dependencies_and_cancel_actions_for_failed_prerequisite(tmp_path):

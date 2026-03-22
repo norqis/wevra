@@ -220,6 +220,10 @@
       min-width: 0;
     }
 
+    .field-stack.compact {
+      gap: 2px;
+    }
+
     .field-label {
       color: var(--muted);
       font-size: 11px;
@@ -236,12 +240,115 @@
 
     .modal-form {
       display: grid;
-      gap: 10px;
+      gap: 8px;
+    }
+
+    .submit-mode-tabs,
+    .split-preview-tabs {
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 0;
+      align-items: flex-end;
+      padding: 0;
+      margin: 0;
+      border-bottom: 1px solid rgba(151, 176, 214, 0.14);
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: thin;
+    }
+
+    .submit-mode-tab,
+    .split-preview-tab {
+      position: relative;
+      min-height: 36px;
+      padding: 0 16px;
+      border-radius: 9px 9px 0 0;
+      border: 1px solid rgba(151, 176, 214, 0.16);
+      border-bottom-color: transparent;
+      background: rgba(255, 255, 255, 0.03);
+      color: rgba(231, 238, 247, 0.82);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      margin-bottom: -1px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      flex: 0 0 auto;
+    }
+
+    .submit-mode-tab:hover,
+    .split-preview-tab:hover {
+      transform: none;
+      color: rgba(248, 251, 255, 0.94);
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .submit-mode-tab.active,
+    .split-preview-tab.active {
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03)),
+        rgba(8, 12, 18, 0.98);
+      border-color: rgba(151, 176, 214, 0.20);
+      color: rgba(248, 251, 255, 0.98);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.06),
+        0 -1px 0 rgba(8, 12, 18, 0.98);
+      z-index: 1;
+    }
+
+    .submit-mode-helper {
+      color: rgba(214, 224, 240, 0.78);
+      font-size: 12px;
+      line-height: 1.45;
+      margin: 0;
+    }
+
+    .submit-mode-guide {
+      display: grid;
+      gap: 4px;
+      padding: 12px 14px;
+      border-radius: 16px;
+      border: 1px solid rgba(151, 176, 214, 0.14);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02)),
+        rgba(4, 8, 14, 0.48);
+    }
+
+    .submit-mode-guide-title {
+      color: rgba(246, 249, 255, 0.97);
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.35;
+    }
+
+    .submit-mode-guide-body,
+    .submit-inline-guide {
+      color: rgba(214, 224, 240, 0.74);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .submit-inline-guide {
+      margin-top: -2px;
+    }
+
+    .field-stack.hidden {
+      display: none;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .mode-intro-body {
+      margin-top: 2px;
+      margin-bottom: 0;
+      color: rgba(214, 224, 240, 0.78);
+      font-size: 12px;
+      line-height: 1.35;
     }
 
     .modal-form .toolbar-controls {
       grid-template-columns:
-        minmax(140px, max-content)
         minmax(116px, max-content)
         minmax(92px, max-content)
         minmax(148px, max-content)
@@ -387,6 +494,173 @@
       color: rgba(255, 226, 220, 0.9);
     }
 
+    .split-preview-shell {
+      display: none;
+      gap: 10px;
+      margin-top: 2px;
+    }
+
+    .split-preview-shell.visible {
+      display: grid;
+    }
+
+    .split-preview-head {
+      display: grid;
+      gap: 4px;
+    }
+
+    .split-preview-summary {
+      color: rgba(214, 224, 240, 0.74);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .split-preview-pane {
+      display: grid;
+      gap: 0;
+    }
+
+    .split-preview-detail {
+      display: grid;
+      gap: 12px;
+      padding: 14px 16px;
+      border-radius: 0 0 16px 16px;
+      border: 1px solid rgba(151, 176, 214, 0.14);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02)),
+        rgba(4, 8, 14, 0.46);
+    }
+
+    .split-preview-detail-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    .split-preview-detail-copy {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .split-preview-detail-title {
+      margin: 0;
+      color: rgba(246, 249, 255, 0.97);
+      font-size: 16px;
+      line-height: 1.35;
+    }
+
+    .split-preview-detail-goal {
+      color: rgba(228, 235, 245, 0.86);
+      font-size: 13px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .split-preview-detail-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px 16px;
+    }
+
+    .split-preview-meta {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .split-preview-meta-label {
+      color: rgba(193, 204, 220, 0.6);
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .split-preview-meta-value {
+      color: rgba(242, 246, 253, 0.92);
+      font-size: 12px;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+
+    .split-preview-rationale {
+      color: rgba(212, 222, 237, 0.74);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .split-preview-detail-head .pill {
+      white-space: nowrap;
+      flex: 0 0 auto;
+      align-self: flex-start;
+    }
+
+    .split-preview-actions {
+      display: none;
+      justify-content: flex-end;
+      gap: 8px;
+      align-items: center;
+      margin-top: 2px;
+    }
+
+    .split-preview-actions.visible {
+      display: flex;
+    }
+
+    .split-preview-actions .secondary,
+    .split-preview-actions .primary {
+      min-height: 44px;
+      border-radius: 14px;
+      padding: 0 18px;
+    }
+
+    .split-preview-empty {
+      color: rgba(212, 222, 237, 0.68);
+      font-size: 12px;
+      line-height: 1.5;
+      padding: 14px 16px;
+      border-radius: 0 16px 16px 16px;
+      border: 1px solid rgba(151, 176, 214, 0.14);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02)),
+        rgba(4, 8, 14, 0.46);
+    }
+
+    .split-preview-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-right-width: 0;
+    }
+
+    .split-preview-tab:last-child,
+    .submit-mode-tab:last-child {
+      border-right-width: 1px;
+    }
+
+    .split-preview-tab-label {
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+    }
+
+    .split-preview-tab-title {
+      color: rgba(214, 224, 240, 0.7);
+      font-size: 11px;
+      font-weight: 600;
+      max-width: 200px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .split-preview-tab.active .split-preview-tab-title {
+      color: rgba(246, 249, 255, 0.82);
+    }
+
     .dependency-picker {
       display: grid;
       gap: 8px;
@@ -496,10 +770,13 @@
     .queue-column {
       padding: 14px;
       display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
       gap: 12px;
-      align-content: start;
+      align-content: stretch;
+      align-self: start;
       min-width: 0;
       min-height: 100%;
+      height: calc(100vh - 28px);
       position: sticky;
       top: 14px;
     }
@@ -592,6 +869,13 @@
       max-height: 50vh;
       overflow: auto;
       padding-right: 4px;
+    }
+
+    #commandsList {
+      min-height: 0;
+      height: 100%;
+      max-height: none;
+      align-content: start;
     }
 
     .card {
@@ -965,6 +1249,35 @@
       box-shadow: 0 14px 34px rgba(255, 95, 122, 0.22);
     }
 
+    .workspace-action.cancel-action {
+      background: rgba(255, 111, 145, 0.14);
+      color: #ffd5df;
+      border: 1px solid rgba(255, 111, 145, 0.22);
+      box-shadow: 0 14px 28px rgba(255, 95, 122, 0.14);
+    }
+
+    .workspace-action.cancel-action:hover {
+      box-shadow: 0 16px 30px rgba(255, 95, 122, 0.18);
+    }
+
+    .workspace-action.pause-action {
+      background: linear-gradient(135deg, rgba(255, 118, 122, 0.24), rgba(255, 84, 108, 0.18));
+      color: #ffd7df;
+      border-color: rgba(255, 112, 129, 0.28);
+      box-shadow: 0 14px 28px rgba(255, 90, 120, 0.12);
+    }
+
+    .workspace-action.pause-action:hover {
+      box-shadow: 0 16px 30px rgba(255, 90, 120, 0.16);
+    }
+
+    .workspace-action.pause-action:disabled {
+      background: rgba(255, 255, 255, 0.04);
+      color: rgba(243, 247, 255, 0.38);
+      border-color: rgba(151, 176, 214, 0.10);
+      box-shadow: none;
+    }
+
     .workspace-action:disabled {
       opacity: 1;
       cursor: not-allowed;
@@ -1007,8 +1320,8 @@
 
     .overview-panel-head {
       display: grid;
-      grid-template-columns: minmax(0, 1.8fr) minmax(260px, 0.78fr);
-      gap: 30px;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 18px;
       align-items: start;
     }
 
@@ -1034,6 +1347,14 @@
       letter-spacing: -0.045em;
       color: rgba(244, 248, 255, 0.97);
       font-family: var(--font-display);
+      text-wrap: pretty;
+    }
+
+    .overview-subtitle {
+      color: rgba(231, 238, 252, 0.82);
+      font-size: 15px;
+      line-height: 1.7;
+      max-width: none;
       text-wrap: pretty;
     }
 
@@ -1664,6 +1985,15 @@
       color: var(--ink);
     }
 
+    .form-modal-body {
+      white-space: normal;
+      line-height: 1.5;
+    }
+
+    .submit-modal-body {
+      padding-top: 6px;
+    }
+
     .modal-header-actions {
       display: flex;
       align-items: center;
@@ -1905,6 +2235,11 @@
       .detail-grid { grid-template-columns: 1fr; }
       .list { max-height: none; }
       .agent-role-grid { grid-template-columns: 1fr; }
+      .split-preview-detail-grid { grid-template-columns: 1fr; }
+      .split-preview-actions {
+        flex-direction: column-reverse;
+        align-items: stretch;
+      }
       .shell,
       .grid,
       .workspace-shell,
@@ -1940,6 +2275,11 @@
       }
       .queue-column {
         position: static;
+        height: auto;
+      }
+      #commandsList {
+        max-height: 50vh;
+        height: auto;
       }
       .workspace-actions {
         justify-content: stretch;
@@ -2022,6 +2362,7 @@
             </div>
             <div class="workspace-actions" id="workspaceActions">
               <button class="secondary workspace-action" id="runControlBtn">Stop</button>
+              <button class="deny workspace-action cancel-action" id="cancelJobBtn">Cancel</button>
               <button class="secondary workspace-action" id="viewResultBtn">No Result Yet</button>
               <button class="secondary workspace-action append-action" id="openAppendBtn">Append Instruction</button>
             </div>
@@ -2065,36 +2406,55 @@
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="submitModalTitle">
       <div class="modal-header">
         <div>
-          <div class="eyebrow" id="submitModalEyebrow">New Job</div>
-          <h2 id="submitModalTitle" style="margin: 6px 0 0; font-size: 24px;">Submit Job</h2>
+          <h2 id="submitModalTitle" style="margin: 0; font-size: 24px;">Submit Job</h2>
         </div>
         <button class="secondary" id="closeSubmitBtn">Close</button>
       </div>
-      <div class="modal-body">
+      <div class="modal-body form-modal-body submit-modal-body">
         <div class="modal-form">
+          <div class="submit-mode-tabs" id="submitModeTabs">
+            <button class="submit-mode-tab active" type="button" data-submit-mode="single" id="submitModeSingleTab">Single Job</button>
+            <button class="submit-mode-tab" type="button" data-submit-mode="split" id="submitModeSplitTab">Job Split</button>
+          </div>
+          <div class="submit-mode-guide" id="submitModeGuide">
+            <div class="submit-mode-guide-title" id="submitModeGuideTitle">Launch one job now</div>
+            <div class="submit-mode-guide-body" id="submitModeGuideBody">Use this when one brief can stay as a single job. Choose an execution mode, then add dependencies only if this job must wait for earlier work.</div>
+          </div>
+          <div class="submit-mode-helper hidden" id="splitModeHelper">Wevra uses AI to propose multiple jobs with dependencies before anything is created.</div>
+          <div class="field-stack compact" id="singleWorkflowField">
+            <label class="field-label" id="workflowLabel" for="workflowMode">Execution Mode</label>
+            <select id="workflowMode">
+              <option value="auto">auto</option>
+              <option value="implementation">implementation</option>
+              <option value="research">research</option>
+              <option value="review">review</option>
+              <option value="planning">planning</option>
+              <option value="dogfooding">dogfooding</option>
+            </select>
+          </div>
+          <div class="mode-intro-body" id="modeIntroBody">Choose how this job should run.</div>
+          <div class="toolbar-notice" id="dogfoodingNotice" aria-live="polite">
+            <div class="toolbar-notice-title" id="dogfoodingNoticeTitle">Dogfooding runs the real workflow</div>
+            <div class="toolbar-notice-body" id="dogfoodingNoticeBody">Wevra reads the runbook, exercises the workflow, fixes issues it can address, and may repeat the cycle until no meaningful fixes remain.</div>
+          </div>
           <div class="field-stack">
             <label class="field-label" id="workspaceRootLabel" for="workspaceRoot">Working Directory</label>
             <input id="workspaceRoot" type="text" placeholder="Working directory for this job" required />
+          </div>
+          <div class="field-stack hidden" id="runbookPathField">
+            <label class="field-label" id="runbookPathLabel" for="runbookPath">Runbook Path</label>
+            <input id="runbookPath" type="text" placeholder="Path to the operating runbook for this job" />
           </div>
           <div class="field-stack">
             <label class="field-label" id="goalLabel" for="goal">Job Brief</label>
             <textarea id="goal" class="toolbar-input" placeholder="Describe the work you want Wevra to run."></textarea>
           </div>
-          <div class="field-stack">
+          <div class="field-stack" id="dependencyField">
             <label class="field-label" id="dependsOnLabelText" for="dependencyOptions">Run After</label>
             <div class="dependency-picker" id="dependencyOptions"></div>
           </div>
+          <div class="submit-inline-guide" id="dependencyGuide">Select earlier active jobs only when this work must wait for them. Any selection turns off parallel execution.</div>
           <div class="toolbar-controls">
-            <div class="field-stack">
-              <label class="field-label" id="workflowLabel" for="workflowMode">Execution Mode</label>
-              <select id="workflowMode">
-                <option value="auto">auto</option>
-                <option value="implementation">implementation</option>
-                <option value="research">research</option>
-                <option value="review">review</option>
-                <option value="planning">planning</option>
-              </select>
-            </div>
             <div class="field-stack">
               <label class="field-label" id="approvalModeLabelText" for="approvalMode">Approval Mode</label>
               <select id="approvalMode">
@@ -2119,12 +2479,13 @@
                 <option value="claude">Claude Code</option>
               </select>
             </div>
-            <label class="toggle-chip" for="allowParallel">
+            <label class="toggle-chip" for="allowParallel" id="allowParallelField">
               <input id="allowParallel" type="checkbox" />
               <span id="allowParallelLabel">Run In Parallel</span>
             </label>
             <button class="primary modal-submit-inline" id="submitBtn">Submit Job</button>
           </div>
+          <div class="submit-inline-guide" id="parallelGuide">Parallel execution is available only when no dependencies are selected and the working directory does not overlap.</div>
           <div class="toolbar-notice" id="approvalModeNotice" aria-live="polite">
             <div class="toolbar-notice-title" id="approvalModeNoticeTitle">Manual approval is enabled</div>
             <div class="toolbar-notice-body" id="approvalModeNoticeBody">When manual approval is enabled, Wevra pauses before each external AI step and waits in the AI Runs tab until you allow or deny it.</div>
@@ -2133,6 +2494,27 @@
             <div class="toolbar-notice-title" id="workspaceOverlapNoticeTitle">Workspace overlap detected</div>
             <div class="toolbar-notice-body" id="workspaceOverlapNoticeBody">This workspace overlaps with another job. Add a dependency before you run them in sequence.</div>
           </div>
+          <div class="toolbar-notice" id="splitPreviewDirtyNotice" aria-live="polite">
+            <div class="toolbar-notice-title" id="splitPreviewDirtyNoticeTitle">Preview needs an update</div>
+            <div class="toolbar-notice-body" id="splitPreviewDirtyNoticeBody">The input changed after this preview was created. Regenerate the split preview before you submit it.</div>
+          </div>
+          <section class="split-preview-shell" id="splitPreviewSection" aria-live="polite">
+            <div class="split-preview-head">
+              <div class="field-label" id="splitPreviewHeading">Job Split Preview</div>
+              <div class="split-preview-summary" id="splitPreviewSummary">Preview proposed jobs and dependencies before creating them.</div>
+            </div>
+            <div class="split-preview-pane" id="splitPreviewPane">
+              <div class="split-preview-tabs" id="splitPreviewTabs"></div>
+              <div class="split-preview-detail" id="splitPreviewDetail">
+                <div class="split-preview-empty" id="splitPreviewEmpty">Create a split preview to inspect the proposed jobs.</div>
+              </div>
+            </div>
+          </section>
+          <div class="split-preview-actions" id="splitPreviewActions">
+            <button class="secondary" type="button" id="generateSplitPreviewBtn">Create Split Preview</button>
+            <button class="primary" type="button" id="applySplitPreviewBtn">Create Jobs</button>
+          </div>
+          <div class="submit-inline-guide hidden" id="splitPreviewActionGuide">Start with Create Split Preview. After you review the preview tabs, Create Jobs creates the full set.</div>
         </div>
       </div>
     </div>
@@ -2199,7 +2581,7 @@
         </div>
         <button class="secondary" id="closeAppendBtn">Close</button>
       </div>
-      <div class="modal-body" style="display:grid; gap: 12px;">
+      <div class="modal-body form-modal-body" style="display:grid; gap: 12px;">
         <textarea id="appendModalInput" style="min-height: 180px;" placeholder="Append a new instruction to the selected job."></textarea>
         <div class="actions" style="justify-content: flex-end;">
           <button class="primary" id="appendModalSubmit">Append And Replan</button>
@@ -2217,7 +2599,7 @@
         </div>
         <button class="secondary" id="closeAgentDenyBtn">Cancel</button>
       </div>
-      <div class="modal-body" style="display:grid; gap: 14px;">
+      <div class="modal-body form-modal-body" style="display:grid; gap: 14px;">
         <div class="meta" id="agentDenyModalContext">Rejecting this pending run will fail the selected job.</div>
         <div class="field-stack">
           <label class="field-label" id="agentDenyReasonLabel" for="agentDenyReason">Operator note</label>
@@ -2245,7 +2627,7 @@
         </div>
         <button class="secondary" id="closeOperatorIssueBtn">Cancel</button>
       </div>
-      <div class="modal-body" style="display:grid; gap: 14px;">
+      <div class="modal-body form-modal-body" style="display:grid; gap: 14px;">
         <div class="meta" id="operatorIssueModalContext">This job stopped partway through.</div>
         <div class="choice-grid">
           <article class="choice-card warn">
@@ -2276,7 +2658,7 @@
         </div>
         <button class="secondary" id="closeOperatorResumeBtn">Cancel</button>
       </div>
-      <div class="modal-body" style="display:grid; gap: 14px;">
+      <div class="modal-body form-modal-body" style="display:grid; gap: 14px;">
         <div class="meta" id="operatorResumeModalContext">Choose which AI should continue this interrupted job.</div>
         <div class="field-stack">
           <label class="field-label" id="operatorResumeBackendLabel" for="operatorResumeBackend">AI</label>
@@ -2322,7 +2704,13 @@
       agentLogScrollTop: {},
       resultSectionTabByCommand: {},
       dependencySelection: new Set(),
-      operatorRetryBackendByCommand: {}
+      operatorRetryBackendByCommand: {},
+      submitMode: 'single',
+      jobSplitPreview: null,
+      jobSplitPreviewTabIndex: 0,
+      jobSplitPreviewBusy: false,
+      jobSplitPreviewDirty: false,
+      jobSplitPreviewSignature: null
     };
 
     const commandsListEl = document.getElementById('commandsList');
@@ -2338,6 +2726,12 @@
     const questionAlertEl = document.getElementById('questionAlert');
     const questionAlertBodyEl = document.getElementById('questionAlertBody');
     const submitModalEl = document.getElementById('submitModal');
+    const submitModeTabsEl = document.getElementById('submitModeTabs');
+    const submitModeSingleTabEl = document.getElementById('submitModeSingleTab');
+    const submitModeSplitTabEl = document.getElementById('submitModeSplitTab');
+    const submitModeGuideTitleEl = document.getElementById('submitModeGuideTitle');
+    const submitModeGuideBodyEl = document.getElementById('submitModeGuideBody');
+    const splitModeHelperEl = document.getElementById('splitModeHelper');
     const resultModalEl = document.getElementById('resultModal');
     const resultModalTitleEl = document.getElementById('resultModalTitle');
     const resultModalTabsEl = document.getElementById('resultModalTabs');
@@ -2381,17 +2775,37 @@
     const refreshBtnEl = document.getElementById('refreshBtn');
     const goalInputEl = document.getElementById('goal');
     const workflowModeEl = document.getElementById('workflowMode');
+    const singleWorkflowFieldEl = document.getElementById('singleWorkflowField');
+    const modeIntroBodyEl = document.getElementById('modeIntroBody');
+    const dogfoodingNoticeEl = document.getElementById('dogfoodingNotice');
     const approvalModeEl = document.getElementById('approvalMode');
     const priorityEl = document.getElementById('priority');
     const backendEl = document.getElementById('backend');
     const workspaceRootEl = document.getElementById('workspaceRoot');
+    const runbookPathFieldEl = document.getElementById('runbookPathField');
+    const runbookPathEl = document.getElementById('runbookPath');
+    const dependencyFieldEl = document.getElementById('dependencyField');
     const dependencyOptionsEl = document.getElementById('dependencyOptions');
+    const dependencyGuideEl = document.getElementById('dependencyGuide');
     const allowParallelEl = document.getElementById('allowParallel');
+    const allowParallelFieldEl = document.getElementById('allowParallelField');
+    const parallelGuideEl = document.getElementById('parallelGuide');
     const workspaceOverlapNoticeEl = document.getElementById('workspaceOverlapNotice');
+    const splitPreviewActionsEl = document.getElementById('splitPreviewActions');
+    const generateSplitPreviewBtnEl = document.getElementById('generateSplitPreviewBtn');
+    const applySplitPreviewBtnEl = document.getElementById('applySplitPreviewBtn');
+    const splitPreviewActionGuideEl = document.getElementById('splitPreviewActionGuide');
+    const splitPreviewDirtyNoticeEl = document.getElementById('splitPreviewDirtyNotice');
+    const splitPreviewSectionEl = document.getElementById('splitPreviewSection');
+    const splitPreviewHeadingEl = document.getElementById('splitPreviewHeading');
+    const splitPreviewSummaryEl = document.getElementById('splitPreviewSummary');
+    const splitPreviewTabsEl = document.getElementById('splitPreviewTabs');
+    const splitPreviewDetailEl = document.getElementById('splitPreviewDetail');
     const openAppendBtnEl = document.getElementById('openAppendBtn');
     const viewResultBtnEl = document.getElementById('viewResultBtn');
     const appendModalSubmitEl = document.getElementById('appendModalSubmit');
     const runControlBtnEl = document.getElementById('runControlBtn');
+    const cancelJobBtnEl = document.getElementById('cancelJobBtn');
 
     const I18N = Object.create(null);
     const AGENT_ROLE_ORDER = ['planner', 'investigation', 'analyst', 'implementer', 'tester', 'reviewer'];
@@ -2442,6 +2856,10 @@
 
     function approvalModeLabel(value) {
       return localizeValue('approval_mode_labels', value);
+    }
+
+    function modeDescription(value) {
+      return localizeValue('mode_descriptions', value);
     }
 
     function stageLabel(value) {
@@ -2635,30 +3053,154 @@
       return value.replace(/^(?:\[[^\]]+\]\s*)+/, '') || value;
     }
 
-    function commandById(commandId) {
-      return state.summarySnapshot?.commands?.items?.find((item) => item.id === commandId) || null;
+    function goalDisplayParts(goal) {
+      const full = displayGoal(goal).replace(/\s+/g, ' ').trim();
+      if (!full) return { title: '', detail: '' };
+
+      const newlineParts = String(goal || '')
+        .split(/\r?\n/)
+        .map((item) => displayGoal(item).trim())
+        .filter(Boolean);
+      if (newlineParts.length > 1) {
+        return {
+          title: newlineParts[0],
+          detail: newlineParts.slice(1).join(' '),
+        };
+      }
+
+      const sentenceMatch = full.match(/^(.{1,56}?(?:。|\.|:))(?:\s+|$)(.+)$/);
+      if (sentenceMatch) {
+        return {
+          title: sentenceMatch[1].trim(),
+          detail: sentenceMatch[2].trim(),
+        };
+      }
+
+      const clauseMatch = full.match(/^(.{1,56}?(?:、|,))(?:\s+|$)(.+)$/);
+      if (clauseMatch) {
+        return {
+          title: clauseMatch[1].trim(),
+          detail: clauseMatch[2].trim(),
+        };
+      }
+
+      return { title: full, detail: '' };
+    }
+
+    function commandById(commandId, snapshot = state.summarySnapshot || state.snapshot) {
+      return snapshot?.commands?.items?.find((item) => item.id === commandId) || null;
+    }
+
+    const commandListStageRank = {
+      running: 0,
+      planning: 1,
+      replanning: 2,
+      verifying: 3,
+      waiting_question: 4,
+      waiting_approval: 5,
+      waiting_operator: 6,
+      paused: 7,
+      queued: 8,
+      done: 9,
+      canceled: 10,
+      failed: 11,
+    };
+
+    function dependencyBlockType(command, snapshot = state.summarySnapshot || state.snapshot) {
+      if (!command || command.dependency_state !== 'failed') return command?.dependency_state || 'none';
+      const blocking = (command.blocking_dependency_ids || [])
+        .map((commandId) => commandById(commandId, snapshot))
+        .filter(Boolean);
+      if (blocking.length && blocking.every((item) => item.stage === 'canceled')) {
+        return 'canceled';
+      }
+      return 'failed';
+    }
+
+    function displayCommands(snapshot = state.summarySnapshot) {
+      const commands = snapshot?.commands?.items || [];
+      return commands.slice().sort((left, right) => {
+        const leftTerminal = ['done', 'canceled', 'failed'].includes(left.stage);
+        const rightTerminal = ['done', 'canceled', 'failed'].includes(right.stage);
+        if (leftTerminal !== rightTerminal) return leftTerminal ? 1 : -1;
+
+        const leftQueued = left.stage === 'queued';
+        const rightQueued = right.stage === 'queued';
+        if (leftQueued !== rightQueued) return leftQueued ? 1 : -1;
+
+        if (!leftTerminal && !rightTerminal && leftQueued && rightQueued) {
+          const depthDelta = (left.depends_on?.length || 0) - (right.depends_on?.length || 0);
+          if (depthDelta !== 0) return depthDelta;
+          return String(left.created_at || '').localeCompare(String(right.created_at || ''));
+        }
+
+        if (!leftTerminal && !rightTerminal) {
+          const leftRank = commandListStageRank[left.stage] ?? 99;
+          const rightRank = commandListStageRank[right.stage] ?? 99;
+          if (leftRank !== rightRank) return leftRank - rightRank;
+          if (left.priority !== right.priority) {
+            const priorityRank = { high: 0, medium: 1, low: 2 };
+            return (priorityRank[left.priority] ?? 9) - (priorityRank[right.priority] ?? 9);
+          }
+          return String(left.created_at || '').localeCompare(String(right.created_at || ''));
+        }
+
+        return String(right.updated_at || right.created_at || '').localeCompare(
+          String(left.updated_at || left.created_at || '')
+        );
+      });
     }
 
     function commandTitle(command) {
-      return command ? displayGoal(command.goal) : '';
+      return command ? goalDisplayParts(command.goal).title : '';
     }
 
     function executionStrategyLabel(command) {
       return command?.allow_parallel ? t('parallelExecutionValue') : t('serialExecutionValue');
     }
 
-    function dependencyTitle(commandId) {
-      return commandTitle(commandById(commandId)) || commandId;
+    function dependencyTitle(commandId, snapshot = state.summarySnapshot || state.snapshot) {
+      return commandTitle(commandById(commandId, snapshot)) || commandId;
     }
 
-    function dependencyTitles(command) {
-      return (command?.depends_on || []).map((commandId) => dependencyTitle(commandId));
+    function dependencyTitles(command, snapshot = state.summarySnapshot || state.snapshot) {
+      return (command?.depends_on || []).map((commandId) => dependencyTitle(commandId, snapshot));
     }
 
     function selectedDependencyIds() {
       return Array.from(
         dependencyOptionsEl.querySelectorAll('input[type="checkbox"]:checked')
       ).map((node) => node.value);
+    }
+
+    function currentSubmitMode() {
+      return state.submitMode === 'split' ? 'split' : 'single';
+    }
+
+    function currentSplitPreviewSignature() {
+      return JSON.stringify({
+        goal: goalInputEl.value.trim(),
+        workspace_root: workspaceRootEl.value.trim(),
+        runbook_path: runbookPathEl.value.trim(),
+        backend: backendEl.value || '',
+      });
+    }
+
+    function clearSplitPreview(options = {}) {
+      const keepSignature = Boolean(options.keepSignature);
+      state.jobSplitPreview = null;
+      state.jobSplitPreviewTabIndex = 0;
+      state.jobSplitPreviewDirty = false;
+      if (!keepSignature) {
+        state.jobSplitPreviewSignature = null;
+      }
+    }
+
+    function markSplitPreviewDirtyIfNeeded() {
+      if (!state.jobSplitPreview || state.jobSplitPreviewBusy || currentSubmitMode() !== 'split') return;
+      state.jobSplitPreviewDirty = state.jobSplitPreviewSignature !== currentSplitPreviewSignature();
+      renderSplitPreview();
+      updateBusyState();
     }
 
     function nonTerminalCommands(commands) {
@@ -2710,33 +3252,207 @@
       });
     }
 
+    function setSubmitMode(mode) {
+      state.submitMode = mode === 'split' ? 'split' : 'single';
+      submitModeTabsEl.querySelectorAll('[data-submit-mode]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.submitMode === state.submitMode);
+      });
+      syncSubmitModalState();
+      updateBusyState();
+    }
+
+    function setSplitPreviewTab(index) {
+      if (!state.jobSplitPreview?.items?.length) return;
+      const safeIndex = Math.max(0, Math.min(index, state.jobSplitPreview.items.length - 1));
+      state.jobSplitPreviewTabIndex = safeIndex;
+      renderSplitPreview();
+    }
+
+    function previewDependencyTitles(item, preview) {
+      if (!item?.depends_on?.length) return t('noDependencies');
+      const titleByKey = Object.fromEntries((preview?.items || []).map((candidate) => [candidate.key, candidate.title]));
+      return item.depends_on.map((key) => titleByKey[key] || key).join(' → ');
+    }
+
+    function formatCommandTitleList(commands) {
+      if (!commands?.length) return '';
+      const wrapTitle = (title) => currentLocale() === 'ja' ? `「${title}」` : `"${title}"`;
+      const separator = currentLocale() === 'ja' ? '、' : ', ';
+      const titles = commands.slice(0, 2).map((command) => wrapTitle(dependencyTitle(command.id)));
+      const suffix = commands.length > 2 ? ` ${t('andMoreSuffix')}` : '';
+      return `${titles.join(separator)}${suffix}`;
+    }
+
+    function currentSubmitModalOverlaps(dependencyIds = selectedDependencyIds()) {
+      if (currentSubmitMode() === 'split' || dependencyIds.length) return [];
+      return overlappingCommandsForWorkspace(workspaceRootEl.value.trim(), dependencyIds);
+    }
+
+    function renderSubmitModalGuidance() {
+      const splitMode = currentSubmitMode() === 'split';
+      const dependencyIds = selectedDependencyIds();
+      const hasDependencies = dependencyIds.length > 0;
+      const overlaps = currentSubmitModalOverlaps(dependencyIds);
+      const previewItems = state.jobSplitPreview?.items || [];
+      const guide = splitMode
+        ? {
+            title: t('submitModeGuideSplitTitle'),
+            body: t('submitModeGuideSplitBody'),
+          }
+        : {
+            title: t('submitModeGuideSingleTitle'),
+            body: t('submitModeGuideSingleBody'),
+          };
+      submitModeGuideTitleEl.textContent = guide.title;
+      submitModeGuideBodyEl.textContent = guide.body;
+      dependencyGuideEl.classList.toggle('hidden', splitMode);
+      dependencyGuideEl.textContent = hasDependencies
+        ? formatText(t('dependencyGuideSelected'), { count: String(dependencyIds.length) })
+        : t('dependencyGuideAvailable');
+      parallelGuideEl.classList.toggle('hidden', splitMode);
+      if (hasDependencies) {
+        parallelGuideEl.textContent = t('parallelGuideBlockedByDependency');
+      } else if (overlaps.length) {
+        parallelGuideEl.textContent = formatText(t('parallelGuideBlockedByOverlap'), {
+          jobs: formatCommandTitleList(overlaps),
+        });
+      } else if (workspaceRootEl.value.trim()) {
+        parallelGuideEl.textContent = t('parallelGuideReady');
+      } else {
+        parallelGuideEl.textContent = t('parallelGuideAvailable');
+      }
+      splitPreviewActionGuideEl.classList.toggle('hidden', !splitMode);
+      if (!splitMode) return;
+      if (state.jobSplitPreviewDirty) {
+        splitPreviewActionGuideEl.textContent = t('splitPreviewActionGuideDirty');
+      } else if (state.jobSplitPreviewBusy) {
+        splitPreviewActionGuideEl.textContent = t('splitPreviewLoading');
+      } else if (previewItems.length) {
+        splitPreviewActionGuideEl.textContent = formatText(t('splitPreviewActionGuideReady'), {
+          count: String(previewItems.length),
+        });
+      } else {
+        splitPreviewActionGuideEl.textContent = t('splitPreviewActionGuideEmpty');
+      }
+    }
+
+    function renderSplitPreview() {
+      const splitMode = currentSubmitMode() === 'split';
+      const preview = splitMode ? state.jobSplitPreview : null;
+      splitPreviewSectionEl.classList.toggle('visible', splitMode);
+      splitPreviewActionsEl.classList.toggle('visible', splitMode);
+      splitPreviewDirtyNoticeEl.classList.toggle('visible', splitMode && state.jobSplitPreviewDirty);
+      generateSplitPreviewBtnEl.textContent = state.jobSplitPreview ? t('regenerateSplitPreviewBtn') : t('generateSplitPreviewBtn');
+      applySplitPreviewBtnEl.textContent = t('applySplitPreviewBtn');
+      if (!splitMode) {
+        splitPreviewTabsEl.innerHTML = '';
+        splitPreviewDetailEl.innerHTML = `<div class="split-preview-empty">${escapeHtml(t('splitPreviewEmpty'))}</div>`;
+        splitPreviewSummaryEl.textContent = t('splitPreviewSummary');
+        renderSubmitModalGuidance();
+        return;
+      }
+      if (!preview || !preview.items?.length) {
+        splitPreviewSummaryEl.textContent = state.jobSplitPreviewBusy
+          ? t('splitPreviewLoading')
+          : t('splitPreviewSummary');
+        splitPreviewTabsEl.innerHTML = '';
+        splitPreviewDetailEl.innerHTML = `<div class="split-preview-empty">${escapeHtml(
+          state.jobSplitPreviewBusy ? t('splitPreviewLoading') : t('splitPreviewEmpty')
+        )}</div>`;
+        renderSubmitModalGuidance();
+        return;
+      }
+      const activeIndex = Math.max(0, Math.min(state.jobSplitPreviewTabIndex || 0, preview.items.length - 1));
+      state.jobSplitPreviewTabIndex = activeIndex;
+      const activeItem = preview.items[activeIndex];
+      splitPreviewSummaryEl.textContent = preview.summary || t('splitPreviewSummary');
+      splitPreviewTabsEl.innerHTML = preview.items.map((item, index) => `
+        <button class="split-preview-tab ${index === activeIndex ? 'active' : ''}" type="button" data-split-preview-tab="${index}">
+          <span class="split-preview-tab-label">T${index + 1}</span>
+          <span class="split-preview-tab-title">${escapeHtml(item.title)}</span>
+        </button>
+      `).join('');
+      splitPreviewDetailEl.innerHTML = `
+        <div class="split-preview-detail-head">
+          <div class="split-preview-detail-copy">
+            <h3 class="split-preview-detail-title">${escapeHtml(activeItem.title)}</h3>
+            <div class="split-preview-detail-goal">${escapeHtml(displayGoal(activeItem.goal))}</div>
+          </div>
+          ${pill(activeItem.workflow_mode, modeLabel, 'mode')}
+        </div>
+        <div class="split-preview-detail-grid">
+          <div class="split-preview-meta">
+            <div class="split-preview-meta-label">${escapeHtml(t('splitPreviewOrderLabel'))}</div>
+            <div class="split-preview-meta-value">${escapeHtml(String(activeIndex + 1))}</div>
+          </div>
+          <div class="split-preview-meta">
+            <div class="split-preview-meta-label">${escapeHtml(t('workingDirectory'))}</div>
+            <div class="split-preview-meta-value">${escapeHtml(activeItem.workspace_root)}</div>
+          </div>
+          <div class="split-preview-meta">
+            <div class="split-preview-meta-label">${escapeHtml(t('dependsOn'))}</div>
+            <div class="split-preview-meta-value">${escapeHtml(previewDependencyTitles(activeItem, preview))}</div>
+          </div>
+          <div class="split-preview-meta">
+            <div class="split-preview-meta-label">${escapeHtml(t('executionStyle'))}</div>
+            <div class="split-preview-meta-value">${escapeHtml(activeItem.allow_parallel ? t('parallelExecutionValue') : t('serialExecutionValue'))}</div>
+          </div>
+          ${activeItem.runbook_path ? `
+            <div class="split-preview-meta">
+              <div class="split-preview-meta-label">${escapeHtml(t('runbookPathLabel'))}</div>
+              <div class="split-preview-meta-value">${escapeHtml(activeItem.runbook_path)}</div>
+            </div>
+          ` : ''}
+        </div>
+      `;
+      renderSubmitModalGuidance();
+    }
+
     function syncSubmitModalState() {
+      const submitMode = currentSubmitMode();
+      const splitMode = submitMode === 'split';
+      const selectedMode = workflowModeEl.value;
+      const dogfooding = selectedMode === 'dogfooding';
+      submitModeSingleTabEl.classList.toggle('active', submitMode === 'single');
+      submitModeSplitTabEl.classList.toggle('active', submitMode === 'split');
+      splitModeHelperEl.classList.toggle('hidden', !splitMode);
+      singleWorkflowFieldEl.classList.toggle('hidden', splitMode);
+      modeIntroBodyEl.classList.toggle('hidden', splitMode);
+      dependencyFieldEl.classList.toggle('hidden', splitMode);
+      dependencyGuideEl.classList.toggle('hidden', splitMode);
+      allowParallelFieldEl.classList.toggle('hidden', splitMode);
+      parallelGuideEl.classList.toggle('hidden', splitMode);
+      submitBtnEl.classList.toggle('hidden', splitMode);
+      modeIntroBodyEl.textContent = modeDescription(selectedMode);
+      splitModeHelperEl.textContent = t('splitModeHelper');
+      const showRunbookField = splitMode || dogfooding;
+      dogfoodingNoticeEl.classList.toggle('visible', submitMode === 'single' && dogfooding);
+      runbookPathFieldEl.classList.toggle('hidden', !showRunbookField);
+      runbookPathEl.required = submitMode === 'single' && dogfooding;
       renderDependencyOptions();
       const dependencyIds = selectedDependencyIds();
       state.dependencySelection = new Set(dependencyIds);
       const hasDependencies = dependencyIds.length > 0;
-      allowParallelEl.disabled = hasDependencies;
-      if (hasDependencies) {
+      const overlaps = currentSubmitModalOverlaps(dependencyIds);
+      const parallelAvailable = !splitMode && !hasDependencies && !overlaps.length;
+      allowParallelEl.disabled = !parallelAvailable;
+      if (!parallelAvailable) {
         allowParallelEl.checked = false;
       }
-      const overlaps = !hasDependencies
-        ? overlappingCommandsForWorkspace(workspaceRootEl.value.trim(), dependencyIds)
-        : [];
-      const showOverlapNotice = overlaps.length > 0;
+      const showOverlapNotice = !splitMode && overlaps.length > 0;
       workspaceOverlapNoticeEl.classList.toggle('visible', showOverlapNotice);
       if (showOverlapNotice) {
-        const wrapTitle = (title) => currentLocale() === 'ja' ? `「${title}」` : `"${title}"`;
-        const titles = overlaps.slice(0, 2).map((command) => wrapTitle(dependencyTitle(command.id)));
-        const suffix = overlaps.length > 2 ? ` ${t('andMoreSuffix')}` : '';
         document.getElementById('workspaceOverlapNoticeBody').textContent = formatText(
           t('workspaceOverlapNoticeBody'),
-          { jobs: `${titles.join('、')}${suffix}` }
+          { jobs: formatCommandTitleList(overlaps) }
         );
         allowParallelEl.checked = false;
         allowParallelEl.disabled = true;
       } else {
         document.getElementById('workspaceOverlapNoticeBody').textContent = t('workspaceOverlapNoticeBody');
       }
+      renderSplitPreview();
+      renderSubmitModalGuidance();
     }
 
     function sanitizeFileNamePart(value) {
@@ -2842,6 +3558,16 @@
       return response.json();
     }
 
+    function parseApiError(error) {
+      const message = String(error?.message || '').trim();
+      if (!message) return { error: 'unknown_error' };
+      try {
+        return JSON.parse(message);
+      } catch {
+        return { error: message };
+      }
+    }
+
     function applyLocale() {
       const locale = currentLocale();
       document.documentElement.lang = locale;
@@ -2855,6 +3581,8 @@
       document.getElementById('overviewTab').textContent = t('overview');
       document.getElementById('eventsHeading').textContent = t('eventsHeading');
       document.getElementById('submitBtn').textContent = t('submitBtn');
+      document.getElementById('generateSplitPreviewBtn').textContent = state.jobSplitPreview ? t('regenerateSplitPreviewBtn') : t('generateSplitPreviewBtn');
+      document.getElementById('applySplitPreviewBtn').textContent = t('applySplitPreviewBtn');
       document.getElementById('refreshBtn').textContent = t('refreshBtn');
       document.getElementById('closeResultBtn').textContent = t('closeResultBtn');
       document.getElementById('closeAppendBtn').textContent = t('closeAppendBtn');
@@ -2870,25 +3598,35 @@
       document.getElementById('openSubmitBtn').textContent = t('openSubmitBtn');
       document.getElementById('closeSubmitBtn').textContent = t('closeSubmitBtn');
       document.getElementById('workspaceRootLabel').textContent = t('workspaceRootLabel');
+      document.getElementById('runbookPathLabel').textContent = t('runbookPathLabel');
       document.getElementById('dependsOnLabelText').textContent = t('dependsOnLabelText');
-      document.getElementById('submitModalEyebrow').textContent = t('submitModalEyebrow');
       document.getElementById('submitModalTitle').textContent = t('submitModalTitle');
       document.getElementById('appendModalSubmit').textContent = t('appendBtn');
       document.getElementById('liveIndicator').textContent = t('liveIndicator');
       document.getElementById('goalLabel').textContent = t('goalLabel');
       document.getElementById('workflowLabel').textContent = t('workflowLabel');
+      document.getElementById('submitModeSingleTab').textContent = t('submitModeSingleTab');
+      document.getElementById('submitModeSplitTab').textContent = t('submitModeSplitTab');
+      document.getElementById('splitModeHelper').textContent = t('splitModeHelper');
       document.getElementById('approvalModeLabelText').textContent = t('approvalModeLabelText');
       document.getElementById('approvalModeNoticeTitle').textContent = t('approvalModeNoticeTitle');
       document.getElementById('approvalModeNoticeBody').textContent = t('approvalModeNoticeBody');
+      document.getElementById('dogfoodingNoticeTitle').textContent = t('dogfoodingNoticeTitle');
+      document.getElementById('dogfoodingNoticeBody').textContent = t('dogfoodingNoticeBody');
       document.getElementById('priorityLabelText').textContent = t('priorityLabelText');
       document.getElementById('backendLabelText').textContent = t('backendLabelText');
       document.getElementById('allowParallelLabel').textContent = t('allowParallelLabel');
       document.getElementById('resultModalEyebrow').textContent = t('resultModalEyebrow');
       document.getElementById('resultModalTitle').textContent = t('resultModalTitle');
+      cancelJobBtnEl.textContent = t('cancelJobButton');
       document.getElementById('downloadResultBtn').setAttribute('aria-label', t('downloadResultAria'));
       document.getElementById('downloadResultBtn').setAttribute('title', t('downloadResultAria'));
       document.getElementById('workspaceOverlapNoticeTitle').textContent = t('workspaceOverlapNoticeTitle');
       document.getElementById('workspaceOverlapNoticeBody').textContent = t('workspaceOverlapNoticeBody');
+      document.getElementById('splitPreviewHeading').textContent = t('splitPreviewHeading');
+      document.getElementById('splitPreviewSummary').textContent = state.jobSplitPreview?.summary || t('splitPreviewSummary');
+      document.getElementById('splitPreviewDirtyNoticeTitle').textContent = t('splitPreviewDirtyNoticeTitle');
+      document.getElementById('splitPreviewDirtyNoticeBody').textContent = t('splitPreviewDirtyNoticeBody');
       document.getElementById('operatorIssueModalEyebrow').textContent = t('operatorIssueModalEyebrow');
       document.getElementById('operatorIssueModalTitle').textContent = t('operatorIssueModalTitle');
       document.getElementById('operatorIssueModalContext').textContent = t('operatorIssueModalContext');
@@ -2912,6 +3650,7 @@
       document.getElementById('reviewModalFindingsHeading').textContent = t('reviewFindingsHeading');
       goalInputEl.placeholder = t('goalPlaceholder');
       workspaceRootEl.placeholder = t('workspaceRootPlaceholder');
+      runbookPathEl.placeholder = t('runbookPathPlaceholder');
       appendModalInputEl.placeholder = t('appendPlaceholder');
       agentDenyReasonEl.placeholder = t('agentDenyReasonPlaceholder');
       document.getElementById('instructionsHeading').textContent = t('instructionsHeading');
@@ -2924,6 +3663,7 @@
       document.querySelector('#workflowMode option[value="research"]').textContent = modeLabel('research');
       document.querySelector('#workflowMode option[value="review"]').textContent = modeLabel('review');
       document.querySelector('#workflowMode option[value="planning"]').textContent = modeLabel('planning');
+      document.querySelector('#workflowMode option[value="dogfooding"]').textContent = modeLabel('dogfooding');
       document.querySelector('#approvalMode option[value="auto"]').textContent = approvalModeLabel('auto');
       document.querySelector('#approvalMode option[value="manual"]').textContent = approvalModeLabel('manual');
       document.querySelector('#priority option[value="high"]').textContent = priorityLabel('high');
@@ -2997,21 +3737,89 @@
 
     function openSubmitModal() {
       state.dependencySelection = new Set();
+      state.submitMode = 'single';
+      clearSplitPreview();
       workspaceRootEl.value = '';
       goalInputEl.value = '';
       workflowModeEl.value = 'auto';
       approvalModeEl.value = 'auto';
       priorityEl.value = 'high';
       backendEl.value = '';
+      runbookPathEl.value = '';
       allowParallelEl.checked = false;
       submitModalEl.classList.add('open');
       syncApprovalModeNotice();
       syncSubmitModalState();
+      updateBusyState();
       queueMicrotask(() => workspaceRootEl.focus());
     }
 
-    function closeSubmitModal() {
+    function closeSubmitModal(options = {}) {
+      if (!options.force && (state.submitting || state.jobSplitPreviewBusy)) return;
       submitModalEl.classList.remove('open');
+    }
+
+    async function generateSplitPreviewAction() {
+      if (state.jobSplitPreviewBusy) return;
+      const workspaceRoot = workspaceRootEl.value.trim();
+      if (!workspaceRoot) {
+        workspaceRootEl.reportValidity();
+        workspaceRootEl.focus();
+        return;
+      }
+      const goal = goalInputEl.value.trim();
+      if (!goal) {
+        goalInputEl.focus();
+        return;
+      }
+      state.jobSplitPreviewBusy = true;
+      updateBusyState();
+      statusLineEl.textContent = t('splitPreviewLoading');
+      try {
+        const result = await api('/api/commands/split-preview', {
+          method: 'POST',
+          body: JSON.stringify({
+            goal,
+            workspace_root: workspaceRoot,
+            runbook_path: runbookPathEl.value.trim() || null,
+            backend: backendEl.value,
+            locale: currentLocale(),
+          }),
+        });
+        state.jobSplitPreview = result.preview || null;
+        state.jobSplitPreviewTabIndex = 0;
+        state.jobSplitPreviewSignature = currentSplitPreviewSignature();
+        state.jobSplitPreviewDirty = false;
+        renderSplitPreview();
+      } finally {
+        state.jobSplitPreviewBusy = false;
+        applyLocale();
+        updateBusyState();
+      }
+    }
+
+    async function applySplitPreviewAction() {
+      if (!state.jobSplitPreview || state.jobSplitPreviewBusy || state.jobSplitPreviewDirty) return;
+      state.submitting = true;
+      updateBusyState();
+      statusLineEl.textContent = t('submitting');
+      try {
+        const result = await api('/api/commands/split-apply', {
+          method: 'POST',
+          body: JSON.stringify({
+            preview: state.jobSplitPreview,
+            approval_mode: approvalModeEl.value,
+            priority: priorityEl.value,
+            backend: backendEl.value,
+          }),
+        });
+        state.selectedCommandId = result.commands?.[0]?.id || state.selectedCommandId;
+        closeSubmitModal({ force: true });
+        await refreshSnapshot();
+      } finally {
+        state.submitting = false;
+        updateBusyState();
+      }
     }
 
     function captureScrollPositions() {
@@ -3130,8 +3938,9 @@
 
     function selectedCommand(snapshot = state.snapshot) {
       if (!snapshot) return null;
-      const selected = state.selectedCommandId || snapshot.commands.active[0]?.id || snapshot.commands.items[0]?.id;
-      return snapshot.commands.items.find((item) => item.id === selected) || null;
+      const commands = displayCommands(snapshot);
+      const selected = state.selectedCommandId || commands[0]?.id || null;
+      return commands.find((item) => item.id === selected) || null;
     }
 
     function agentRunById(agentRunId, snapshot = state.snapshot) {
@@ -3354,7 +4163,28 @@
     }
 
     function updateBusyState() {
-      submitBtnEl.disabled = state.submitting;
+      const modalBusy = state.submitting || state.jobSplitPreviewBusy;
+      submitBtnEl.disabled = modalBusy;
+      generateSplitPreviewBtnEl.disabled = modalBusy;
+      applySplitPreviewBtnEl.disabled = modalBusy || !state.jobSplitPreview || state.jobSplitPreviewDirty;
+      closeSubmitBtnEl.disabled = modalBusy;
+      workflowModeEl.disabled = modalBusy;
+      approvalModeEl.disabled = modalBusy;
+      priorityEl.disabled = modalBusy;
+      backendEl.disabled = modalBusy;
+      workspaceRootEl.disabled = modalBusy;
+      runbookPathEl.disabled = modalBusy;
+      goalInputEl.disabled = modalBusy;
+      allowParallelEl.disabled = modalBusy || currentSubmitMode() === 'split' || state.dependencySelection.size > 0;
+      submitModeTabsEl.querySelectorAll('[data-submit-mode]').forEach((button) => {
+        button.disabled = modalBusy;
+      });
+      splitPreviewTabsEl.querySelectorAll('[data-split-preview-tab]').forEach((button) => {
+        button.disabled = modalBusy;
+      });
+      dependencyOptionsEl.querySelectorAll('input[type="checkbox"]').forEach((node) => {
+        node.disabled = modalBusy;
+      });
       refreshBtnEl.disabled = state.refreshInFlight;
       if (state.operatorIssueModalCommandId) {
         const modalCommand = commandById(state.operatorIssueModalCommandId) || selectedCommand();
@@ -3419,7 +4249,10 @@
           : '/api/commands/cancel';
         await api(endpoint, {
           method: 'POST',
-          body: JSON.stringify({ command_id: commandId }),
+          body: JSON.stringify({
+            command_id: commandId,
+            reason: action === 'cancel' ? t('operatorCancelReason') : null,
+          }),
         });
         await refreshSnapshot({ forceDetail: true });
       } finally {
@@ -3430,9 +4263,10 @@
 
     function renderOperatorIssueModal(command) {
       if (!command) return;
-      operatorIssueModalTitleEl.textContent = t('operatorIssueModalTitle');
-      operatorIssueModalContextEl.textContent = `${t('operatorIssueModalContext')} ${displayGoal(command.goal)}`;
-      document.getElementById('operatorIssueModalEyebrow').textContent = t('operatorIssueModalEyebrow');
+      const interrupted = command.stage === 'waiting_operator' && Boolean(command.operator_issue_kind);
+      operatorIssueModalTitleEl.textContent = interrupted ? t('operatorIssueModalTitle') : t('cancelModalTitle');
+      operatorIssueModalContextEl.textContent = `${interrupted ? t('operatorIssueModalContext') : t('cancelModalContext')} ${displayGoal(command.goal)}`;
+      document.getElementById('operatorIssueModalEyebrow').textContent = interrupted ? t('operatorIssueModalEyebrow') : t('cancelModalEyebrow');
       document.getElementById('operatorRepairChoiceTitle').textContent = t('operatorRepairChoiceTitle');
       document.getElementById('operatorRepairChoiceBody').textContent = t('operatorRepairChoiceBody');
       document.getElementById('operatorPlainCancelTitle').textContent = t('operatorPlainCancelTitle');
@@ -3552,10 +4386,13 @@
 
     function commandSummaryText(command) {
       if (command.dependency_state === 'failed' && command.blocking_dependency_ids?.length) {
-        return formatText(t('dependencyFailedRail'), { job: dependencyTitle(command.blocking_dependency_ids[0]) });
+        const key = dependencyBlockType(command, state.summarySnapshot || state.snapshot) === 'canceled'
+          ? 'dependencyCanceledRail'
+          : 'dependencyFailedRail';
+        return formatText(t(key), { job: dependencyTitle(command.blocking_dependency_ids[0], state.summarySnapshot || state.snapshot) });
       }
       if (command.dependency_state === 'waiting' && command.blocking_dependency_ids?.length) {
-        return formatText(t('dependencyWaitingRail'), { job: dependencyTitle(command.blocking_dependency_ids[0]) });
+        return formatText(t('dependencyWaitingRail'), { job: dependencyTitle(command.blocking_dependency_ids[0], state.summarySnapshot || state.snapshot) });
       }
       if (command.allow_parallel) {
         return t('parallelExecutionValue');
@@ -3563,16 +4400,16 @@
       if (command.depends_on?.length) {
         return formatText(t('dependencyChainRail'), { count: command.depends_on.length });
       }
-      return stageLabel(command.stage);
+      return '';
     }
 
     function renderCommands(snapshot) {
-      const commands = snapshot.commands.items;
+      const commands = displayCommands(snapshot);
       const openQuestionCommands = new Set(snapshot.questions.open.map((question) => question.command_id));
       commandsListEl.innerHTML = commands.map((command) => `
         <article class="command-item ${state.selectedCommandId === command.id ? 'selected' : ''} ${openQuestionCommands.has(command.id) ? 'attention' : ''} ${command.dependency_state === 'failed' ? 'dependency-failed' : ''} ${command.dependency_state === 'waiting' ? 'dependency-waiting' : ''} ${escapeHtml(command.stage)}-state" data-command-id="${command.id}">
-          <div class="title">${escapeHtml(displayGoal(command.goal))}</div>
-          <div class="summary">${escapeHtml(commandSummaryText(command))}</div>
+          <div class="title">${escapeHtml(commandTitle(command) || displayGoal(command.goal))}</div>
+          ${commandSummaryText(command) ? `<div class="summary">${escapeHtml(commandSummaryText(command))}</div>` : ''}
           <div class="meta">
             ${pill(command.stage, stageLabel, 'stage')}
             ${pill(command.effective_mode || command.workflow_mode, modeLabel, 'mode')}
@@ -3959,10 +4796,15 @@
     function renderDetail(snapshot) {
       const selected = state.selectedCommandId || snapshot.commands.active[0]?.id || snapshot.commands.items[0]?.id;
       if (!selected) {
+        runControlBtnEl.classList.add('pause-action');
         runControlBtnEl.textContent = t('stopJob');
         runControlBtnEl.disabled = true;
         runControlBtnEl.removeAttribute('title');
         runControlBtnEl.onclick = null;
+        cancelJobBtnEl.textContent = t('cancelJobButton');
+        cancelJobBtnEl.disabled = true;
+        cancelJobBtnEl.removeAttribute('title');
+        cancelJobBtnEl.onclick = null;
         viewResultBtnEl.textContent = t('resultUnavailable');
         viewResultBtnEl.disabled = true;
         viewResultBtnEl.classList.remove('result-ready');
@@ -3973,7 +4815,9 @@
         return;
       }
       state.selectedCommandId = selected;
-      const command = snapshot.commands.items.find((item) => item.id === selected);
+      const command = state.detailSnapshot?.command?.id === selected
+        ? state.detailSnapshot.command
+        : snapshot.commands.items.find((item) => item.id === selected);
       const pendingApprovals = snapshot.agent_runs.pending.filter((item) => item.command_id === selected);
       const resultSections = resultSectionsForCommand(snapshot, command);
       const hasResult = resultSections.length > 0;
@@ -3982,19 +4826,35 @@
       const terminal = ['done', 'failed', 'canceled'].includes(command.stage);
       const paused = command.stage === 'paused';
       const waitingOperator = command.stage === 'waiting_operator';
+      const dependencyBlocked = ['waiting', 'failed'].includes(command.dependency_state);
       const stopBusy = state.commandControlInFlight === command.id;
+      const cancelBusy = state.operatorIssueActionInFlight === command.id;
       const dependencyTitlesList = (command.blocking_dependency_ids?.length
         ? command.blocking_dependency_ids
-        : command.depends_on || []).map((commandId) => dependencyTitle(commandId));
-      const allDependencyTitles = dependencyTitles(command);
+        : command.depends_on || []).map((commandId) => dependencyTitle(commandId, snapshot));
+      const allDependencyTitles = dependencyTitles(command, snapshot);
+      const goalParts = goalDisplayParts(command.goal);
       const dependencyBannerClass = command.dependency_state === 'failed' ? 'warn' : '';
       const dependencyActionBusy = state.dependencyActionInFlight === command.id;
-      if (terminal || waitingOperator) {
+      const dependencyFailureType = dependencyBlockType(command, snapshot);
+      const dependencyBannerTitleKey = dependencyFailureType === 'canceled'
+        ? 'dependencyCanceledTitle'
+        : command.dependency_state === 'failed'
+          ? 'dependencyFailedTitle'
+          : 'dependencyWaitingTitle';
+      const dependencyBannerBodyKey = dependencyFailureType === 'canceled'
+        ? 'dependencyCanceledBody'
+        : command.dependency_state === 'failed'
+          ? 'dependencyFailedBody'
+          : 'dependencyWaitingBody';
+      if (terminal || waitingOperator || dependencyBlocked) {
+        runControlBtnEl.classList.remove('pause-action');
         runControlBtnEl.textContent = t('stopJob');
         runControlBtnEl.disabled = true;
         runControlBtnEl.removeAttribute('title');
         runControlBtnEl.onclick = null;
       } else if (paused) {
+        runControlBtnEl.classList.remove('pause-action');
         runControlBtnEl.textContent = t('resumeJob');
         runControlBtnEl.disabled = stopBusy;
         if (stopBusy) {
@@ -4004,20 +4864,26 @@
         }
         runControlBtnEl.onclick = () => submitCommandControl('resume', command.id);
       } else if (command.stop_requested || stopBusy) {
+        runControlBtnEl.classList.add('pause-action');
         runControlBtnEl.textContent = t('stoppingJob');
         runControlBtnEl.disabled = true;
         runControlBtnEl.removeAttribute('title');
         runControlBtnEl.onclick = null;
       } else {
+        runControlBtnEl.classList.add('pause-action');
         runControlBtnEl.textContent = t('stopJob');
         runControlBtnEl.disabled = false;
         runControlBtnEl.removeAttribute('title');
         runControlBtnEl.onclick = () => submitCommandControl('stop', command.id);
       }
+      cancelJobBtnEl.textContent = t('cancelJobButton');
+      cancelJobBtnEl.disabled = terminal || cancelBusy || dependencyBlocked;
+      cancelJobBtnEl.removeAttribute('title');
+      cancelJobBtnEl.onclick = (terminal || dependencyBlocked) ? null : () => openOperatorIssueModal(command.id);
       viewResultBtnEl.textContent = hasResult ? t('viewResult') : t('resultUnavailable');
       viewResultBtnEl.disabled = !hasResult;
       viewResultBtnEl.classList.toggle('result-ready', hasResult);
-      openAppendBtnEl.textContent = appendClosed ? t('appendUnavailable') : t('appendAction');
+      openAppendBtnEl.textContent = t('appendAction');
       openAppendBtnEl.disabled = appendLocked || state.appending;
       if (appendClosed) {
         openAppendBtnEl.setAttribute('title', t('appendUnavailableTooltip'));
@@ -4033,15 +4899,11 @@
           </div>
         ` : ''}
         ${operatorIssueBannerMarkup(command)}
-        ${command.dependency_state !== 'none' ? `
+        ${!terminal && command.dependency_state !== 'none' ? `
           <div class="detail-banner ${escapeHtml(dependencyBannerClass)}">
-            <h3>${escapeHtml(
-              command.dependency_state === 'failed' ? t('dependencyFailedTitle') : t('dependencyWaitingTitle')
-            )}</h3>
+            <h3>${escapeHtml(t(dependencyBannerTitleKey))}</h3>
             <div class="body">${escapeHtml(
-              command.dependency_state === 'failed'
-                ? formatText(t('dependencyFailedBody'), { jobs: dependencyTitlesList.join(', ') })
-                : formatText(t('dependencyWaitingBody'), { jobs: dependencyTitlesList.join(', ') })
+              formatText(t(dependencyBannerBodyKey), { jobs: dependencyTitlesList.join(', ') })
             )}</div>
             ${command.dependency_state === 'failed' ? `
               <div class="overview-actions">
@@ -4051,7 +4913,7 @@
             ` : ''}
           </div>
         ` : ''}
-        ${command.failure_reason ? `
+        ${command.failure_reason && command.stage !== 'canceled' ? `
           <div class="detail-banner">
             <h3>${escapeHtml(t('agentError'))}</h3>
             <div class="body">${escapeHtml(command.failure_reason)}</div>
@@ -4061,15 +4923,20 @@
           <div class="overview-panel-head">
             <div class="overview-copy">
               <div class="overview-kicker">${escapeHtml(t('overview'))}</div>
-              <h2 class="overview-title">${escapeHtml(displayGoal(command.goal))}</h2>
+              <h2 class="overview-title">${escapeHtml(goalParts.title || displayGoal(command.goal))}</h2>
+              ${goalParts.detail ? `
+                <div class="overview-subtitle">${escapeHtml(goalParts.detail)}</div>
+              ` : ''}
               <div class="overview-path-shell">
                 <div class="overview-path-label">${escapeHtml(t('workingDirectory'))}</div>
                 <div class="overview-path">${escapeHtml(command.workspace_root)}</div>
               </div>
-            </div>
-            <div class="workspace-meta">
-              ${pill(command.effective_mode || command.workflow_mode, modeLabel, 'mode')}
-              ${pill(command.stage, stageLabel, 'stage')}
+              ${command.runbook_path ? `
+                <div class="overview-path-shell">
+                  <div class="overview-path-label">${escapeHtml(t('runbookPathLabel'))}</div>
+                  <div class="overview-path">${escapeHtml(command.runbook_path)}</div>
+                </div>
+              ` : ''}
             </div>
           </div>
           <div class="overview-facts">
@@ -4156,8 +5023,9 @@
       applyLocale();
       state.lastSummaryChecksum = state.summarySnapshot?.checksum || null;
       state.lastDetailChecksum = state.detailSnapshot?.checksum || null;
-      if (!snapshot.commands.items.some((item) => item.id === state.selectedCommandId)) {
-        state.selectedCommandId = snapshot.commands.active[0]?.id || snapshot.commands.items[0]?.id || null;
+      const commands = displayCommands(snapshot);
+      if (!commands.some((item) => item.id === state.selectedCommandId)) {
+        state.selectedCommandId = commands[0]?.id || null;
       }
       renderCommands(snapshot);
       renderDetail(snapshot);
@@ -4280,6 +5148,14 @@
     document.getElementById('refreshBtn').addEventListener('click', refreshSnapshot);
     openSubmitBtnEl.addEventListener('click', openSubmitModal);
     closeSubmitBtnEl.addEventListener('click', closeSubmitModal);
+    submitModeTabsEl.querySelectorAll('[data-submit-mode]').forEach((button) => {
+      button.addEventListener('click', () => setSubmitMode(button.dataset.submitMode));
+    });
+    splitPreviewTabsEl.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-split-preview-tab]');
+      if (!button) return;
+      setSplitPreviewTab(Number(button.dataset.splitPreviewTab || 0));
+    });
     document.getElementById('languageSelect').addEventListener('change', async (event) => {
       const nextLocale = event.target.value;
       state.localeOverride = nextLocale;
@@ -4294,8 +5170,20 @@
       }
     });
     document.getElementById('approvalMode').addEventListener('change', syncApprovalModeNotice);
-    workspaceRootEl.addEventListener('input', syncSubmitModalState);
+    workflowModeEl.addEventListener('change', syncSubmitModalState);
+    workspaceRootEl.addEventListener('input', () => {
+      syncSubmitModalState();
+      markSplitPreviewDirtyIfNeeded();
+    });
+    runbookPathEl.addEventListener('input', () => {
+      syncSubmitModalState();
+      markSplitPreviewDirtyIfNeeded();
+    });
+    goalInputEl.addEventListener('input', markSplitPreviewDirtyIfNeeded);
+    backendEl.addEventListener('change', markSplitPreviewDirtyIfNeeded);
     allowParallelEl.addEventListener('change', syncSubmitModalState);
+    generateSplitPreviewBtnEl.addEventListener('click', generateSplitPreviewAction);
+    applySplitPreviewBtnEl.addEventListener('click', applySplitPreviewAction);
     agentDenyReasonEl.addEventListener('input', () => {
       const agentRunId = state.agentDenyModalAgentRunId;
       if (!agentRunId) return;
@@ -4308,6 +5196,10 @@
       }
     });
     document.getElementById('submitBtn').addEventListener('click', async () => {
+      if (currentSubmitMode() === 'split') {
+        await applySplitPreviewAction();
+        return;
+      }
       if (state.submitting) return;
       const workspaceRoot = workspaceRootEl.value.trim();
       if (!workspaceRoot) {
@@ -4321,12 +5213,26 @@
       const approvalMode = approvalModeEl.value;
       const priority = priorityEl.value;
       const backend = backendEl.value;
-      const dependencyIds = selectedDependencyIds();
-      const allowParallel = allowParallelEl.checked && !dependencyIds.length;
+      const runbookPath = runbookPathEl.value.trim();
+      const requestedParallel = allowParallelEl.checked;
+      if (workflowMode === 'dogfooding' && !runbookPath) {
+        runbookPathEl.reportValidity();
+        runbookPathEl.focus();
+        return;
+      }
       state.submitting = true;
       updateBusyState();
       statusLineEl.textContent = t('submitting');
       try {
+        await refreshSnapshot();
+        syncSubmitModalState();
+        const dependencyIds = selectedDependencyIds();
+        const hasDependencies = dependencyIds.length > 0;
+        const allowParallel = allowParallelEl.checked && !dependencyIds.length;
+        if (requestedParallel && !hasDependencies && !allowParallel) {
+          statusLineEl.textContent = t('workspaceOverlapNoticeTitle');
+          return;
+        }
         const payload = {
           goal,
           workflow_mode: workflowMode,
@@ -4334,6 +5240,7 @@
           priority,
           backend,
           workspace_root: workspaceRoot,
+          runbook_path: runbookPath || null,
           depends_on_command_ids: dependencyIds,
           allow_parallel: allowParallel,
         };
@@ -4344,10 +5251,20 @@
         state.selectedCommandId = result.command?.id || state.selectedCommandId;
         goalInputEl.value = '';
         workspaceRootEl.value = '';
+        runbookPathEl.value = '';
         allowParallelEl.checked = false;
         state.dependencySelection = new Set();
-        closeSubmitModal();
+        closeSubmitModal({ force: true });
         await refreshSnapshot();
+      } catch (error) {
+        const payload = parseApiError(error);
+        if (payload?.error === 'parallel_workspace_overlap') {
+          await refreshSnapshot();
+          syncSubmitModalState();
+          statusLineEl.textContent = t('workspaceOverlapNoticeTitle');
+          return;
+        }
+        throw error;
       } finally {
         state.submitting = false;
         updateBusyState();
@@ -4391,7 +5308,7 @@
     closeOperatorIssueBtnEl.addEventListener('click', closeOperatorIssueModal);
     closeOperatorResumeBtnEl.addEventListener('click', closeOperatorResumeModal);
     submitModalEl.addEventListener('click', (event) => {
-      if (event.target === submitModalEl) closeSubmitModal();
+      if (event.target === submitModalEl && !state.submitting && !state.jobSplitPreviewBusy) closeSubmitModal();
     });
     resultModalEl.addEventListener('click', (event) => {
       if (event.target === resultModalEl) closeResultModal();

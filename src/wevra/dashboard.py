@@ -20,7 +20,14 @@ from urllib.parse import urlparse
 
 from wevra.config import AppConfig, LOOPBACK_HOST, load_config
 from wevra.db import connect, initialize_database
-from wevra.models import ApprovalMode, CommandStage, Priority, RuntimeBackend, WorkflowMode
+from wevra.models import (
+    ApprovalMode,
+    CommandStage,
+    JobSplitPreview,
+    Priority,
+    RuntimeBackend,
+    WorkflowMode,
+)
 from wevra.runtime_registry import runtime_label, runtime_option_payload
 from wevra.service import (
     answer_question,
@@ -42,7 +49,9 @@ from wevra.service import (
     request_command_stop,
     retry_operator_issue,
     resume_command,
+    generate_job_split_preview,
     submit_command,
+    submit_job_split_preview,
     tick_once,
 )
 
@@ -385,6 +394,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def state_lock(self):
         return self.server.state_lock  # type: ignore[attr-defined]
 
+    @property
+    def engine_state_lock(self):
+        return self.server.engine_state_lock  # type: ignore[attr-defined]
+
+    def engine_state_snapshot(self) -> dict[str, Any]:
+        with self.engine_state_lock:
+            return dict(getattr(self.server, "engine_state", {}) or {})
+
     def log_message(self, format: str, *args) -> None:
         return
 
@@ -443,15 +460,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_bytes(HTTPStatus.OK, body, mime_type)
             return
         if parsed.path == "/api/snapshot":
-            with self.state_lock:
-                self.send_json(
-                    HTTPStatus.OK,
-                    build_summary_snapshot(
-                        self.repo_root,
-                        self.settings,
-                        engine_state=getattr(self.server, "engine_state", None),
-                    ),
-                )
+            self.send_json(
+                HTTPStatus.OK,
+                build_summary_snapshot(
+                    self.repo_root,
+                    self.settings,
+                    engine_state=self.engine_state_snapshot(),
+                ),
+            )
             return
         if (
             parsed.path.startswith("/api/commands/")
@@ -459,11 +475,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             and len(parsed.path.strip("/").split("/")) == 4
         ):
             command_id = parsed.path.strip("/").split("/")[2]
-            with self.state_lock:
-                self.send_json(
-                    HTTPStatus.OK,
-                    build_command_detail(self.repo_root, command_id, self.settings),
-                )
+            self.send_json(
+                HTTPStatus.OK,
+                build_command_detail(self.repo_root, command_id, self.settings),
+            )
             return
         self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
 
@@ -504,6 +519,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     {"ok": False, "error": "workspace_root_required"},
                 )
                 return
+            runbook_path_raw = str(payload.get("runbook_path", "")).strip()
             workspace_root = Path(workspace_root_raw).expanduser()
             try:
                 with self.state_lock:
@@ -515,6 +531,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         priority=priority,
                         backend=backend,
                         workspace_root=workspace_root,
+                        runbook_path=runbook_path_raw or None,
                         depends_on_command_ids=depends_on_command_ids,
                         allow_parallel=allow_parallel,
                         settings=self.settings,
@@ -525,6 +542,72 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             self.send_json(
                 HTTPStatus.CREATED, {"ok": True, "command": command.model_dump(mode="json")}
+            )
+            return
+
+        if parsed.path == "/api/commands/split-preview":
+            goal = str(payload.get("goal", "")).strip()
+            if not goal:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "goal_required"})
+                return
+            workspace_root_raw = str(payload.get("workspace_root", "")).strip()
+            if not workspace_root_raw:
+                self.send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"ok": False, "error": "workspace_root_required"},
+                )
+                return
+            backend_raw = str(payload.get("backend", "")).strip().lower()
+            backend = RuntimeBackend(backend_raw) if backend_raw else None
+            runbook_path_raw = str(payload.get("runbook_path", "")).strip()
+            locale = str(payload.get("locale", "")).strip() or None
+            workspace_root = Path(workspace_root_raw).expanduser()
+            try:
+                preview = generate_job_split_preview(
+                    goal=goal,
+                    workspace_root=workspace_root,
+                    runbook_path=runbook_path_raw or None,
+                    backend=backend,
+                    settings=self.settings,
+                    repo_root=self.repo_root,
+                    locale=locale,
+                )
+            except ValueError as exc:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
+                return
+            self.send_json(HTTPStatus.OK, {"ok": True, "preview": preview.model_dump(mode="json")})
+            return
+
+        if parsed.path == "/api/commands/split-apply":
+            preview_payload = payload.get("preview")
+            if not isinstance(preview_payload, dict):
+                self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "preview_required"})
+                return
+            priority = Priority(str(payload.get("priority", Priority.HIGH.value)))
+            approval_mode = ApprovalMode(
+                str(payload.get("approval_mode", ApprovalMode.AUTO.value)).strip()
+                or ApprovalMode.AUTO.value
+            )
+            backend_raw = str(payload.get("backend", "")).strip().lower()
+            backend = RuntimeBackend(backend_raw) if backend_raw else None
+            try:
+                preview = JobSplitPreview.model_validate(preview_payload)
+                with self.state_lock:
+                    commands = submit_job_split_preview(
+                        self.settings.db_path,
+                        preview=preview,
+                        approval_mode=approval_mode,
+                        priority=priority,
+                        backend=backend,
+                        settings=self.settings,
+                        repo_root=self.repo_root,
+                    )
+            except ValueError as exc:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
+                return
+            self.send_json(
+                HTTPStatus.CREATED,
+                {"ok": True, "commands": [command.model_dump(mode="json") for command in commands]},
             )
             return
 
@@ -770,6 +853,7 @@ def engine_loop(server: WevraDashboardServer) -> None:
                     settings=server.settings,
                     repo_root=server.repo_root,
                 )
+            with server.engine_state_lock:  # type: ignore[attr-defined]
                 server.engine_state = {  # type: ignore[attr-defined]
                     "status": "running",
                     "last_error": None,
@@ -777,7 +861,7 @@ def engine_loop(server: WevraDashboardServer) -> None:
                     "last_action": outcome.action,
                 }
         except Exception as exc:
-            with server.state_lock:
+            with server.engine_state_lock:  # type: ignore[attr-defined]
                 server.engine_state = {  # type: ignore[attr-defined]
                     "status": "error",
                     "last_error": str(exc),
@@ -796,6 +880,7 @@ def create_server(repo_root: Path, port: int) -> ThreadingHTTPServer:
     server.repo_root = repo_root.resolve()  # type: ignore[attr-defined]
     server.settings = settings  # type: ignore[attr-defined]
     server.state_lock = threading.RLock()  # type: ignore[attr-defined]
+    server.engine_state_lock = threading.Lock()  # type: ignore[attr-defined]
     server.stop_event = threading.Event()  # type: ignore[attr-defined]
     server.engine_state = {  # type: ignore[attr-defined]
         "status": "running",

@@ -29,6 +29,10 @@ from wevra.models import (
     CommandStage,
     EventRecord,
     InstructionRecord,
+    JobSplitDraftItem,
+    JobSplitDraftOutput,
+    JobSplitPreview,
+    JobSplitPreviewItem,
     OperatorIssueKind,
     PlannerDecision,
     PlannerOutput,
@@ -141,6 +145,17 @@ MODE_KEYWORDS = {
         "報告",
     ),
     WorkflowMode.REVIEW: ("review", "audit", "inspect", "pr", "diff", "レビュー", "確認"),
+    WorkflowMode.DOGFOODING: (
+        "dogfood",
+        "dogfooding",
+        "runbook",
+        "manual walkthrough",
+        "manual test",
+        "acceptance",
+        "運用手順",
+        "ドッグフーディング",
+        "手順確認",
+    ),
     WorkflowMode.PLANNING: ("plan", "design", "spec", "task breakdown", "設計", "計画", "分解"),
 }
 
@@ -184,6 +199,13 @@ def normalized_workspace_root(value: str | Path) -> str:
     return str(Path(value).expanduser().resolve())
 
 
+def normalized_runbook_path(value: str | Path, workspace_root: str | Path) -> str:
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = Path(workspace_root).expanduser().resolve() / path
+    return str(path.resolve())
+
+
 def workspace_roots_overlap(left: str | Path, right: str | Path) -> bool:
     left_root = normalized_workspace_root(left)
     right_root = normalized_workspace_root(right)
@@ -192,6 +214,58 @@ def workspace_roots_overlap(left: str | Path, right: str | Path) -> bool:
     except ValueError:
         return False
     return common == left_root or common == right_root
+
+
+def resolve_workspace_path(base_root: str | Path, workspace_path: str | Path) -> str:
+    raw = str(workspace_path or ".").strip() or "."
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = Path(base_root).expanduser().resolve() / path
+    return str(path.resolve())
+
+
+def normalize_job_split_preview(
+    draft: JobSplitDraftOutput, base_workspace_root: str | Path
+) -> JobSplitPreview:
+    seen: set[str] = set()
+    items: List[JobSplitPreviewItem] = []
+    for index, item in enumerate(draft.items, start=1):
+        key = (item.key or "").strip() or f"job_{index}"
+        if key in seen:
+            raise ValueError(f"Duplicate split preview key: {key}")
+        seen.add(key)
+        items.append(
+            JobSplitPreviewItem(
+                key=key,
+                title=(item.title or "").strip() or f"Job {index}",
+                goal=(item.goal or "").strip() or (item.title or "").strip() or f"Job {index}",
+                workflow_mode=item.workflow_mode,
+                workspace_root=resolve_workspace_path(base_workspace_root, item.workspace_path),
+                depends_on=[dependency for dependency in item.depends_on if dependency],
+                allow_parallel=bool(item.allow_parallel),
+                runbook_path=item.runbook_path,
+                rationale=item.rationale,
+            )
+        )
+    preview = JobSplitPreview(summary=(draft.summary or "").strip() or None, items=items)
+    preview_keys = {item.key for item in preview.items}
+    for item in preview.items:
+        missing = [dependency for dependency in item.depends_on if dependency not in preview_keys]
+        if missing:
+            raise ValueError(f"Unknown split preview dependency: {', '.join(missing)}")
+        if item.key in item.depends_on:
+            raise ValueError(f"Split preview item cannot depend on itself: {item.key}")
+    for item in preview.items:
+        if item.depends_on:
+            item.allow_parallel = False
+            continue
+        if any(
+            other.key != item.key
+            and workspace_roots_overlap(item.workspace_root, other.workspace_root)
+            for other in preview.items
+        ):
+            item.allow_parallel = False
+    return preview
 
 
 def requested_mode(command: CommandRecord) -> WorkflowMode:
@@ -207,11 +281,11 @@ def effective_mode(command: CommandRecord) -> WorkflowMode:
 
 
 def mode_requires_review(mode: WorkflowMode) -> bool:
-    return mode in {WorkflowMode.IMPLEMENTATION, WorkflowMode.REVIEW}
+    return mode in {WorkflowMode.IMPLEMENTATION, WorkflowMode.REVIEW, WorkflowMode.DOGFOODING}
 
 
 def mode_requires_test(mode: WorkflowMode) -> bool:
-    return mode == WorkflowMode.IMPLEMENTATION
+    return mode in {WorkflowMode.IMPLEMENTATION, WorkflowMode.DOGFOODING}
 
 
 def infer_mode_from_goal(goal: str) -> WorkflowMode:
@@ -270,14 +344,21 @@ def mode_prompt_guidance(mode: WorkflowMode) -> str:
             "Do not write any prose before the first heading or add extra top-level sections. "
             "Under 'Task Breakdown', use an ordered list with actionable steps."
         )
+    if mode == WorkflowMode.DOGFOODING:
+        return (
+            "This is dogfooding mode. Read the runbook path first, then plan around exercising the real workflow in the target workspace. "
+            "Focus on friction, breakage, and fixes needed to make the documented flow succeed. "
+            "Do not schedule the final dogfooding validation pass or final reviewer pass yourself. The engine owns both. "
+            "Use investigation or analyst tasks only when they directly help understand the runbook or reproduce an issue."
+        )
     return (
-        "This is auto mode. Infer whether the request is best handled as implementation, research, review, or planning, "
+        "This is auto mode. Infer whether the request is best handled as implementation, research, review, planning, or dogfooding, "
         "and set workflow_mode in the JSON response."
     )
 
 
 def add_mode_control_tasks(
-    mode: WorkflowMode, specs: Sequence[PlannerTaskSpec]
+    mode: WorkflowMode, specs: Sequence[PlannerTaskSpec], *, runbook_path: Optional[str] = None
 ) -> List[PlannerTaskSpec]:
     planned = list(specs)
     if not mode_requires_test(mode):
@@ -286,7 +367,10 @@ def add_mode_control_tasks(
         return planned
 
     dependency_keys = [spec.key for spec in planned]
-    planned.append(build_final_test_spec(dependency_keys))
+    if mode == WorkflowMode.DOGFOODING:
+        planned.append(build_dogfooding_validation_spec(dependency_keys, runbook_path))
+    else:
+        planned.append(build_final_test_spec(dependency_keys))
     return planned
 
 
@@ -300,6 +384,30 @@ def build_final_test_spec(dependency_keys: Sequence[str]) -> PlannerTaskSpec:
         depends_on=list(dependency_keys),
         write_files=[],
         input_payload={"system_generated": True, "gate": "final_test"},
+    )
+
+
+def build_dogfooding_validation_spec(
+    dependency_keys: Sequence[str], runbook_path: Optional[str]
+) -> PlannerTaskSpec:
+    runbook_detail = runbook_path or "the configured runbook path"
+    return PlannerTaskSpec(
+        key="__system_dogfooding_gate__",
+        kind="dogfooding",
+        capability="tester",
+        title="Execute the documented workflow",
+        description=(
+            "Read the operating runbook and execute the documented workflow against the target workspace. "
+            "Confirm whether the flow actually works, capture friction clearly, and fail if the workflow is still broken.\n\n"
+            f"Runbook path: {runbook_detail}"
+        ),
+        depends_on=list(dependency_keys),
+        write_files=[],
+        input_payload={
+            "system_generated": True,
+            "gate": "dogfooding_runbook",
+            "runbook_path": runbook_path,
+        },
     )
 
 
@@ -876,7 +984,15 @@ def enrich_command_dependency_state(commands: Sequence[CommandRecord]) -> List[C
         blocking_ids: List[str] = []
         dependency_state = "none"
         can_ignore = False
-        if depends_on:
+        if (
+            command.stage
+            not in {
+                CommandStage.DONE,
+                CommandStage.FAILED,
+                CommandStage.CANCELED,
+            }
+            and depends_on
+        ):
             waiting_ids: List[str] = []
             failed_ids: List[str] = []
             for dependency_id in depends_on:
@@ -1079,6 +1195,7 @@ def build_worker_context_payload(
             "workflow_mode": command.workflow_mode.value,
             "effective_mode": command.effective_mode.value if command.effective_mode else None,
             "workspace_root": command.workspace_root,
+            "runbook_path": command.runbook_path,
         },
         "task": task.model_dump(mode="json"),
         "resume_hint": command.resume_hint,
@@ -1150,6 +1267,7 @@ def build_review_context_payload(
             "workflow_mode": command.workflow_mode.value,
             "effective_mode": command.effective_mode.value if command.effective_mode else None,
             "workspace_root": command.workspace_root,
+            "runbook_path": command.runbook_path,
         },
         "resume_hint": command.resume_hint,
         "explicit_paths": explicit_paths,
@@ -1668,6 +1786,21 @@ class MockBackend(BackendInterface):
                     capability="analyst",
                     title="Collect review context",
                     description="Inspect the current workspace and gather the context needed for a final review pass.",
+                    write_files=[],
+                )
+            ]
+        elif current_mode == WorkflowMode.DOGFOODING:
+            runbook_detail = command.runbook_path or "the provided runbook path"
+            default_specs = [
+                PlannerTaskSpec(
+                    key="dogfood_plan",
+                    kind="analysis",
+                    capability="analyst",
+                    title="Prepare the dogfooding pass",
+                    description=(
+                        "Read the operating runbook, identify the key workflow checkpoints, and prepare the validation pass "
+                        f"for the documented product flow.\n\nRunbook path: {runbook_detail}"
+                    ),
                     write_files=[],
                 )
             ]
@@ -2195,11 +2328,327 @@ def backend_for(command: CommandRecord, settings: AppConfig, capability: str) ->
     )
 
 
+def _normalized_output_locale(locale: Optional[str]) -> str:
+    return "ja" if str(locale or "").lower().startswith("ja") else "en"
+
+
+def _mock_job_split_preview(
+    goal: str,
+    workspace_root: str,
+    runbook_path: Optional[str],
+    *,
+    locale: Optional[str] = None,
+) -> JobSplitPreview:
+    output_locale = _normalized_output_locale(locale)
+    lowered = goal.lower()
+    if "docs" in lowered or "document" in lowered:
+        if output_locale == "ja":
+            draft = JobSplitDraftOutput(
+                summary="実装、文書更新、最終確認の3つに分けて進めます。",
+                items=[
+                    JobSplitDraftItem(
+                        key="implement",
+                        title="実装を進める",
+                        goal=f"メインの作業ディレクトリで、依頼内容に沿った実装変更を行う: {goal}",
+                        workflow_mode=WorkflowMode.IMPLEMENTATION,
+                        workspace_path=".",
+                        rationale="主となる実装作業。",
+                    ),
+                    JobSplitDraftItem(
+                        key="docs",
+                        title="仕様書と案内を更新する",
+                        goal=f"依頼内容に合わせて、関連する仕様書や利用案内を更新する: {goal}",
+                        workflow_mode=WorkflowMode.PLANNING,
+                        workspace_path="docs",
+                        allow_parallel=True,
+                        rationale="文書更新は別の workspace で独立して進められる。",
+                    ),
+                    JobSplitDraftItem(
+                        key="verify",
+                        title="仕上がりを確認する",
+                        goal=f"実装変更と文書更新をまとめて確認し、仕上がりをレビューする: {goal}",
+                        workflow_mode=WorkflowMode.REVIEW,
+                        depends_on=["implement", "docs"],
+                        workspace_path=".",
+                        rationale="並行作業がそろった後の最終確認。",
+                    ),
+                ],
+            )
+        else:
+            draft = JobSplitDraftOutput(
+                summary="Split the work into implementation, documentation, and final verification.",
+                items=[
+                    JobSplitDraftItem(
+                        key="implement",
+                        title="Implement the requested change",
+                        goal=f"Apply the requested code changes in the main workspace for: {goal}",
+                        workflow_mode=WorkflowMode.IMPLEMENTATION,
+                        workspace_path=".",
+                        rationale="Primary implementation pass.",
+                    ),
+                    JobSplitDraftItem(
+                        key="docs",
+                        title="Update docs and usage notes",
+                        goal=(
+                            "Update the related documentation and usage notes so they match the requested "
+                            f"change: {goal}"
+                        ),
+                        workflow_mode=WorkflowMode.PLANNING,
+                        workspace_path="docs",
+                        allow_parallel=True,
+                        rationale="Documentation can run independently in a separate workspace path.",
+                    ),
+                    JobSplitDraftItem(
+                        key="verify",
+                        title="Review the combined result",
+                        goal=(
+                            "Review the finished implementation and documentation updates together for "
+                            f"the requested change: {goal}"
+                        ),
+                        workflow_mode=WorkflowMode.REVIEW,
+                        depends_on=["implement", "docs"],
+                        workspace_path=".",
+                        rationale="Final verification after the parallel work completes.",
+                    ),
+                ],
+            )
+    else:
+        if output_locale == "ja":
+            draft = JobSplitDraftOutput(
+                summary="計画、実装、確認の3段階に分けて進めます。",
+                items=[
+                    JobSplitDraftItem(
+                        key="prepare",
+                        title="変更計画を固める",
+                        goal=f"現状を確認し、この依頼を進めるための具体的な計画を作成する: {goal}",
+                        workflow_mode=WorkflowMode.PLANNING,
+                        workspace_path=".",
+                        rationale="実装前に進め方を固める。",
+                    ),
+                    JobSplitDraftItem(
+                        key="implement",
+                        title="変更を実装する",
+                        goal=f"作成した計画をもとに、依頼された変更を workspace に反映する: {goal}",
+                        workflow_mode=WorkflowMode.IMPLEMENTATION,
+                        depends_on=["prepare"],
+                        workspace_path=".",
+                        rationale="主となる実装作業。",
+                        runbook_path=runbook_path,
+                    ),
+                    JobSplitDraftItem(
+                        key="verify",
+                        title="仕上がりをレビューする",
+                        goal=f"実装後の変更内容を確認し、依頼内容どおりに仕上がっているか検証する: {goal}",
+                        workflow_mode=WorkflowMode.REVIEW,
+                        depends_on=["implement"],
+                        workspace_path=".",
+                        rationale="実装後の最終確認。",
+                    ),
+                ],
+            )
+        else:
+            draft = JobSplitDraftOutput(
+                summary="Split the request into preparation, execution, and verification jobs.",
+                items=[
+                    JobSplitDraftItem(
+                        key="prepare",
+                        title="Plan the requested change",
+                        goal=(
+                            "Inspect the current state and produce a concrete implementation plan for: "
+                            f"{goal}"
+                        ),
+                        workflow_mode=WorkflowMode.PLANNING,
+                        workspace_path=".",
+                        rationale="Establish the plan before making changes.",
+                    ),
+                    JobSplitDraftItem(
+                        key="implement",
+                        title="Implement the requested change",
+                        goal=(
+                            "Apply the requested change in the workspace based on the approved plan: "
+                            f"{goal}"
+                        ),
+                        workflow_mode=WorkflowMode.IMPLEMENTATION,
+                        depends_on=["prepare"],
+                        workspace_path=".",
+                        rationale="Main implementation pass.",
+                        runbook_path=runbook_path,
+                    ),
+                    JobSplitDraftItem(
+                        key="verify",
+                        title="Review the finished change",
+                        goal=(
+                            "Review and validate the completed change after implementation for: "
+                            f"{goal}"
+                        ),
+                        workflow_mode=WorkflowMode.REVIEW,
+                        depends_on=["implement"],
+                        workspace_path=".",
+                        rationale="Confirm the final state after implementation.",
+                    ),
+                ],
+            )
+    return normalize_job_split_preview(draft, workspace_root)
+
+
+def _split_preview_prompt(
+    goal: str,
+    workspace_root: str,
+    runbook_path: Optional[str],
+    *,
+    locale: Optional[str] = None,
+) -> str:
+    runbook_block = ""
+    if runbook_path:
+        runbook_block = f"Runbook path: {runbook_path}\n"
+    output_language = "Japanese" if _normalized_output_locale(locale) == "ja" else "English"
+    return (
+        "You are the Wevra job splitter.\n"
+        "Create a small set of top-level jobs, not internal tasks.\n"
+        "These jobs will be shown separately in the dashboard and may depend on one another.\n"
+        "Return only JSON that matches the schema.\n"
+        "Prefer 2 to 4 jobs.\n"
+        "Use workflow modes from: implementation, research, review, planning, dogfooding.\n"
+        "Each item must include a stable key, title, goal, workflow_mode, workspace_path, depends_on, allow_parallel, and optional rationale.\n"
+        "Write titles as concise dashboard labels that describe the actual deliverable or phase.\n"
+        "Write each goal as a self-contained job brief that tells the worker exactly what to produce.\n"
+        "Avoid vague goals such as 'prepare the approach', 'implement the change', or 'verify the result' unless they are qualified with the actual subject of the work.\n"
+        "Downstream jobs must mention what they are building on or checking. Example: 'Update the README and CLI help text to match the new flag names.'\n"
+        "For planning jobs, state what plan or specification should be produced. For review jobs, state what should be reviewed and why.\n"
+        "workspace_path must be relative to the base working directory. Use '.' when the job should run in the base working directory.\n"
+        "Only mark allow_parallel=true when the job has no dependencies and can safely run in a workspace path that does not overlap other preview jobs.\n"
+        "Do not split into tiny jobs. Split only at natural boundaries that are worth tracking independently.\n"
+        "If the request clearly contains setup, implementation, and verification phases, reflect that.\n"
+        f"Write the summary, titles, goals, and rationale in {output_language}.\n"
+        f"Base working directory: {workspace_root}\n"
+        f"{runbook_block}"
+        f"Job brief:\n{goal}"
+    )
+
+
+def _structured_job_split_preview(
+    *,
+    runtime: RuntimeBackend,
+    model: str,
+    settings: AppConfig,
+    goal: str,
+    workspace_root: str,
+    runbook_path: Optional[str],
+    locale: Optional[str],
+) -> JobSplitPreview:
+    backend = StructuredCliBackend(
+        runtime,
+        model,
+        ApprovalMode.AUTO,
+        settings.agent_timeout_seconds,
+        runtime_home=settings.runtime_home,
+    )
+    payload = backend._run_structured(  # noqa: SLF001
+        _split_preview_prompt(goal, workspace_root, runbook_path, locale=locale),
+        JobSplitDraftOutput.model_json_schema(),
+        workspace_root,
+    )
+    draft = JobSplitDraftOutput.model_validate(payload)
+    return normalize_job_split_preview(draft, workspace_root)
+
+
+def generate_job_split_preview(
+    *,
+    goal: str,
+    workspace_root: str | Path,
+    runbook_path: Optional[str | Path] = None,
+    backend: Optional[RuntimeBackend] = None,
+    settings: Optional[AppConfig] = None,
+    repo_root: Optional[Path] = None,
+    locale: Optional[str] = None,
+) -> JobSplitPreview:
+    resolved_settings = resolve_settings(settings=settings, repo_root=repo_root)
+    resolved_root = normalized_workspace_root(workspace_root)
+    resolved_runbook_path: Optional[str] = None
+    if runbook_path and str(runbook_path).strip():
+        resolved_runbook_path = normalized_runbook_path(runbook_path, resolved_root)
+    planner_role = resolved_settings.role_for("planner")
+    runtime = backend or planner_role.runtime
+    model = planner_role.model if runtime == planner_role.runtime else ""
+    if runtime == RuntimeBackend.MOCK:
+        return _mock_job_split_preview(
+            goal,
+            resolved_root,
+            resolved_runbook_path,
+            locale=locale,
+        )
+    return _structured_job_split_preview(
+        runtime=runtime,
+        model=model,
+        settings=resolved_settings,
+        goal=goal,
+        workspace_root=resolved_root,
+        runbook_path=resolved_runbook_path,
+        locale=locale,
+    )
+
+
+def _topologically_order_preview_items(
+    items: Sequence[JobSplitPreviewItem],
+) -> List[JobSplitPreviewItem]:
+    pending = {item.key: item for item in items}
+    resolved: List[JobSplitPreviewItem] = []
+    while pending:
+        ready = [
+            item
+            for item in pending.values()
+            if all(
+                dependency in {resolved_item.key for resolved_item in resolved}
+                for dependency in item.depends_on
+            )
+        ]
+        if not ready:
+            raise ValueError("job_split_preview_cycle")
+        ready.sort(key=lambda item: item.key)
+        for item in ready:
+            resolved.append(item)
+            pending.pop(item.key, None)
+    return resolved
+
+
+def submit_job_split_preview(
+    db_path: Path,
+    *,
+    preview: JobSplitPreview,
+    approval_mode: ApprovalMode,
+    priority: Priority,
+    backend: Optional[RuntimeBackend] = None,
+    settings: Optional[AppConfig] = None,
+    repo_root: Optional[Path] = None,
+) -> List[CommandRecord]:
+    created: Dict[str, CommandRecord] = {}
+    ordered = _topologically_order_preview_items(preview.items)
+    for item in ordered:
+        command = submit_command(
+            db_path,
+            goal=item.goal,
+            workflow_mode=item.workflow_mode,
+            priority=priority,
+            approval_mode=approval_mode,
+            backend=backend,
+            workspace_root=item.workspace_root,
+            runbook_path=item.runbook_path,
+            depends_on_command_ids=[created[dependency].id for dependency in item.depends_on],
+            allow_parallel=item.allow_parallel,
+            settings=settings,
+            repo_root=repo_root,
+        )
+        created[item.key] = command
+    return [created[item.key] for item in ordered]
+
+
 def build_final_response(
     command: CommandRecord, tasks: List[TaskRecord], reviews: List[ReviewRecord]
 ) -> str:
     mode = effective_mode(command).value
     lines = [f"Goal: {command.goal}", f"Mode: {mode}", "", "Completed tasks:"]
+    if command.runbook_path:
+        lines.insert(2, f"Runbook Path: {command.runbook_path}")
     completed_tasks = [task for task in tasks if task.state == TaskState.DONE]
     for task in completed_tasks:
         summary = "completed"
@@ -2705,6 +3154,7 @@ def submit_command(
     approval_mode: ApprovalMode = ApprovalMode.AUTO,
     backend: Optional[RuntimeBackend] = None,
     workspace_root: Optional[Path] = None,
+    runbook_path: Optional[str | Path] = None,
     depends_on_command_ids: Sequence[str] = (),
     allow_parallel: bool = False,
     settings: Optional[AppConfig] = None,
@@ -2715,6 +3165,15 @@ def submit_command(
     if workspace_root is None:
         raise ValueError("workspace_root_required")
     resolved_root = normalized_workspace_root(workspace_root)
+    resolved_runbook_path: Optional[str] = None
+    if workflow_mode == WorkflowMode.DOGFOODING:
+        if runbook_path is None or not str(runbook_path).strip():
+            raise ValueError("runbook_path_required")
+        resolved_runbook_path = normalized_runbook_path(runbook_path, resolved_root)
+        if not Path(resolved_runbook_path).exists():
+            raise ValueError("runbook_path_not_found")
+    elif runbook_path and str(runbook_path).strip():
+        resolved_runbook_path = normalized_runbook_path(runbook_path, resolved_root)
     selected_backend = backend or RuntimeBackend.INHERIT
 
     with connect(db_path) as conn:
@@ -2727,6 +3186,10 @@ def submit_command(
             if dependency_id not in existing_ids:
                 raise ValueError(f"Unknown dependency command: {dependency_id}")
             unique_dependencies.append(dependency_id)
+        if allow_parallel and not unique_dependencies:
+            overlaps = nonterminal_workspace_overlap_commands(conn, resolved_root)
+            if overlaps:
+                raise ValueError("parallel_workspace_overlap")
         created = _insert_command_record(
             conn,
             goal=goal,
@@ -2735,6 +3198,7 @@ def submit_command(
             priority=priority,
             backend=selected_backend,
             workspace_root=resolved_root,
+            runbook_path=resolved_runbook_path,
             depends_on_command_ids=unique_dependencies,
             allow_parallel=allow_parallel,
         )
@@ -3065,6 +3529,7 @@ def _insert_command_record(
     priority: Priority,
     backend: RuntimeBackend,
     workspace_root: str,
+    runbook_path: Optional[str],
     depends_on_command_ids: Sequence[str],
     allow_parallel: bool,
 ) -> CommandRecord:
@@ -3073,13 +3538,13 @@ def _insert_command_record(
     conn.execute(
         """
         INSERT INTO commands (
-            id, goal, stage, workflow_mode, approval_mode, effective_mode, priority, backend, workspace_root, allow_parallel,
+            id, goal, stage, workflow_mode, approval_mode, effective_mode, priority, backend, workspace_root, runbook_path, allow_parallel,
             resume_stage, resume_hint, final_response, failure_reason, operator_issue_kind, operator_issue_detail,
             operator_issue_agent_run_id, operator_issue_task_id, operator_issue_role_name, operator_issue_runtime,
             operator_issue_model, question_state, planning_attempts, run_count, replan_requested, stop_requested,
             version, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             command_id,
@@ -3091,6 +3556,7 @@ def _insert_command_record(
             priority.value,
             backend.value,
             workspace_root,
+            runbook_path,
             int(bool(allow_parallel and not depends_on_command_ids)),
             None,
             None,
@@ -3133,6 +3599,7 @@ def _insert_command_record(
             "priority": priority.value,
             "backend": backend.value,
             "workspace_root": workspace_root,
+            "runbook_path": runbook_path,
             "allow_parallel": bool(allow_parallel and not depends_on_command_ids),
             "depends_on_command_ids": list(depends_on_command_ids),
         },
@@ -3319,6 +3786,7 @@ def cancel_command_with_repair(
             priority=Priority.HIGH,
             backend=command.backend,
             workspace_root=command.workspace_root,
+            runbook_path=None,
             depends_on_command_ids=[],
             allow_parallel=False,
         )
@@ -3615,6 +4083,28 @@ def command_dependencies_ready(command: CommandRecord) -> bool:
 
 def command_can_join_parallel_frontier(command: CommandRecord) -> bool:
     return command.allow_parallel and not command.depends_on
+
+
+def nonterminal_workspace_overlap_commands(
+    conn, workspace_root: str | Path, *, exclude_ids: Sequence[str] = ()
+) -> List[CommandRecord]:
+    excluded = {item for item in exclude_ids if item}
+    rows = conn.execute(
+        "SELECT * FROM commands WHERE stage NOT IN (?, ?, ?, ?)",
+        (
+            CommandStage.DONE.value,
+            CommandStage.FAILED.value,
+            CommandStage.PAUSED.value,
+            CommandStage.CANCELED.value,
+        ),
+    ).fetchall()
+    commands = [command_from_row(row) for row in rows]
+    return [
+        command
+        for command in commands
+        if command.id not in excluded
+        and workspace_roots_overlap(command.workspace_root, workspace_root)
+    ]
 
 
 def command_is_blocked_by_operator(command: CommandRecord, conn) -> bool:
@@ -3992,7 +4482,11 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
     resolved_mode = resolve_command_mode(command, output)
 
     if output.decision == PlannerDecision.CREATE_TASKS:
-        planned_specs = add_mode_control_tasks(resolved_mode, output.tasks)
+        planned_specs = add_mode_control_tasks(
+            resolved_mode,
+            output.tasks,
+            runbook_path=command.runbook_path,
+        )
         try:
             created_tasks = create_task_records(conn, command, planned_specs)
         except Exception as exc:
@@ -4078,10 +4572,18 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
     if output.decision == PlannerDecision.COMPLETE:
         existing_tester = any(task.capability == "tester" for task in tasks)
         if mode_requires_test(resolved_mode) and not existing_tester:
+            implicit_spec = (
+                build_dogfooding_validation_spec(
+                    [task.task_key for task in tasks if task.task_key],
+                    command.runbook_path,
+                )
+                if resolved_mode == WorkflowMode.DOGFOODING
+                else build_final_test_spec([task.task_key for task in tasks if task.task_key])
+            )
             created_tasks = create_task_records(
                 conn,
                 command,
-                [build_final_test_spec([task.task_key for task in tasks if task.task_key])],
+                [implicit_spec],
             )
             update_command(
                 conn,

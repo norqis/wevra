@@ -41,7 +41,7 @@ python3 -m venv .venv
 ./wevra init
 ```
 
-`wevra init` を実行すると、`wevra.ini`、`agents.ini`、`.env` などのローカル設定ファイルが作られます。
+`wevra init` を実行すると、`wevra.ini.example`、`agents.ini.example`、`.env.example` をローカルの設定ファイルとしてコピーします。
 
 ## 設定を調整する
 
@@ -50,6 +50,8 @@ python3 -m venv .venv
 - `wevra.ini`: dashboard の port、通知、runtime の既定値、CLI 用の `HOME` 上書き
 - `agents.ini`: role ごとの実行先と model
 - `.env`: `DISCORD_WEBHOOK_URL` のようなローカル secret
+
+`init` 前に既定値を見たい場合は、repo root の `*.example` ファイルを開けば確認できます。
 
 ## Quick Start
 
@@ -148,7 +150,7 @@ CLI から dashboard を操作する例:
 
 ## 設定リファレンス
 
-`wevra init` を実行すると、次のローカル設定ファイルが作られます。
+`wevra init` を実行すると、repo root の `*.example` を元に次のローカル設定ファイルが作られます。
 
 - `wevra.ini`
 - `agents.ini`
@@ -191,9 +193,7 @@ role ごとに、どの実行先と model を使うかを設定します。
 | `implementer` | `runtime`, `model`, `count` | 実装工程で使う実行先、model、並列数です。 |
 | `reviewer` | `runtime`, `model`, `count` | 最終レビューで使う実行先、model、並列数です。 |
 
-`runtime` に指定できる値は `mock`、`codex`、`claude` です。
-
-`mock` は、デモ、ローカル開発、CI、フロー確認のための擬似実行先です。Codex や Claude を使った実際の実装やレビューは行いません。実運用するときは、`planner`、`implementer`、`reviewer` などを `codex` か `claude` に切り替えてから使ってください。
+各 role で使う runtime identifier は、生成された `agents.ini` を見れば確認できます。
 
 承認方式は `wevra.ini` ではなく、ジョブごとに dashboard または CLI から選びます。`自動` にすると Codex / Claude の実行をそのまま流し、`手動` にすると dashboard の `エージェント` タブで許可 / 拒否を判断するまで停止します。
 

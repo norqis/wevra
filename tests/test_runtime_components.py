@@ -12,6 +12,7 @@ import pytest
 from typer.testing import CliRunner
 
 import wevra.cli as cli_module
+import wevra.config as config_module
 import wevra.dashboard as dashboard_module
 import wevra.service as service_module
 from wevra import __version__
@@ -21,6 +22,7 @@ from wevra.config import (
     init_repo_config,
     load_config,
     normalize_bool,
+    read_example_template,
     read_simple_env,
     resolve_optional_config_path,
 )
@@ -158,6 +160,13 @@ def test_init_repo_config_is_idempotent_and_load_config_uses_repo_root_as_workdi
 ):
     created = init_repo_config(tmp_path)
     assert set(created) == {"wevra.ini", "agents.ini", ".env"}
+    assert (tmp_path / "wevra.ini").read_text(encoding="utf-8") == read_example_template(
+        "wevra.ini"
+    )
+    assert (tmp_path / "agents.ini").read_text(encoding="utf-8") == read_example_template(
+        "agents.ini"
+    )
+    assert (tmp_path / ".env").read_text(encoding="utf-8") == read_example_template(".env")
     assert init_repo_config(tmp_path) == {}
 
     (tmp_path / "wevra.ini").write_text(
@@ -222,6 +231,14 @@ count = 0
     fallback_role = settings.role_for("unknown_capability")
     assert fallback_role.name == "unknown_capability"
     assert fallback_role.count == 4
+
+
+def test_read_example_template_falls_back_to_packaged_templates(monkeypatch):
+    monkeypatch.setattr(config_module, "template_repo_root", lambda: Path("/tmp/does-not-exist"))
+    assert read_example_template("wevra.ini").startswith("[runtime]\n")
+    assert "db_path = .wevra/wevra.db" in read_example_template("wevra.ini")
+    assert "[planner]" in read_example_template("agents.ini")
+    assert "DISCORD_WEBHOOK_URL=" in read_example_template(".env")
 
 
 def test_cli_public_commands_cover_version_status_and_listing(tmp_path, monkeypatch):

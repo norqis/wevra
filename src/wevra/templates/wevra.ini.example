@@ -1,0 +1,19 @@
+[runtime]
+db_path = .wevra/wevra.db
+language = en
+agent_timeout_seconds = 1800
+home =
+
+[ui]
+auto_start = true
+port = 43861
+open_browser = true
+language =
+
+[notification]
+question_opened = false
+workflow_completed = false
+
+[discord]
+enable = false
+webhook_url = DISCORD_WEBHOOK_URL

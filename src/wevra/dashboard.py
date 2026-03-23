@@ -520,6 +520,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 )
                 return
             runbook_path_raw = str(payload.get("runbook_path", "")).strip()
+            locale = str(payload.get("locale", "")).strip() or None
             workspace_root = Path(workspace_root_raw).expanduser()
             try:
                 with self.state_lock:
@@ -536,6 +537,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         allow_parallel=allow_parallel,
                         settings=self.settings,
                         repo_root=self.repo_root,
+                        locale=locale,
                     )
             except ValueError as exc:
                 self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})

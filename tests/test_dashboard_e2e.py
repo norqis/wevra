@@ -387,16 +387,30 @@ def test_dashboard_browser_job_split_preview_and_apply(tmp_path, monkeypatch):
 
         expect(page.locator("#splitPreviewSection")).to_be_visible()
         expect(page.locator("#splitPreviewTabs [data-split-preview-tab]")).to_have_count(3)
-        expect(page.locator("#splitPreviewDetail")).to_contain_text("実装を進める")
+        expect(page.locator("#splitPreviewDetail")).to_contain_text("コード変更を実装する")
         page.locator('#splitPreviewTabs [data-split-preview-tab="1"]').click()
         expect(page.locator("#splitPreviewDetail")).to_contain_text("仕様書と案内を更新する")
         page.locator('#splitPreviewTabs [data-split-preview-tab="2"]').click()
-        expect(page.locator("#splitPreviewDetail")).to_contain_text("仕上がりを確認する")
+        expect(page.locator("#splitPreviewDetail")).to_contain_text("変更結果をレビューする")
 
         page.locator("#applySplitPreviewBtn").click()
 
         wait_for_python_condition(lambda: len(list_commands(settings.db_path)) == 3)
         expect(page.locator("#commandsList .command-item")).to_have_count(3)
+        rail_titles = page.locator("#commandsList .command-item .title").all_inner_texts()
+        assert set(rail_titles) == {
+            "コード変更を実装する",
+            "仕様書と案内を更新する",
+            "変更結果をレビューする",
+        }
+
+        page.locator("#commandsList .command-item").filter(
+            has=page.locator(".title", has_text="コード変更を実装する")
+        ).click()
+        expect(page.locator("#commandDetail .overview-title")).to_have_text("コード変更を実装する")
+        expect(page.locator("#commandDetail .overview-subtitle")).to_contain_text(
+            "メインの作業ディレクトリで、依頼内容に沿った実装変更を行う"
+        )
         expect(page.locator("#submitModal")).not_to_be_visible()
 
 

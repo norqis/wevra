@@ -112,6 +112,7 @@ class WorkerDecision(str, Enum):
 
 class CommandRecord(BaseModel):
     id: str
+    title: str = ""
     goal: str
     stage: CommandStage
     workflow_mode: WorkflowMode = WorkflowMode.AUTO
@@ -265,6 +266,10 @@ class PlannerOutput(BaseModel):
     question: Optional[str] = None
     final_response: Optional[str] = None
     failure_reason: Optional[str] = None
+
+
+class JobTitleOutput(BaseModel):
+    title: str
 
 
 class JobSplitDraftItem(BaseModel):

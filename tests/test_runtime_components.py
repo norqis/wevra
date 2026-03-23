@@ -55,6 +55,7 @@ from wevra.models import (
 from wevra.runtime_registry import structured_runtime_adapter
 from wevra.service import (
     AgentExecutionError,
+    advance_frontier_once,
     StructuredCliBackend,
     approve_agent_run,
     approve_agent_runs_batch,
@@ -93,6 +94,7 @@ from wevra.service import (
     resolve_command_mode,
     resolve_settings,
     select_actionable_command,
+    select_actionable_commands,
     select_ready_batch,
     _split_preview_prompt,
     submit_command,
@@ -433,6 +435,368 @@ def test_generate_command_title_falls_back_when_structured_runtime_errors(tmp_pa
     )
 
     assert title == "README の CLI 説明を整理して最新状態に合わせる"
+
+
+def test_run_engine_persists_job_contract_and_threads_memory_between_roles(tmp_path, monkeypatch):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    guidance = {
+        "contract": (
+            "## Mission\n- Keep the CLI wording narrow.\n\n"
+            "## Guardrails\n- Only touch CLI-facing copy.\n\n"
+            "## Do Not Do\n- Do not rename commands.\n\n"
+            "## Definition of Done\n- Update the requested text and nothing else.\n"
+        ),
+        "planner_memory": (
+            "## Established Constraints\n- Keep the scope on CLI wording.\n\n"
+            "## Confirmed Progress\n- Planning established a single implementation task.\n\n"
+            "## Open Cautions\n- Preserve existing command names.\n"
+        ),
+        "worker_memory": (
+            "## Established Constraints\n- Keep the scope on CLI wording.\n\n"
+            "## Confirmed Progress\n- Updated the requested CLI text.\n\n"
+            "## Open Cautions\n- Review should verify that command names stayed unchanged.\n"
+        ),
+        "review_memory": (
+            "## Established Constraints\n- Keep the scope on CLI wording.\n\n"
+            "## Confirmed Progress\n- Implementation and review both completed.\n\n"
+            "## Open Cautions\n- No open cautions remain.\n"
+        ),
+    }
+    observed = {"worker": None, "reviewer": None}
+
+    class GuidanceBackend(BackendInterface):
+        def plan(
+            self,
+            command,
+            tasks,
+            questions,
+            reviews,
+            instructions,
+            job_contract=None,
+            job_memory=None,
+            **kwargs,
+        ):
+            assert "CLI wording" in command.goal
+            return PlannerOutput(
+                decision=PlannerDecision.CREATE_TASKS,
+                workflow_mode=WorkflowMode.IMPLEMENTATION,
+                job_contract=guidance["contract"],
+                job_memory=guidance["planner_memory"],
+                tasks=[
+                    PlannerTaskSpec(
+                        key="cli_copy",
+                        kind="implementation",
+                        capability="implementer",
+                        title="Update CLI wording",
+                        description="Adjust the requested CLI wording only.",
+                        write_files=["README.md"],
+                    )
+                ],
+            )
+
+        def execute_task(
+            self,
+            command,
+            task,
+            tasks,
+            questions,
+            reviews,
+            instructions,
+            job_contract=None,
+            job_memory=None,
+            **kwargs,
+        ):
+            observed["worker"] = {"job_contract": job_contract, "job_memory": job_memory}
+            return WorkerOutput(
+                decision=WorkerDecision.COMPLETE,
+                summary="Updated the CLI wording.",
+                job_memory=guidance["worker_memory"],
+                result={"summary": "Updated the CLI wording."},
+            )
+
+        def review(
+            self,
+            command,
+            tasks,
+            questions,
+            reviews,
+            instructions,
+            reviewer_slot,
+            job_contract=None,
+            job_memory=None,
+            **kwargs,
+        ):
+            observed["reviewer"] = {"job_contract": job_contract, "job_memory": job_memory}
+            return ReviewerOutput(
+                decision=ReviewDecision.APPROVE,
+                summary="Looks good.",
+                findings=[],
+                job_memory=guidance["review_memory"],
+            )
+
+    monkeypatch.setattr(service_module, "backend_for", lambda *args, **kwargs: GuidanceBackend())
+
+    command = submit_direct(
+        tmp_path,
+        settings,
+        goal="Tighten the CLI wording around pause and resume without renaming commands.",
+        workflow_mode=WorkflowMode.IMPLEMENTATION,
+        priority=Priority.HIGH,
+    )
+
+    result = service_module.run_engine(
+        settings.db_path,
+        command_id=command.id,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+
+    assert result["final_command"]["stage"] == CommandStage.DONE.value
+    assert observed["worker"] == {
+        "job_contract": guidance["contract"].strip(),
+        "job_memory": guidance["planner_memory"].strip(),
+    }
+    assert observed["reviewer"] == {
+        "job_contract": guidance["contract"].strip(),
+        "job_memory": guidance["worker_memory"].strip(),
+    }
+
+    artifacts = list_artifacts(settings.db_path, command_id=command.id)
+    artifacts_by_kind = {artifact.kind: artifact.body for artifact in artifacts}
+    assert artifacts_by_kind["job_contract_markdown"] == guidance["contract"]
+    assert artifacts_by_kind["job_memory_markdown"] == guidance["review_memory"]
+    assert "Goal:" in artifacts_by_kind["result_markdown"]
+
+
+def test_structured_backend_prompts_include_job_contract_and_memory(tmp_path):
+    command = CommandRecord(
+        id="cmd_prompt",
+        title="CLI wording",
+        goal="Tighten the CLI wording around pause and resume.",
+        stage=CommandStage.PLANNING,
+        workflow_mode=WorkflowMode.IMPLEMENTATION,
+        approval_mode=ApprovalMode.AUTO,
+        effective_mode=WorkflowMode.IMPLEMENTATION,
+        priority=Priority.HIGH,
+        backend=RuntimeBackend.CODEX,
+        workspace_root=str(tmp_path),
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+    )
+    task = TaskRecord(
+        id="task_prompt",
+        command_id=command.id,
+        task_key="cli_copy",
+        kind="implementation",
+        capability="implementer",
+        title="Update CLI wording",
+        description="Adjust the requested CLI wording only.",
+        state=TaskState.PENDING,
+        plan_order=1,
+        input_payload={"write_files": ["README.md"]},
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+    )
+    contract = (
+        "## Mission\n- Keep the CLI wording narrow.\n\n"
+        "## Guardrails\n- Only touch CLI-facing copy.\n\n"
+        "## Do Not Do\n- Do not rename commands.\n\n"
+        "## Definition of Done\n- Update the requested text and nothing else.\n"
+    )
+    memory = (
+        "## Established Constraints\n- Keep the scope on CLI wording.\n\n"
+        "## Confirmed Progress\n- Planning established the implementation pass.\n\n"
+        "## Open Cautions\n- Preserve existing command names.\n"
+    )
+    planner_capture = {}
+    worker_capture = {}
+    reviewer_capture = {}
+
+    planner_backend = service_module.StructuredCliBackend(
+        RuntimeBackend.CODEX,
+        "gpt-test",
+        ApprovalMode.AUTO,
+        60,
+    )
+    worker_backend = service_module.StructuredCliBackend(
+        RuntimeBackend.CODEX,
+        "gpt-test",
+        ApprovalMode.AUTO,
+        60,
+    )
+    reviewer_backend = service_module.StructuredCliBackend(
+        RuntimeBackend.CLAUDE,
+        "opus-test",
+        ApprovalMode.AUTO,
+        60,
+    )
+
+    def fake_plan(prompt, *_args, **_kwargs):
+        planner_capture["prompt"] = prompt
+        return {
+            "decision": "complete",
+            "workflow_mode": "planning",
+            "job_contract": contract,
+            "job_memory": memory,
+            "final_response": "## Plan\n- done",
+        }
+
+    def fake_worker(prompt, *_args, **_kwargs):
+        worker_capture["prompt"] = prompt
+        return {
+            "decision": "complete",
+            "summary": "done",
+            "job_memory": memory,
+            "result": {},
+        }
+
+    def fake_review(prompt, *_args, **_kwargs):
+        reviewer_capture["prompt"] = prompt
+        return {
+            "decision": "approve",
+            "summary": "ok",
+            "job_memory": memory,
+            "findings": [],
+        }
+
+    planner_backend._run_structured = fake_plan  # type: ignore[method-assign]
+    worker_backend._run_structured = fake_worker  # type: ignore[method-assign]
+    reviewer_backend._run_structured = fake_review  # type: ignore[method-assign]
+
+    planner_backend.plan(
+        command,
+        [task],
+        [],
+        [],
+        [],
+        job_contract=contract,
+        job_memory=memory,
+    )
+    worker_backend.execute_task(
+        command,
+        task,
+        [task],
+        [],
+        [],
+        [],
+        job_contract=contract,
+        job_memory=memory,
+    )
+    reviewer_backend.review(
+        command,
+        [task],
+        [],
+        [],
+        [],
+        reviewer_slot=1,
+        job_contract=contract,
+        job_memory=memory,
+    )
+
+    assert "Current Job Contract" in planner_capture["prompt"]
+    assert "Current Job Memory" in planner_capture["prompt"]
+    assert "job_contract must use exactly these H2 sections" in planner_capture["prompt"]
+    assert contract.strip() in planner_capture["prompt"]
+    assert "Treat the Job Contract as binding scope guidance" in worker_capture["prompt"]
+    assert "Return job_memory as a full replacement markdown document" in worker_capture["prompt"]
+    assert memory.strip() in worker_capture["prompt"]
+    assert "Carry forward still-valid constraints" in reviewer_capture["prompt"]
+    assert (
+        "Ignore unrelated pre-existing workspace changes outside the requested change"
+        in reviewer_capture["prompt"]
+    )
+
+
+def test_structured_backend_review_prompt_has_mode_specific_guidance(tmp_path):
+    contract = (
+        "## Mission\n- Review the requested files.\n\n"
+        "## Guardrails\n- Stay read-only.\n\n"
+        "## Do Not Do\n- Do not edit files.\n\n"
+        "## Definition of Done\n- Produce concrete findings.\n"
+    )
+    memory = (
+        "## Established Constraints\n- Stay read-only.\n\n"
+        "## Confirmed Progress\n- Review prep is complete.\n\n"
+        "## Open Cautions\n- Keep findings concrete.\n"
+    )
+    review_command = CommandRecord(
+        id="cmd_review",
+        title="Review docs",
+        goal="Review README.md and CHANGELOG.md and summarize issues.",
+        stage=CommandStage.VERIFYING,
+        workflow_mode=WorkflowMode.REVIEW,
+        approval_mode=ApprovalMode.AUTO,
+        effective_mode=WorkflowMode.REVIEW,
+        priority=Priority.HIGH,
+        backend=RuntimeBackend.CODEX,
+        workspace_root=str(tmp_path),
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+    )
+    dogfood_command = CommandRecord(
+        id="cmd_dogfood",
+        title="Dogfood onboarding flow",
+        goal="Dogfood the onboarding flow in this workspace.",
+        stage=CommandStage.VERIFYING,
+        workflow_mode=WorkflowMode.DOGFOODING,
+        approval_mode=ApprovalMode.AUTO,
+        effective_mode=WorkflowMode.DOGFOODING,
+        priority=Priority.HIGH,
+        backend=RuntimeBackend.CODEX,
+        workspace_root=str(tmp_path),
+        runbook_path=str((tmp_path / "RUNBOOK.md").resolve()),
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+    )
+    backend = service_module.StructuredCliBackend(
+        RuntimeBackend.CODEX,
+        "gpt-test",
+        ApprovalMode.AUTO,
+        60,
+    )
+    captured_prompts: list[str] = []
+
+    def fake_review(prompt, *_args, **_kwargs):
+        captured_prompts.append(prompt)
+        return {
+            "decision": "approve",
+            "summary": "ok",
+            "job_memory": memory,
+            "findings": [],
+        }
+
+    backend._run_structured = fake_review  # type: ignore[method-assign]
+
+    backend.review(
+        review_command,
+        [],
+        [],
+        [],
+        [],
+        reviewer_slot=1,
+        job_contract=contract,
+        job_memory=memory,
+    )
+    backend.review(
+        dogfood_command,
+        [],
+        [],
+        [],
+        [],
+        reviewer_slot=1,
+        job_contract=contract,
+        job_memory=memory,
+    )
+
+    assert (
+        "Do not request changes merely because the reviewed workspace still has issues"
+        in captured_prompts[0]
+    )
+    assert (
+        "The goal is to judge whether the runbook-driven verification loop surfaced and fixed the important issues"
+        in captured_prompts[1]
+    )
 
 
 def test_submit_job_split_preview_creates_commands_with_dependencies(tmp_path):
@@ -1041,7 +1405,7 @@ def test_engine_loop_reports_background_errors_in_summary_snapshot(tmp_path, mon
     def explode(*args, **kwargs):
         raise RuntimeError("engine loop exploded")
 
-    monkeypatch.setattr(dashboard_module, "tick_once", explode)
+    monkeypatch.setattr(dashboard_module, "advance_frontier_once", explode)
     server = create_server(tmp_path, 0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -1166,6 +1530,19 @@ def test_structured_cli_backends_classify_recoverable_operator_issues(tmp_path, 
     monkeypatch.setattr(
         StructuredCliBackend,
         "_run_streaming_process",
+        lambda self, *args, **kwargs: (
+            1,
+            "",
+            "Workspace command execution and file mutation are blocked by a sandbox/tooling failure (`bwrap: Unknown option --argv0`).",
+        ),
+    )
+    with pytest.raises(AgentExecutionError) as runtime_environment:
+        backend._run_structured("broken", {"type": "object"}, str(tmp_path))
+    assert runtime_environment.value.kind == OperatorIssueKind.RUNTIME_ENVIRONMENT
+
+    monkeypatch.setattr(
+        StructuredCliBackend,
+        "_run_streaming_process",
         lambda self, *args, **kwargs: (_ for _ in ()).throw(
             subprocess.TimeoutExpired(cmd=["codex"], timeout=30)
         ),
@@ -1173,6 +1550,22 @@ def test_structured_cli_backends_classify_recoverable_operator_issues(tmp_path, 
     with pytest.raises(AgentExecutionError) as runtime_timeout:
         backend._run_structured("broken", {"type": "object"}, str(tmp_path))
     assert runtime_timeout.value.kind == OperatorIssueKind.RUNTIME_TIMEOUT
+
+
+def test_run_logged_subprocess_creates_missing_workspace_root(tmp_path):
+    missing_root = tmp_path / "nested" / "workspace"
+
+    returncode, stdout_text, stderr_text = service_module.run_logged_subprocess(
+        ["/bin/pwd"],
+        missing_root,
+        dict(service_module.os.environ),
+        timeout_seconds=5,
+    )
+
+    assert missing_root.is_dir()
+    assert returncode == 0
+    assert stdout_text.strip() == str(missing_root)
+    assert stderr_text == ""
 
 
 def test_planner_operator_issue_can_retry_with_different_backend(tmp_path, monkeypatch):
@@ -1354,6 +1747,176 @@ def test_task_operator_issue_requeues_blocked_task_on_retry(tmp_path, monkeypatc
         for task in tasks_after_resume
         if task.capability == "implementer"
     )
+
+
+def test_task_structured_failure_reason_becomes_operator_issue(tmp_path, monkeypatch):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    initialize_database(settings.db_path)
+
+    command = submit_direct(
+        tmp_path,
+        settings,
+        goal="repair operator issue",
+        workflow_mode=WorkflowMode.IMPLEMENTATION,
+        priority=Priority.HIGH,
+        backend=RuntimeBackend.CODEX,
+    )
+    with connect(settings.db_path) as conn:
+        conn.execute(
+            "UPDATE commands SET stage = ?, effective_mode = ? WHERE id = ?",
+            (CommandStage.PLANNING.value, WorkflowMode.IMPLEMENTATION.value, command.id),
+        )
+        conn.commit()
+
+    class EnvironmentFailureBackend:
+        def plan(self, *args, **kwargs):
+            return PlannerOutput(
+                decision=PlannerDecision.CREATE_TASKS,
+                workflow_mode=WorkflowMode.IMPLEMENTATION,
+                tasks=[
+                    PlannerTaskSpec(
+                        key="repair_main",
+                        kind="implementation",
+                        capability="implementer",
+                        title="Repair the partial edit",
+                        description="Clean up the interrupted README edit.",
+                        depends_on=[],
+                        write_files=["README.md"],
+                    )
+                ],
+            )
+
+        def execute_task(self, *args, **kwargs):
+            return WorkerOutput(
+                decision=WorkerDecision.FAIL,
+                failure_reason=(
+                    "Workspace command execution and file mutation are blocked by a sandbox/tooling "
+                    "failure (`bwrap: Unknown option --argv0`)."
+                ),
+            )
+
+        def review(self, *args, **kwargs):
+            return ReviewerOutput(
+                decision=ReviewDecision.APPROVE,
+                summary="ok",
+                findings=[],
+            )
+
+    backend = EnvironmentFailureBackend()
+    monkeypatch.setattr(service_module, "backend_for", lambda *args, **kwargs: backend)
+
+    planned = tick_once(
+        settings.db_path, command_id=command.id, settings=settings, repo_root=tmp_path
+    )
+    assert planned.action == "tasks_planned"
+
+    interrupted = tick_once(
+        settings.db_path,
+        command_id=command.id,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+    assert interrupted.action == "operator_attention_required"
+    assert interrupted.command.stage == CommandStage.WAITING_OPERATOR
+    assert interrupted.command.operator_issue_kind == OperatorIssueKind.RUNTIME_ENVIRONMENT
+
+    tasks = list_tasks(settings.db_path, command_id=command.id)
+    assert tasks[0].operator_issue_kind == OperatorIssueKind.RUNTIME_ENVIRONMENT
+    assert tasks[0].state == TaskState.BLOCKED
+
+
+def test_planner_structured_failure_reason_becomes_operator_issue(tmp_path, monkeypatch):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    initialize_database(settings.db_path)
+
+    command = submit_direct(
+        tmp_path,
+        settings,
+        goal="planner environment issue",
+        workflow_mode=WorkflowMode.PLANNING,
+        priority=Priority.HIGH,
+        backend=RuntimeBackend.CODEX,
+    )
+    with connect(settings.db_path) as conn:
+        conn.execute(
+            "UPDATE commands SET stage = ?, effective_mode = ? WHERE id = ?",
+            (CommandStage.PLANNING.value, WorkflowMode.PLANNING.value, command.id),
+        )
+        conn.commit()
+
+    class PlannerFailureBackend:
+        def plan(self, *args, **kwargs):
+            return PlannerOutput(
+                decision=PlannerDecision.FAIL,
+                workflow_mode=WorkflowMode.PLANNING,
+                failure_reason=(
+                    "Workspace command execution and file mutation are blocked by a sandbox/tooling "
+                    "failure (`bwrap: Unknown option --argv0`)."
+                ),
+            )
+
+    monkeypatch.setattr(
+        service_module, "backend_for", lambda *args, **kwargs: PlannerFailureBackend()
+    )
+
+    outcome = tick_once(
+        settings.db_path,
+        command_id=command.id,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+    assert outcome.action == "operator_attention_required"
+    assert outcome.command.stage == CommandStage.WAITING_OPERATOR
+    assert outcome.command.operator_issue_kind == OperatorIssueKind.RUNTIME_ENVIRONMENT
+
+
+def test_review_structured_failure_reason_becomes_operator_issue(tmp_path, monkeypatch):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    initialize_database(settings.db_path)
+
+    command = submit_direct(
+        tmp_path,
+        settings,
+        goal="review environment issue",
+        workflow_mode=WorkflowMode.REVIEW,
+        priority=Priority.HIGH,
+        backend=RuntimeBackend.CODEX,
+    )
+    with connect(settings.db_path) as conn:
+        conn.execute(
+            "UPDATE commands SET stage = ?, effective_mode = ? WHERE id = ?",
+            (CommandStage.VERIFYING.value, WorkflowMode.REVIEW.value, command.id),
+        )
+        conn.commit()
+
+    class ReviewFailureBackend:
+        def review(self, *args, **kwargs):
+            return ReviewerOutput(
+                decision=ReviewDecision.FAIL,
+                summary="review blocked",
+                failure_reason=(
+                    "Workspace command execution and file mutation are blocked by a sandbox/tooling "
+                    "failure (`bwrap: Unknown option --argv0`)."
+                ),
+                findings=[],
+            )
+
+    monkeypatch.setattr(
+        service_module, "backend_for", lambda *args, **kwargs: ReviewFailureBackend()
+    )
+
+    outcome = tick_once(
+        settings.db_path,
+        command_id=command.id,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+    assert outcome.action == "operator_attention_required"
+    assert outcome.command.stage == CommandStage.WAITING_OPERATOR
+    assert outcome.command.operator_issue_kind == OperatorIssueKind.RUNTIME_ENVIRONMENT
 
 
 def test_tick_reconciles_interrupted_running_agent_run_into_operator_issue(tmp_path, monkeypatch):
@@ -2056,6 +2619,44 @@ def test_submit_command_persists_job_dependencies_and_parallel_flag(tmp_path):
     assert stored.dependency_state == "waiting"
 
 
+def test_completed_dependency_becomes_actionable_for_followup_job(tmp_path):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    initialize_database(settings.db_path)
+
+    first = submit_direct(
+        tmp_path / "workspace-a",
+        settings,
+        goal="first done job",
+        workflow_mode=WorkflowMode.RESEARCH,
+        priority=Priority.HIGH,
+    )
+    second = submit_command(
+        settings.db_path,
+        goal="follow-up job",
+        workflow_mode=WorkflowMode.RESEARCH,
+        priority=Priority.MEDIUM,
+        workspace_root=tmp_path / "workspace-b",
+        depends_on_command_ids=[first.id],
+        settings=settings,
+        repo_root=tmp_path,
+    )
+
+    with connect(settings.db_path) as conn:
+        conn.execute(
+            "UPDATE commands SET stage = ?, updated_at = ? WHERE id = ?",
+            (CommandStage.DONE.value, service_module.utc_now(), first.id),
+        )
+        conn.commit()
+        selected = select_actionable_command(conn, None)
+
+    stored = service_module.get_command(settings.db_path, second.id)
+    assert stored is not None
+    assert stored.dependency_state == "ready"
+    assert selected is not None
+    assert selected.id == second.id
+
+
 def test_serial_scheduler_keeps_later_jobs_waiting_when_head_is_blocked(tmp_path):
     init_repo_config(tmp_path)
     settings = load_config(tmp_path)
@@ -2121,6 +2722,192 @@ def test_parallel_jobs_can_start_when_workspaces_do_not_overlap(tmp_path):
     assert first_tick.command.id == first.id
     second_tick = tick_once(settings.db_path, settings=settings, repo_root=tmp_path)
     assert second_tick.command.id == second.id
+
+
+def test_select_actionable_commands_returns_parallel_frontier(tmp_path):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    initialize_database(settings.db_path)
+
+    first = submit_command(
+        settings.db_path,
+        goal="parallel first",
+        workflow_mode=WorkflowMode.PLANNING,
+        priority=Priority.HIGH,
+        workspace_root=tmp_path / "workspace-a",
+        allow_parallel=True,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+    second = submit_command(
+        settings.db_path,
+        goal="parallel second",
+        workflow_mode=WorkflowMode.PLANNING,
+        priority=Priority.HIGH,
+        workspace_root=tmp_path / "workspace-b",
+        allow_parallel=True,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+
+    with connect(settings.db_path) as conn:
+        actionable = select_actionable_commands(conn, None)
+
+    assert [command.id for command in actionable] == [first.id, second.id]
+
+
+def test_advance_frontier_once_runs_parallel_planners_concurrently(tmp_path, monkeypatch):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    initialize_database(settings.db_path)
+
+    first = submit_command(
+        settings.db_path,
+        goal="parallel first",
+        workflow_mode=WorkflowMode.PLANNING,
+        priority=Priority.HIGH,
+        workspace_root=tmp_path / "workspace-a",
+        allow_parallel=True,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+    second = submit_command(
+        settings.db_path,
+        goal="parallel second",
+        workflow_mode=WorkflowMode.PLANNING,
+        priority=Priority.HIGH,
+        workspace_root=tmp_path / "workspace-b",
+        allow_parallel=True,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+    with connect(settings.db_path) as conn:
+        now = service_module.utc_now()
+        conn.execute(
+            "UPDATE commands SET stage = ?, effective_mode = ?, updated_at = ? WHERE id IN (?, ?)",
+            (
+                CommandStage.PLANNING.value,
+                WorkflowMode.PLANNING.value,
+                now,
+                first.id,
+                second.id,
+            ),
+        )
+        conn.commit()
+
+    class ParallelPlanner(BackendInterface):
+        def __init__(self):
+            self.barrier = threading.Barrier(2)
+            self.lock = threading.Lock()
+            self.active = 0
+            self.max_active = 0
+
+        def plan(self, command, *args, **kwargs):
+            with self.lock:
+                self.active += 1
+                self.max_active = max(self.max_active, self.active)
+            try:
+                self.barrier.wait(timeout=3)
+                time.sleep(0.05)
+                return PlannerOutput(
+                    decision=PlannerDecision.COMPLETE,
+                    workflow_mode=WorkflowMode.PLANNING,
+                    final_response=(
+                        "## Plan\n- Complete the requested planning pass.\n\n"
+                        "## Design Direction\n- Keep the current direction.\n\n"
+                        "## Task Breakdown\n1. Finish the plan."
+                    ),
+                )
+            finally:
+                with self.lock:
+                    self.active -= 1
+
+    backend = ParallelPlanner()
+    monkeypatch.setattr(service_module, "backend_for", lambda *args, **kwargs: backend)
+
+    outcomes = advance_frontier_once(
+        settings.db_path,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+
+    assert backend.max_active == 2
+    assert {outcome.command.id for outcome in outcomes if outcome.command} == {first.id, second.id}
+    assert {outcome.action for outcome in outcomes} == {"command_completed"}
+
+    with connect(settings.db_path) as conn:
+        commands = {
+            row["id"]: row["stage"]
+            for row in conn.execute(
+                "SELECT id, stage FROM commands WHERE id IN (?, ?)",
+                (first.id, second.id),
+            ).fetchall()
+        }
+    assert commands == {
+        first.id: CommandStage.DONE.value,
+        second.id: CommandStage.DONE.value,
+    }
+
+
+def test_run_engine_completes_parallel_jobs_in_one_invocation(tmp_path, monkeypatch):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    initialize_database(settings.db_path)
+
+    first = submit_command(
+        settings.db_path,
+        goal="parallel first",
+        workflow_mode=WorkflowMode.PLANNING,
+        priority=Priority.HIGH,
+        workspace_root=tmp_path / "workspace-a",
+        allow_parallel=True,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+    second = submit_command(
+        settings.db_path,
+        goal="parallel second",
+        workflow_mode=WorkflowMode.PLANNING,
+        priority=Priority.HIGH,
+        workspace_root=tmp_path / "workspace-b",
+        allow_parallel=True,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+
+    class CompletePlanner(BackendInterface):
+        def plan(self, *args, **kwargs):
+            return PlannerOutput(
+                decision=PlannerDecision.COMPLETE,
+                workflow_mode=WorkflowMode.PLANNING,
+                final_response=(
+                    "## Plan\n- Complete the requested planning pass.\n\n"
+                    "## Design Direction\n- Keep the current direction.\n\n"
+                    "## Task Breakdown\n1. Finish the plan."
+                ),
+            )
+
+    monkeypatch.setattr(service_module, "backend_for", lambda *args, **kwargs: CompletePlanner())
+
+    result = service_module.run_engine(
+        settings.db_path,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+
+    with connect(settings.db_path) as conn:
+        commands = {
+            row["id"]: row["stage"]
+            for row in conn.execute(
+                "SELECT id, stage FROM commands WHERE id IN (?, ?)",
+                (first.id, second.id),
+            ).fetchall()
+        }
+    assert commands == {
+        first.id: CommandStage.DONE.value,
+        second.id: CommandStage.DONE.value,
+    }
+    assert len(result["steps"]) >= 4
 
 
 def test_submit_command_rejects_parallel_overlap_with_active_job(tmp_path):
@@ -2637,7 +3424,11 @@ def test_reduce_planning_failure_implicit_gate_and_backend_selection(tmp_path, m
     )
     assert planned.action == "command_completed"
     assert planned.command.stage == CommandStage.DONE
-    artifacts = list_artifacts(settings.db_path, command_id=planning_command.id)
+    artifacts = [
+        artifact
+        for artifact in list_artifacts(settings.db_path, command_id=planning_command.id)
+        if artifact.kind == "result_markdown"
+    ]
     assert [artifact.metadata["section_key"] for artifact in artifacts] == [
         "plan",
         "design_direction",

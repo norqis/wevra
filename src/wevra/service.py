@@ -133,6 +133,14 @@ INTERACTIVE_PROMPT_PATTERNS = (
     "update available",
 )
 
+RUNTIME_ENVIRONMENT_PATTERNS = (
+    "bwrap: unknown option --argv0",
+    "sandbox/tooling failure",
+    "workspace command execution and file mutation are blocked",
+    "bubblewrap",
+    "unknown option --argv0",
+)
+
 RUNTIME_INTERRUPTED_DETAIL = "The AI process ended before Wevra received a final structured result."
 
 MODE_KEYWORDS = {
@@ -161,6 +169,8 @@ MODE_KEYWORDS = {
 }
 
 RESULT_ARTIFACT_KIND = "result_markdown"
+JOB_CONTRACT_ARTIFACT_KIND = "job_contract_markdown"
+JOB_MEMORY_ARTIFACT_KIND = "job_memory_markdown"
 RESULT_SECTION_TITLES = {
     "result": {"en": "Result", "ja": "結果"},
     "plan": {"en": "Plan", "ja": "計画"},
@@ -174,6 +184,26 @@ PLANNING_SECTION_ALIASES = {
 }
 
 EXPLICIT_PATH_PATTERN = re.compile(r"(?<![\w./-])((?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+)")
+JOB_CONTRACT_FALLBACK = (
+    "## Mission\n"
+    "- Follow the submitted goal exactly.\n\n"
+    "## Guardrails\n"
+    "- Keep the scope narrow and anchored to the requested files, workspace, and explicit instructions.\n"
+    "- Preserve existing behavior unless the job explicitly asks to change it.\n\n"
+    "## Do Not Do\n"
+    "- Do not broaden the change beyond the job goal.\n"
+    "- Do not rewrite unrelated code, files, or docs.\n\n"
+    "## Definition of Done\n"
+    "- Finish the requested change, keep the workspace coherent, and leave a concise final result."
+)
+JOB_MEMORY_FALLBACK = (
+    "## Established Constraints\n"
+    "- No shared constraints have been recorded yet.\n\n"
+    "## Confirmed Progress\n"
+    "- No implementation progress has been recorded yet.\n\n"
+    "## Open Cautions\n"
+    "- Keep future work aligned with the job contract and any appended instructions."
+)
 
 
 def utc_now() -> str:
@@ -664,6 +694,75 @@ def list_artifacts_for_command(conn, command_id: str) -> List[ArtifactRecord]:
     return [artifact_from_row(row) for row in rows]
 
 
+def list_artifacts_for_command_kind(conn, command_id: str, kind: str) -> List[ArtifactRecord]:
+    rows = conn.execute(
+        """
+        SELECT * FROM artifacts
+        WHERE command_id = ? AND kind = ?
+        ORDER BY created_at ASC
+        """,
+        (command_id, kind),
+    ).fetchall()
+    return [artifact_from_row(row) for row in rows]
+
+
+def latest_artifact_body_for_command_kind(conn, command_id: str, kind: str) -> Optional[str]:
+    artifacts = list_artifacts_for_command_kind(conn, command_id, kind)
+    if not artifacts:
+        return None
+    body = (artifacts[-1].body or "").strip()
+    return body or None
+
+
+def replace_single_markdown_artifact(
+    conn,
+    *,
+    command_id: str,
+    kind: str,
+    section_key: str,
+    uri_name: str,
+    title_en: str,
+    title_ja: str,
+    body: str,
+) -> Optional[ArtifactRecord]:
+    normalized_body = (body or "").strip()
+    conn.execute(
+        "DELETE FROM artifacts WHERE command_id = ? AND kind = ?",
+        (command_id, kind),
+    )
+    if not normalized_body:
+        return None
+    artifact_id = new_id("artifact")
+    now = utc_now()
+    uri = f"context://{command_id}/{uri_name}.md"
+    metadata = {
+        "section_key": section_key,
+        "index": 1,
+        "title_en": title_en,
+        "title_ja": title_ja,
+        "format": "markdown",
+        "extension": "md",
+    }
+    conn.execute(
+        """
+        INSERT INTO artifacts (id, command_id, task_id, kind, uri, metadata_json, body, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            artifact_id,
+            command_id,
+            None,
+            kind,
+            uri,
+            json.dumps(metadata, sort_keys=True),
+            normalized_body + ("\n" if not normalized_body.endswith("\n") else ""),
+            now,
+        ),
+    )
+    row = conn.execute("SELECT * FROM artifacts WHERE id = ?", (artifact_id,)).fetchone()
+    return artifact_from_row(row)
+
+
 def list_agent_runs(db_path: Path, command_id: Optional[str] = None) -> List[AgentRunRecord]:
     initialize_database(db_path)
     with connect(db_path) as conn:
@@ -1115,6 +1214,8 @@ def build_context_payload(
     questions: List[QuestionRecord],
     reviews: List[ReviewRecord],
     instructions: List[InstructionRecord],
+    job_contract: Optional[str] = None,
+    job_memory: Optional[str] = None,
     task: Optional[TaskRecord] = None,
 ) -> dict:
     payload = {
@@ -1123,6 +1224,8 @@ def build_context_payload(
         "questions": [item.model_dump(mode="json") for item in questions],
         "reviews": [item.model_dump(mode="json") for item in reviews],
         "instructions": [item.model_dump(mode="json") for item in instructions],
+        "job_contract": job_contract,
+        "job_memory": job_memory,
     }
     if command.resume_hint:
         payload["resume_hint"] = command.resume_hint
@@ -1138,6 +1241,8 @@ def build_worker_context_payload(
     questions: List[QuestionRecord],
     reviews: List[ReviewRecord],
     instructions: List[InstructionRecord],
+    job_contract: Optional[str] = None,
+    job_memory: Optional[str] = None,
 ) -> dict:
     completed_tasks = []
     for item in tasks:
@@ -1201,6 +1306,8 @@ def build_worker_context_payload(
         },
         "task": task.model_dump(mode="json"),
         "resume_hint": command.resume_hint,
+        "job_contract": job_contract,
+        "job_memory": job_memory,
         "dependencies": dependency_context,
         "completed_tasks": completed_tasks[-8:],
         "answered_questions": answered_questions,
@@ -1215,6 +1322,8 @@ def build_review_context_payload(
     questions: List[QuestionRecord],
     reviews: List[ReviewRecord],
     instructions: List[InstructionRecord],
+    job_contract: Optional[str] = None,
+    job_memory: Optional[str] = None,
 ) -> dict:
     explicit_paths = extract_explicit_paths(command.goal)
     completed_tasks = []
@@ -1272,6 +1381,8 @@ def build_review_context_payload(
             "runbook_path": command.runbook_path,
         },
         "resume_hint": command.resume_hint,
+        "job_contract": job_contract,
+        "job_memory": job_memory,
         "explicit_paths": explicit_paths,
         "write_targets": write_targets[:12],
         "completed_tasks": completed_tasks[-8:],
@@ -1279,6 +1390,82 @@ def build_review_context_payload(
         "recent_reviews": recent_reviews,
         "instructions": [item.model_dump(mode="json") for item in instructions],
     }
+
+
+def fallback_job_contract(command: CommandRecord) -> str:
+    goal_line = (
+        f"- {command.goal.strip()}" if command.goal.strip() else "- Follow the submitted goal."
+    )
+    lines = JOB_CONTRACT_FALLBACK.splitlines()
+    return "\n".join([lines[0], goal_line, *lines[2:]]).strip() + "\n"
+
+
+def fallback_job_memory(command: CommandRecord, tasks: Sequence[TaskRecord]) -> str:
+    completed = [task.title for task in tasks if task.state == TaskState.DONE][:3]
+    progress_line = (
+        "\n".join(f"- {title}" for title in completed)
+        if completed
+        else "- No implementation progress has been recorded yet."
+    )
+    return (
+        "## Established Constraints\n"
+        f"- Keep work aligned to the current job goal: {command.goal.strip() or 'the submitted goal'}.\n\n"
+        "## Confirmed Progress\n"
+        f"{progress_line}\n\n"
+        "## Open Cautions\n"
+        "- Preserve still-valid constraints, explicit file targets, and prior review findings."
+    ).strip() + "\n"
+
+
+def current_job_guidance(
+    conn, command: CommandRecord, tasks: Sequence[TaskRecord]
+) -> tuple[str, str]:
+    job_contract = latest_artifact_body_for_command_kind(
+        conn, command.id, JOB_CONTRACT_ARTIFACT_KIND
+    )
+    job_memory = latest_artifact_body_for_command_kind(conn, command.id, JOB_MEMORY_ARTIFACT_KIND)
+    return (
+        job_contract or fallback_job_contract(command),
+        job_memory or fallback_job_memory(command, tasks),
+    )
+
+
+def persist_job_guidance(
+    conn,
+    command: CommandRecord,
+    tasks: Sequence[TaskRecord],
+    *,
+    job_contract: Optional[str] = None,
+    job_memory: Optional[str] = None,
+) -> None:
+    current_contract, current_memory = current_job_guidance(conn, command, tasks)
+    replace_single_markdown_artifact(
+        conn,
+        command_id=command.id,
+        kind=JOB_CONTRACT_ARTIFACT_KIND,
+        section_key="job_contract",
+        uri_name="job-contract",
+        title_en="Job Contract",
+        title_ja="ジョブ契約",
+        body=(job_contract or "").strip() or current_contract,
+    )
+    replace_single_markdown_artifact(
+        conn,
+        command_id=command.id,
+        kind=JOB_MEMORY_ARTIFACT_KIND,
+        section_key="job_memory",
+        uri_name="job-memory",
+        title_en="Job Memory",
+        title_ja="ジョブメモリ",
+        body=(job_memory or "").strip() or current_memory,
+    )
+
+
+def render_job_guidance_block(label: str, body: Optional[str]) -> str:
+    normalized = (body or "").strip()
+    if not normalized:
+        return ""
+    return f"{label}:\n{normalized}\n\n"
 
 
 def prompt_excerpt(prompt: str, limit: int = 240) -> str:
@@ -1317,6 +1504,8 @@ def classify_agent_failure_kind(text: str) -> Optional[OperatorIssueKind]:
         return OperatorIssueKind.AUTH_REQUIRED
     if any(pattern in lowered for pattern in INTERACTIVE_PROMPT_PATTERNS):
         return OperatorIssueKind.INTERACTIVE_PROMPT
+    if any(pattern in lowered for pattern in RUNTIME_ENVIRONMENT_PATTERNS):
+        return OperatorIssueKind.RUNTIME_ENVIRONMENT
     return None
 
 
@@ -1327,6 +1516,8 @@ def operator_issue_message(kind: OperatorIssueKind) -> str:
         return "The selected AI needs sign-in or authentication before it can continue."
     if kind == OperatorIssueKind.INTERACTIVE_PROMPT:
         return "The selected AI is waiting for interactive input and needs operator attention."
+    if kind == OperatorIssueKind.RUNTIME_ENVIRONMENT:
+        return "The selected AI hit a local tooling or sandbox problem before it could continue."
     if kind == OperatorIssueKind.RUNTIME_TIMEOUT:
         return "The selected AI timed out before it returned a result."
     if kind == OperatorIssueKind.RUNTIME_INTERRUPTED:
@@ -1348,6 +1539,8 @@ def build_operator_resume_hint(
         reason = "the previous attempt stopped because authentication was required"
     elif kind == OperatorIssueKind.INTERACTIVE_PROMPT:
         reason = "the previous attempt stopped because the CLI was waiting for interactive input"
+    elif kind == OperatorIssueKind.RUNTIME_ENVIRONMENT:
+        reason = "the previous attempt stopped because the local tooling or sandbox could not execute the requested work"
     elif kind == OperatorIssueKind.RUNTIME_INTERRUPTED:
         reason = "the previous attempt stopped before it returned a final result"
     else:
@@ -1361,6 +1554,20 @@ def build_operator_resume_hint(
 
 def is_recoverable_operator_issue(exc: Exception) -> bool:
     return isinstance(exc, AgentExecutionError)
+
+
+def operator_issue_error_from_text(text: Optional[str]) -> Optional[AgentExecutionError]:
+    normalized = (text or "").strip()
+    if not normalized:
+        return None
+    kind = classify_agent_failure_kind(normalized)
+    if kind is None:
+        return None
+    return AgentExecutionError(
+        kind,
+        operator_issue_message(kind),
+        detail=normalized,
+    )
 
 
 def process_is_alive(process_id: Optional[int]) -> bool:
@@ -1411,6 +1618,7 @@ def run_logged_subprocess(
     agent_run_id: Optional[str] = None,
     db_path: Optional[Path] = None,
 ) -> Tuple[int, str, str]:
+    workspace_root.mkdir(parents=True, exist_ok=True)
     process = subprocess.Popen(
         command,
         cwd=str(workspace_root),
@@ -1587,6 +1795,8 @@ class BackendInterface:
         questions: List[QuestionRecord],
         reviews: List[ReviewRecord],
         instructions: List[InstructionRecord],
+        job_contract: Optional[str] = None,
+        job_memory: Optional[str] = None,
         *,
         agent_run_id: Optional[str] = None,
         db_path: Optional[Path] = None,
@@ -1601,6 +1811,8 @@ class BackendInterface:
         questions: List[QuestionRecord],
         reviews: List[ReviewRecord],
         instructions: List[InstructionRecord],
+        job_contract: Optional[str] = None,
+        job_memory: Optional[str] = None,
         *,
         agent_run_id: Optional[str] = None,
         db_path: Optional[Path] = None,
@@ -1615,6 +1827,8 @@ class BackendInterface:
         reviews: List[ReviewRecord],
         instructions: List[InstructionRecord],
         reviewer_slot: int,
+        job_contract: Optional[str] = None,
+        job_memory: Optional[str] = None,
         *,
         agent_run_id: Optional[str] = None,
         db_path: Optional[Path] = None,
@@ -1630,10 +1844,14 @@ class MockBackend(BackendInterface):
         questions: List[QuestionRecord],
         reviews: List[ReviewRecord],
         instructions: List[InstructionRecord],
+        job_contract: Optional[str] = None,
+        job_memory: Optional[str] = None,
         *,
         agent_run_id: Optional[str] = None,
         db_path: Optional[Path] = None,
     ) -> PlannerOutput:
+        contract_body = job_contract or fallback_job_contract(command)
+        memory_body = job_memory or fallback_job_memory(command, tasks)
         if agent_run_id and db_path:
             append_agent_run_log(
                 db_path,
@@ -1660,6 +1878,8 @@ class MockBackend(BackendInterface):
                 decision=PlannerDecision.ASK_QUESTION,
                 workflow_mode=current_mode,
                 question="Planner needs clarification before scheduling work.",
+                job_contract=contract_body,
+                job_memory=memory_body,
             )
 
         latest_review = reviews[-1] if reviews else None
@@ -1686,6 +1906,8 @@ class MockBackend(BackendInterface):
                             write_files=["src/rework.txt"],
                         )
                     ],
+                    job_contract=contract_body,
+                    job_memory=memory_body,
                 )
 
         failed_tasks = [task for task in tasks if task.state == TaskState.FAILED]
@@ -1712,6 +1934,8 @@ class MockBackend(BackendInterface):
                             write_files=latest_failed.input_payload.get("write_files", []),
                         )
                     ],
+                    job_contract=contract_body,
+                    job_memory=memory_body,
                 )
 
         active_or_done = [
@@ -1847,6 +2071,8 @@ class MockBackend(BackendInterface):
                 decision=PlannerDecision.CREATE_TASKS,
                 workflow_mode=current_mode,
                 tasks=default_specs,
+                job_contract=contract_body,
+                job_memory=memory_body,
             )
 
         if not active_or_done:
@@ -1863,11 +2089,15 @@ class MockBackend(BackendInterface):
                     decision=PlannerDecision.CREATE_TASKS,
                     workflow_mode=current_mode,
                     tasks=default_specs,
+                    job_contract=contract_body,
+                    job_memory=memory_body,
                 )
             return PlannerOutput(
                 decision=PlannerDecision.CREATE_TASKS,
                 workflow_mode=current_mode,
                 tasks=default_specs,
+                job_contract=contract_body,
+                job_memory=memory_body,
             )
 
         if agent_run_id and db_path:
@@ -1880,6 +2110,8 @@ class MockBackend(BackendInterface):
             return PlannerOutput(
                 decision=PlannerDecision.COMPLETE,
                 workflow_mode=current_mode,
+                job_contract=contract_body,
+                job_memory=memory_body,
                 final_response=(
                     "## Plan\n"
                     "- Deliver a structured planning result for the request.\n\n"
@@ -1894,6 +2126,8 @@ class MockBackend(BackendInterface):
         return PlannerOutput(
             decision=PlannerDecision.COMPLETE,
             workflow_mode=current_mode,
+            job_contract=contract_body,
+            job_memory=memory_body,
             final_response="Planner determined that no further task generation is required.",
         )
 
@@ -1905,10 +2139,13 @@ class MockBackend(BackendInterface):
         questions: List[QuestionRecord],
         reviews: List[ReviewRecord],
         instructions: List[InstructionRecord],
+        job_contract: Optional[str] = None,
+        job_memory: Optional[str] = None,
         *,
         agent_run_id: Optional[str] = None,
         db_path: Optional[Path] = None,
     ) -> WorkerOutput:
+        memory_body = job_memory or fallback_job_memory(command, tasks)
         if agent_run_id and db_path:
             append_agent_run_log(
                 db_path,
@@ -1933,6 +2170,7 @@ class MockBackend(BackendInterface):
                 decision=WorkerDecision.ASK_QUESTION,
                 question=f"Need clarification before continuing task '{task.title}'.",
                 resolution_mode=QuestionResolutionMode.RESUME_TASK,
+                job_memory=memory_body,
             )
 
         if (
@@ -1950,6 +2188,7 @@ class MockBackend(BackendInterface):
                 decision=WorkerDecision.ASK_QUESTION,
                 question=f"Clarification will change the plan for '{task.title}'.",
                 resolution_mode=QuestionResolutionMode.REPLAN_COMMAND,
+                job_memory=memory_body,
             )
 
         if (
@@ -1969,6 +2208,7 @@ class MockBackend(BackendInterface):
             return WorkerOutput(
                 decision=WorkerDecision.FAIL,
                 failure_reason=f"Mock worker failed '{task.title}' and requested replanning.",
+                job_memory=memory_body,
             )
 
         if agent_run_id and db_path:
@@ -1980,6 +2220,14 @@ class MockBackend(BackendInterface):
         return WorkerOutput(
             decision=WorkerDecision.COMPLETE,
             summary=f"Completed task '{task.title}'.",
+            job_memory=(
+                "## Established Constraints\n"
+                f"- Keep the implementation aligned with the current job goal: {command.goal}.\n\n"
+                "## Confirmed Progress\n"
+                f"- Completed task: {task.title}.\n\n"
+                "## Open Cautions\n"
+                "- Preserve prior completed work unless a later review explicitly asks for changes.\n"
+            ),
             result={
                 "status": "completed",
                 "task_key": task.task_key,
@@ -1996,10 +2244,13 @@ class MockBackend(BackendInterface):
         reviews: List[ReviewRecord],
         instructions: List[InstructionRecord],
         reviewer_slot: int,
+        job_contract: Optional[str] = None,
+        job_memory: Optional[str] = None,
         *,
         agent_run_id: Optional[str] = None,
         db_path: Optional[Path] = None,
     ) -> ReviewerOutput:
+        memory_body = job_memory or fallback_job_memory(command, tasks)
         if agent_run_id and db_path:
             append_agent_run_log(
                 db_path,
@@ -2017,6 +2268,7 @@ class MockBackend(BackendInterface):
             return ReviewerOutput(
                 decision=ReviewDecision.FAIL,
                 summary=f"Reviewer {reviewer_slot} failed hard.",
+                job_memory=memory_body,
                 failure_reason="Review backend encountered a terminal validation failure.",
             )
 
@@ -2033,6 +2285,14 @@ class MockBackend(BackendInterface):
                 decision=ReviewDecision.REQUEST_CHANGES,
                 summary=f"Reviewer {reviewer_slot} requested a follow-up pass.",
                 findings=["Add a second implementation pass before completion."],
+                job_memory=(
+                    "## Established Constraints\n"
+                    f"- Keep the requested scope anchored to the current job goal: {command.goal}.\n\n"
+                    "## Confirmed Progress\n"
+                    "- A review pass completed and identified follow-up work.\n\n"
+                    "## Open Cautions\n"
+                    "- Do not mark the job complete until the requested follow-up pass is implemented.\n"
+                ),
             )
 
         if agent_run_id and db_path:
@@ -2045,6 +2305,7 @@ class MockBackend(BackendInterface):
             decision=ReviewDecision.APPROVE,
             summary=f"Reviewer {reviewer_slot} approved the current result set.",
             findings=[],
+            job_memory=memory_body,
         )
 
 
@@ -2070,11 +2331,21 @@ class StructuredCliBackend(BackendInterface):
         questions: List[QuestionRecord],
         reviews: List[ReviewRecord],
         instructions: List[InstructionRecord],
+        job_contract: Optional[str] = None,
+        job_memory: Optional[str] = None,
         *,
         agent_run_id: Optional[str] = None,
         db_path: Optional[Path] = None,
     ) -> PlannerOutput:
-        context = build_context_payload(command, tasks, questions, reviews, instructions)
+        context = build_context_payload(
+            command,
+            tasks,
+            questions,
+            reviews,
+            instructions,
+            job_contract=job_contract,
+            job_memory=job_memory,
+        )
         planning_mode = "replanning" if command.stage == CommandStage.REPLANNING else "initial_plan"
         requested = requested_mode(command)
         active_mode = effective_mode(command)
@@ -2088,11 +2359,18 @@ class StructuredCliBackend(BackendInterface):
                 "Only look at directly related tests if you genuinely need to update them.\n"
                 f"{explicit_path_lines}\n"
             )
+        guidance_block = render_job_guidance_block(
+            "Current Job Contract", job_contract
+        ) + render_job_guidance_block("Current Job Memory", job_memory)
         prompt = (
             "You are the Wevra planner.\n"
             "The engine owns all state transitions.\n"
             "Return only JSON that matches the provided schema.\n"
             "Every task must include a stable key, explicit depends_on references, and intended write_files.\n"
+            "Always return job_contract and job_memory as markdown.\n"
+            "job_contract must use exactly these H2 sections: Mission, Guardrails, Do Not Do, Definition of Done.\n"
+            "job_memory must use exactly these H2 sections: Established Constraints, Confirmed Progress, Open Cautions.\n"
+            "If a current contract or memory already exists, preserve still-valid items and only update what changed.\n"
             "Keep planning lightweight: inspect only the minimum files needed to name concrete write targets.\n"
             "Do not run tests or broad repository sweeps during planning.\n"
             "Prefer a small plan with one to three tasks unless the request clearly requires more.\n"
@@ -2104,6 +2382,7 @@ class StructuredCliBackend(BackendInterface):
             f"Current effective workflow mode: {active_mode.value if active_mode else 'unresolved'}.\n"
             f"{mode_prompt_guidance(active_mode if requested != WorkflowMode.AUTO else WorkflowMode.AUTO)}\n"
             f"{explicit_path_block}"
+            f"{guidance_block}"
             "If this is replanning, preserve completed work as fact, reuse still-valid task keys, and only omit tasks that should be superseded.\n\n"
             f"Context:\n{json.dumps(context, indent=2, sort_keys=True)}"
         )
@@ -2124,12 +2403,21 @@ class StructuredCliBackend(BackendInterface):
         questions: List[QuestionRecord],
         reviews: List[ReviewRecord],
         instructions: List[InstructionRecord],
+        job_contract: Optional[str] = None,
+        job_memory: Optional[str] = None,
         *,
         agent_run_id: Optional[str] = None,
         db_path: Optional[Path] = None,
     ) -> WorkerOutput:
         context = build_worker_context_payload(
-            command, task, tasks, questions, reviews, instructions
+            command,
+            task,
+            tasks,
+            questions,
+            reviews,
+            instructions,
+            job_contract=job_contract,
+            job_memory=job_memory,
         )
         write_files = task.input_payload.get("write_files", [])
         write_targets = [
@@ -2150,10 +2438,17 @@ class StructuredCliBackend(BackendInterface):
             if write_targets
             else "Keep the scope narrow and only touch files directly required for this task.\n"
         )
+        guidance_block = render_job_guidance_block(
+            "Current Job Contract", job_contract
+        ) + render_job_guidance_block("Current Job Memory", job_memory)
         prompt = (
             "You are the Wevra worker.\n"
             "Use the workspace to complete the assigned task if changes are required.\n"
             "Do not mutate engine state. Return only JSON matching the schema.\n\n"
+            "Treat the Job Contract as binding scope guidance, not a suggestion.\n"
+            "Return job_memory as a full replacement markdown document with these H2 sections: Established Constraints, Confirmed Progress, Open Cautions.\n"
+            "Keep still-valid items from the previous job memory and add any new facts learned from this task.\n\n"
+            f"{guidance_block}"
             f"{focus_note}"
             f"{explicit_path_block}"
             "Prefer the smallest coherent change that completes the task.\n"
@@ -2179,11 +2474,21 @@ class StructuredCliBackend(BackendInterface):
         reviews: List[ReviewRecord],
         instructions: List[InstructionRecord],
         reviewer_slot: int,
+        job_contract: Optional[str] = None,
+        job_memory: Optional[str] = None,
         *,
         agent_run_id: Optional[str] = None,
         db_path: Optional[Path] = None,
     ) -> ReviewerOutput:
-        context = build_review_context_payload(command, tasks, questions, reviews, instructions)
+        context = build_review_context_payload(
+            command,
+            tasks,
+            questions,
+            reviews,
+            instructions,
+            job_contract=job_contract,
+            job_memory=job_memory,
+        )
         review_targets = [
             *context["explicit_paths"],
             *[path for path in context["write_targets"] if path not in context["explicit_paths"]],
@@ -2194,13 +2499,37 @@ class StructuredCliBackend(BackendInterface):
                 "Keep the review anchored to these files or paths. Inspect directly related tests only if they are needed to verify the requested change.\n"
                 f"{chr(10).join(f'- {path}' for path in review_targets)}\n"
             )
+        active_mode = effective_mode(command)
+        mode_specific_guidance = ""
+        if active_mode == WorkflowMode.REVIEW:
+            mode_specific_guidance = (
+                "This is review mode.\n"
+                "The goal is to judge whether the produced review findings are concrete, scoped correctly, and useful.\n"
+                "Do not request changes merely because the reviewed workspace still has issues; surfaced issues are expected in review mode.\n"
+                "Request changes only when the review missed important problems, overreached the requested scope, or produced vague findings.\n\n"
+            )
+        elif active_mode == WorkflowMode.DOGFOODING:
+            mode_specific_guidance = (
+                "This is dogfooding mode.\n"
+                "The goal is to judge whether the runbook-driven verification loop surfaced and fixed the important issues.\n"
+                "Request changes when the documented flow was not actually exercised, when important friction remains unaddressed, or when the report is vague.\n\n"
+            )
+        guidance_block = render_job_guidance_block(
+            "Current Job Contract", job_contract
+        ) + render_job_guidance_block("Current Job Memory", job_memory)
         prompt = (
             f"You are Wevra reviewer #{reviewer_slot}.\n"
             "Inspect the current command context and workspace state.\n"
             "Keep the review narrow and focused on the requested change.\n"
             "Do not perform broad repository sweeps.\n"
+            "Ignore unrelated pre-existing workspace changes outside the requested change.\n"
+            "Only flag files outside the requested targets when there is evidence that this job changed them or they directly block the requested goal.\n"
             "Validate that the current workspace satisfies the goal and any prior review findings.\n"
             "Return only JSON matching the schema.\n\n"
+            "Return job_memory as a full replacement markdown document with these H2 sections: Established Constraints, Confirmed Progress, Open Cautions.\n"
+            "Carry forward still-valid constraints and add any review findings that future tasks must remember.\n\n"
+            f"{mode_specific_guidance}"
+            f"{guidance_block}"
             f"{target_block}"
             f"Context:\n{json.dumps(context, indent=2, sort_keys=True)}"
         )
@@ -4307,26 +4636,30 @@ def build_parallel_frontier(commands: Sequence[CommandRecord]) -> List[CommandRe
     return frontier
 
 
-def select_actionable_command(conn, command_id: Optional[str]) -> Optional[CommandRecord]:
+def select_actionable_commands(conn, command_id: Optional[str]) -> List[CommandRecord]:
     if command_id:
         rows = conn.execute("SELECT * FROM commands").fetchall()
         commands = [command_from_row(row) for row in rows]
         commands = attach_command_dependencies(commands, command_dependency_map(conn))
         commands = enrich_command_dependency_state(commands)
-        return next((command for command in commands if command.id == command_id), None)
+        command = next((item for item in commands if item.id == command_id), None)
+        return [command] if command is not None else []
 
-    rows = conn.execute(
-        "SELECT * FROM commands WHERE stage NOT IN (?, ?, ?, ?)",
-        (
-            CommandStage.DONE.value,
-            CommandStage.FAILED.value,
-            CommandStage.PAUSED.value,
-            CommandStage.CANCELED.value,
-        ),
-    ).fetchall()
+    rows = conn.execute("SELECT * FROM commands").fetchall()
     commands = [command_from_row(row) for row in rows]
     commands = attach_command_dependencies(commands, command_dependency_map(conn))
     commands = enrich_command_dependency_state(commands)
+    commands = [
+        command
+        for command in commands
+        if command.stage
+        not in {
+            CommandStage.DONE,
+            CommandStage.FAILED,
+            CommandStage.PAUSED,
+            CommandStage.CANCELED,
+        }
+    ]
     frontier = build_parallel_frontier(commands)
     actionable = []
     for command in frontier:
@@ -4335,8 +4668,6 @@ def select_actionable_command(conn, command_id: Optional[str]) -> Optional[Comma
         if command_is_blocked_by_operator(command, conn):
             continue
         actionable.append(command)
-    if not actionable:
-        return None
     actionable.sort(
         key=lambda command: (
             PARALLEL_STAGE_RANK[command.stage.value],
@@ -4344,6 +4675,13 @@ def select_actionable_command(conn, command_id: Optional[str]) -> Optional[Comma
             command.created_at,
         )
     )
+    return actionable
+
+
+def select_actionable_command(conn, command_id: Optional[str]) -> Optional[CommandRecord]:
+    actionable = select_actionable_commands(conn, command_id)
+    if not actionable:
+        return None
     return actionable[0]
 
 
@@ -4557,6 +4895,7 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
     questions = list_questions_for_command(conn, command.id)
     reviews = list_reviews_for_command(conn, command.id)
     instructions = list_instructions_for_command(conn, command.id)
+    job_contract, job_memory = current_job_guidance(conn, command, tasks)
     role_name, runtime, model = execution_profile(command, settings, "planner")
     agent_run = ensure_agent_run(
         conn,
@@ -4585,6 +4924,8 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
             questions,
             reviews,
             instructions,
+            job_contract=job_contract,
+            job_memory=job_memory,
             agent_run_id=agent_run.id,
             db_path=settings.db_path,
         )
@@ -4641,6 +4982,13 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
         agent_run.id,
         state=AgentRunState.COMPLETED,
         output_summary=output.decision.value,
+    )
+    persist_job_guidance(
+        conn,
+        command,
+        tasks,
+        job_contract=output.job_contract,
+        job_memory=output.job_memory,
     )
 
     next_run_count = command.run_count + 1
@@ -4840,11 +5188,34 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
             action="command_completed", command=command_from_row(row), note=final_response
         )
 
+    planner_failure = output.failure_reason or "Planner returned failure."
+    planner_issue = operator_issue_error_from_text(planner_failure)
+    if planner_issue is not None:
+        waiting = set_command_operator_issue(
+            conn,
+            command.model_copy(update={"effective_mode": resolved_mode}),
+            issue=planner_issue,
+            agent_run=agent_run,
+            run_count=next_run_count,
+        )
+        append_event(
+            conn,
+            "command",
+            command.id,
+            "planning_interrupted",
+            {"reason": planner_failure, "kind": planner_issue.kind.value},
+        )
+        return TickOutcome(
+            action="operator_attention_required",
+            command=waiting,
+            note=planner_failure,
+        )
+
     update_command(
         conn,
         command.id,
         stage=CommandStage.FAILED.value,
-        failure_reason=output.failure_reason or "Planner returned failure.",
+        failure_reason=planner_failure,
         run_count=next_run_count,
         planning_attempts=next_planning_attempts,
         replan_requested=0,
@@ -4855,11 +5226,11 @@ def reduce_planning(conn, command: CommandRecord, settings: AppConfig) -> TickOu
         "command",
         command.id,
         "planning_failed",
-        {"reason": output.failure_reason or "Planner returned failure."},
+        {"reason": planner_failure},
     )
     row = conn.execute("SELECT * FROM commands WHERE id = ?", (command.id,)).fetchone()
     return TickOutcome(
-        action="planning_failed", command=command_from_row(row), note=output.failure_reason
+        action="planning_failed", command=command_from_row(row), note=planner_failure
     )
 
 
@@ -4982,6 +5353,8 @@ def execute_task_batch(
     questions: List[QuestionRecord],
     reviews: List[ReviewRecord],
     instructions: List[InstructionRecord],
+    job_contract: Optional[str],
+    job_memory: Optional[str],
     settings: AppConfig,
 ) -> Dict[str, Tuple[Optional[WorkerOutput], Optional[Exception]]]:
     def run_single(task: TaskRecord) -> Tuple[str, Optional[WorkerOutput], Optional[Exception]]:
@@ -5002,6 +5375,8 @@ def execute_task_batch(
                     questions,
                     reviews,
                     instructions,
+                    job_contract=job_contract,
+                    job_memory=job_memory,
                     agent_run_id=agent_run_map[task.id].id,
                     db_path=settings.db_path,
                 )
@@ -5042,6 +5417,7 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
         )
 
     tasks = list_tasks_for_command(conn, command.id)
+    job_contract, job_memory = current_job_guidance(conn, command, tasks)
     batch = select_ready_batch(tasks, settings)
     if not batch:
         if any(task.state == TaskState.PENDING for task in tasks):
@@ -5180,6 +5556,8 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
         questions,
         reviews,
         instructions,
+        job_contract,
+        job_memory,
         settings,
     )
 
@@ -5187,9 +5565,12 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
     created_questions: List[QuestionRecord] = []
     failed_any = False
     operator_issues: List[Tuple[TaskRecord, AgentRunRecord, AgentExecutionError]] = []
+    latest_job_memory: Optional[str] = None
     for task in active_batch:
         output, error = results[task.id]
         agent_run = agent_run_map[task.id]
+        if output and output.job_memory:
+            latest_job_memory = output.job_memory
         if error is not None:
             if isinstance(error, AgentExecutionError):
                 update_task(
@@ -5311,28 +5692,57 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
             created_questions.append(question)
         else:
             failure_reason = output.failure_reason if output else "Task failed."
-            update_task(
-                conn,
-                task.id,
-                state=TaskState.FAILED.value,
-                error=failure_reason,
-                operator_issue_kind=None,
-                output_payload=json.dumps({"error": failure_reason}, sort_keys=True),
-            )
-            mark_agent_run_finished(
-                conn,
-                agent_run.id,
-                state=AgentRunState.FAILED,
-                error=failure_reason,
-            )
-            append_event(
-                conn,
-                "task",
-                task.id,
-                "task_failed",
-                {"command_id": command.id, "reason": failure_reason},
-            )
-            failed_any = True
+            failure_issue = operator_issue_error_from_text(failure_reason)
+            if failure_issue is not None:
+                update_task(
+                    conn,
+                    task.id,
+                    state=TaskState.BLOCKED.value,
+                    error=failure_issue.detail,
+                    operator_issue_kind=failure_issue.kind.value,
+                    output_payload=None,
+                )
+                mark_agent_run_finished(
+                    conn,
+                    agent_run.id,
+                    state=AgentRunState.FAILED,
+                    error=failure_issue.detail,
+                )
+                append_event(
+                    conn,
+                    "task",
+                    task.id,
+                    "task_interrupted",
+                    {
+                        "command_id": command.id,
+                        "kind": failure_issue.kind.value,
+                        "detail": failure_issue.detail,
+                    },
+                )
+                operator_issues.append((task, agent_run, failure_issue))
+            else:
+                update_task(
+                    conn,
+                    task.id,
+                    state=TaskState.FAILED.value,
+                    error=failure_reason,
+                    operator_issue_kind=None,
+                    output_payload=json.dumps({"error": failure_reason}, sort_keys=True),
+                )
+                mark_agent_run_finished(
+                    conn,
+                    agent_run.id,
+                    state=AgentRunState.FAILED,
+                    error=failure_reason,
+                )
+                append_event(
+                    conn,
+                    "task",
+                    task.id,
+                    "task_failed",
+                    {"command_id": command.id, "reason": failure_reason},
+                )
+                failed_any = True
 
     updated_rows = conn.execute(
         f"SELECT * FROM tasks WHERE id IN ({','.join('?' for _ in batch_ids)}) ORDER BY plan_order ASC",
@@ -5340,6 +5750,12 @@ def reduce_running(conn, command: CommandRecord, settings: AppConfig) -> TickOut
     ).fetchall()
     updated_tasks = attach_dependencies(
         [task_from_row(row) for row in updated_rows], dependency_map_for_command(conn, command.id)
+    )
+    persist_job_guidance(
+        conn,
+        command,
+        list_tasks_for_command(conn, command.id),
+        job_memory=latest_job_memory,
     )
 
     next_stage = CommandStage.RUNNING
@@ -5449,6 +5865,8 @@ def run_review_batch(
     questions: List[QuestionRecord],
     reviews: List[ReviewRecord],
     instructions: List[InstructionRecord],
+    job_contract: Optional[str],
+    job_memory: Optional[str],
     settings: AppConfig,
     slots: Optional[List[int]] = None,
     agent_run_ids: Optional[Dict[int, str]] = None,
@@ -5466,6 +5884,8 @@ def run_review_batch(
                 reviews,
                 instructions,
                 reviewer_slot=slot,
+                job_contract=job_contract,
+                job_memory=job_memory,
                 agent_run_id=agent_run_ids.get(slot) if agent_run_ids else None,
                 db_path=settings.db_path,
             )
@@ -5505,6 +5925,7 @@ def reduce_verifying(conn, command: CommandRecord, settings: AppConfig) -> TickO
         )
 
     tasks = list_tasks_for_command(conn, command.id)
+    job_contract, job_memory = current_job_guidance(conn, command, tasks)
     questions = list_questions_for_command(conn, command.id)
     previous_reviews = list_reviews_for_command(conn, command.id)
     instructions = list_instructions_for_command(conn, command.id)
@@ -5551,6 +5972,8 @@ def reduce_verifying(conn, command: CommandRecord, settings: AppConfig) -> TickO
         questions,
         previous_reviews,
         instructions,
+        job_contract,
+        job_memory,
         settings,
         slots=list(slot_run_map.keys()),
         agent_run_ids={slot: run.id for slot, run in slot_run_map.items()},
@@ -5570,6 +5993,7 @@ def reduce_verifying(conn, command: CommandRecord, settings: AppConfig) -> TickO
         else settings.role_for("reviewer").runtime.value
     )
     review_outputs: List[Tuple[int, ReviewerOutput]] = []
+    latest_job_memory: Optional[str] = None
     for slot, output, error in outputs:
         if isinstance(error, AgentExecutionError):
             recoverable_review_issues.append((slot, slot_run_map[slot], error))
@@ -5588,12 +6012,20 @@ def reduce_verifying(conn, command: CommandRecord, settings: AppConfig) -> TickO
                 findings=[],
                 failure_reason="The reviewer process ended without returning a structured result.",
             )
+        if output.job_memory:
+            latest_job_memory = output.job_memory
         review_outputs.append((slot, output))
 
     created_reviews = [
         create_review_record(conn, command, output, reviewer_slot=slot, reviewer_kind=reviewer_kind)
         for slot, output in review_outputs
     ]
+    persist_job_guidance(
+        conn,
+        command,
+        tasks,
+        job_memory=latest_job_memory,
+    )
     next_run_count = command.run_count + len(outputs)
 
     review_map = {review.reviewer_slot: review for review in created_reviews}
@@ -5653,14 +6085,47 @@ def reduce_verifying(conn, command: CommandRecord, settings: AppConfig) -> TickO
         )
 
     if any(review.decision == ReviewDecision.FAIL for review in created_reviews):
+        failure_detail = next(
+            (
+                output.failure_reason or output.summary
+                for _, output in review_outputs
+                if output.decision == ReviewDecision.FAIL
+            ),
+            "Review failed.",
+        )
         failure_reason = next(
             (
                 review.summary
                 for review in created_reviews
                 if review.decision == ReviewDecision.FAIL
             ),
-            "Review failed.",
+            failure_detail,
         )
+        review_issue = operator_issue_error_from_text(failure_detail)
+        if review_issue is not None:
+            first_failed_slot = next(
+                slot for slot, output in review_outputs if output.decision == ReviewDecision.FAIL
+            )
+            blocked_run = slot_run_map[first_failed_slot]
+            waiting = set_command_operator_issue(
+                conn,
+                command,
+                issue=review_issue,
+                agent_run=blocked_run,
+                run_count=next_run_count,
+            )
+            append_event(
+                conn,
+                "command",
+                command.id,
+                "review_interrupted",
+                {"kind": review_issue.kind.value, "reason": failure_detail},
+            )
+            return TickOutcome(
+                action="operator_attention_required",
+                command=waiting,
+                note=failure_detail,
+            )
         update_command(
             conn,
             command.id,
@@ -5742,70 +6207,127 @@ def tick_once(
     repo_root: Optional[Path] = None,
 ) -> TickOutcome:
     settings = resolve_settings(settings=settings, repo_root=repo_root)
-    initialize_database(db_path)
+    return advance_frontier_once(
+        db_path,
+        command_id=command_id,
+        settings=settings,
+        repo_root=repo_root,
+        single_command_only=True,
+    )[0]
 
+
+def _reconciled_operator_attention_outcome(
+    conn, command_id: Optional[str]
+) -> Optional[TickOutcome]:
+    reconciled_command_ids = reconcile_orphaned_agent_runs(conn)
+    if not reconciled_command_ids:
+        return None
+    target_id = command_id if command_id in reconciled_command_ids else reconciled_command_ids[0]
+    row = conn.execute("SELECT * FROM commands WHERE id = ?", (target_id,)).fetchone()
+    if row is None:
+        return TickOutcome(action="no_op", note="no actionable commands")
+    reconciled_command = command_from_row(row)
+    return TickOutcome(
+        action="operator_attention_required",
+        command=reconciled_command,
+        note=reconciled_command.operator_issue_detail or RUNTIME_INTERRUPTED_DETAIL,
+    )
+
+
+def _tick_loaded_command(
+    conn,
+    command: CommandRecord,
+    settings: AppConfig,
+) -> TickOutcome:
+    if not command_dependencies_ready(command):
+        return TickOutcome(
+            action="blocked",
+            command=command,
+            note="waiting on command dependencies",
+        )
+
+    if command.stop_requested:
+        paused = pause_command_record(conn, command, note="paused at next checkpoint")
+        return TickOutcome(
+            action="command_paused",
+            command=paused,
+            note="paused after the current step",
+        )
+
+    if command.stage == CommandStage.QUEUED:
+        return reduce_queued(conn, command)
+    if command.stage in {CommandStage.PLANNING, CommandStage.REPLANNING}:
+        return reduce_planning(conn, command, settings)
+    if command.stage == CommandStage.RUNNING:
+        return reduce_running(conn, command, settings)
+    if command.stage == CommandStage.WAITING_APPROVAL:
+        return TickOutcome(
+            action="blocked",
+            command=command,
+            note="waiting for operator approval",
+        )
+    if command.stage == CommandStage.WAITING_OPERATOR:
+        return TickOutcome(
+            action="blocked",
+            command=command,
+            note="waiting for operator action",
+        )
+    if command.stage == CommandStage.WAITING_QUESTION:
+        return reduce_waiting_question(conn, command)
+    if command.stage == CommandStage.VERIFYING:
+        return reduce_verifying(conn, command, settings)
+    return TickOutcome(
+        action="no_op",
+        command=command,
+        note=f"stage '{command.stage.value}' is terminal",
+    )
+
+
+def _tick_specific_command(
+    db_path: Path,
+    command_id: str,
+    settings: AppConfig,
+) -> TickOutcome:
     with connect(db_path) as conn:
-        reconciled_command_ids = reconcile_orphaned_agent_runs(conn)
-        if reconciled_command_ids:
-            target_id = (
-                command_id if command_id in reconciled_command_ids else reconciled_command_ids[0]
-            )
-            row = conn.execute("SELECT * FROM commands WHERE id = ?", (target_id,)).fetchone()
-            if row is not None:
-                reconciled_command = command_from_row(row)
-                return TickOutcome(
-                    action="operator_attention_required",
-                    command=reconciled_command,
-                    note=reconciled_command.operator_issue_detail or RUNTIME_INTERRUPTED_DETAIL,
-                )
         command = select_actionable_command(conn, command_id)
         if command is None:
             return TickOutcome(action="no_op", note="no actionable commands")
-
-        if not command_dependencies_ready(command):
-            return TickOutcome(
-                action="blocked",
-                command=command,
-                note="waiting on command dependencies",
-            )
-
-        if command.stop_requested:
-            paused = pause_command_record(conn, command, note="paused at next checkpoint")
-            return TickOutcome(
-                action="command_paused",
-                command=paused,
-                note="paused after the current step",
-            )
-
-        if command.stage == CommandStage.QUEUED:
-            outcome = reduce_queued(conn, command)
-        elif command.stage in {CommandStage.PLANNING, CommandStage.REPLANNING}:
-            outcome = reduce_planning(conn, command, settings)
-        elif command.stage == CommandStage.RUNNING:
-            outcome = reduce_running(conn, command, settings)
-        elif command.stage == CommandStage.WAITING_APPROVAL:
-            outcome = TickOutcome(
-                action="blocked",
-                command=command,
-                note="waiting for operator approval",
-            )
-        elif command.stage == CommandStage.WAITING_OPERATOR:
-            outcome = TickOutcome(
-                action="blocked",
-                command=command,
-                note="waiting for operator action",
-            )
-        elif command.stage == CommandStage.WAITING_QUESTION:
-            outcome = reduce_waiting_question(conn, command)
-        elif command.stage == CommandStage.VERIFYING:
-            outcome = reduce_verifying(conn, command, settings)
-        else:
-            outcome = TickOutcome(
-                action="no_op", command=command, note=f"stage '{command.stage.value}' is terminal"
-            )
-
+        outcome = _tick_loaded_command(conn, command, settings)
         conn.commit()
         return outcome
+
+
+def advance_frontier_once(
+    db_path: Path,
+    command_id: Optional[str] = None,
+    settings: Optional[AppConfig] = None,
+    repo_root: Optional[Path] = None,
+    *,
+    single_command_only: bool = False,
+) -> List[TickOutcome]:
+    settings = resolve_settings(settings=settings, repo_root=repo_root)
+    initialize_database(db_path)
+
+    with connect(db_path) as conn:
+        reconciled_outcome = _reconciled_operator_attention_outcome(conn, command_id)
+        if reconciled_outcome is not None:
+            return [reconciled_outcome]
+        actionable = select_actionable_commands(conn, command_id)
+    if not actionable:
+        return [TickOutcome(action="no_op", note="no actionable commands")]
+
+    if command_id or single_command_only or len(actionable) == 1:
+        return [_tick_specific_command(db_path, actionable[0].id, settings)]
+
+    indexed_results: dict[int, TickOutcome] = {}
+    with ThreadPoolExecutor(max_workers=len(actionable)) as executor:
+        future_map = {
+            executor.submit(_tick_specific_command, db_path, command.id, settings): index
+            for index, command in enumerate(actionable)
+        }
+        for future in as_completed(future_map):
+            indexed_results[future_map[future]] = future.result()
+    return [indexed_results[index] for index in range(len(actionable))]
 
 
 def answer_question(db_path: Path, question_id: str, answer: str) -> QuestionRecord:
@@ -5842,25 +6364,42 @@ def run_engine(
     outcomes: List[TickOutcome] = []
     last_command_id = command_id
     for _ in range(max_steps):
-        outcome = tick_once(db_path, command_id=command_id, settings=settings)
-        outcomes.append(outcome)
-        if outcome.command:
-            last_command_id = outcome.command.id
-        if outcome.action in {
-            "no_op",
-            "blocked",
-            "command_paused",
-            "command_completed",
-            "planning_failed",
-            "review_failed",
-            "dispatch_failed",
-        }:
-            break
-        if outcome.command and outcome.command.stage in {
-            CommandStage.DONE,
-            CommandStage.FAILED,
-            CommandStage.CANCELED,
-        }:
+        batch = advance_frontier_once(
+            db_path,
+            command_id=command_id,
+            settings=settings,
+            repo_root=repo_root,
+        )
+        outcomes.extend(batch)
+        for outcome in batch:
+            if outcome.command:
+                last_command_id = outcome.command.id
+
+        if command_id:
+            outcome = batch[-1]
+            if outcome.action in {
+                "no_op",
+                "blocked",
+                "command_paused",
+                "command_completed",
+                "planning_failed",
+                "review_failed",
+                "dispatch_failed",
+                "operator_attention_required",
+            }:
+                break
+            if outcome.command and outcome.command.stage in {
+                CommandStage.DONE,
+                CommandStage.FAILED,
+                CommandStage.CANCELED,
+            }:
+                break
+            continue
+
+        if all(
+            outcome.action in {"no_op", "blocked", "operator_attention_required"}
+            for outcome in batch
+        ):
             break
     final_command = get_command(db_path, last_command_id) if last_command_id else None
     return {

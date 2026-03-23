@@ -19,15 +19,18 @@ Wevra can run a job in these execution modes:
 | `research` | Runs investigation and analysis work, then returns a written markdown result without entering implementation, test, or final review gates. |
 | `review` | Collects the necessary context for review work and carries the job through the final reviewer pass. |
 | `planning` | Produces a structured planning result with separate plan, design direction, and task breakdown sections without moving into implementation. |
+| `dogfooding` | Reads the runbook for the target workspace, exercises the documented workflow, fixes issues it can address, and repeats validation until the remaining issues are stable. |
 
 Also:
 
 - question handling and resume after operator input
 - interrupted AI recovery with runtime switching
+- job split previews that turn one brief into dependency-aware jobs before creation
 - explicit dependencies and safe parallel execution for independent workspaces
 - operator approval gates for risky agent actions
 - browser dashboard for day-to-day operation
 - follow-up instructions for active jobs
+- runbook-driven dogfooding loops for real workflow validation
 - structured markdown results with in-dashboard viewing and download
 - live visibility into tasks, reviews, agents, and results
 
@@ -67,9 +70,11 @@ Then open the local dashboard at `http://127.0.0.1:43861` and create a job.
 
 From the dashboard you can:
 
-- start a new job and choose its execution mode, approval style, AI, working directory, and optional dependencies
+- create a single job or generate a dependency-aware job split preview before creating multiple jobs
+- choose the execution mode, approval style, AI, working directory, optional runbook path, and optional dependencies
 - watch progress, tasks, reviews, live agent logs, and results in real time
 - answer questions, approve or deny agent actions, and recover interrupted AI runs
+- decide what to do with blocked follow-up jobs when a prerequisite is canceled or fails
 - run independent jobs in parallel when their workspaces do not overlap
 - append follow-up instructions to active work
 - open structured result sections in the dashboard and download the current section as `.md`
@@ -129,14 +134,16 @@ Retry or repair an interrupted AI run:
 ## How It Works
 
 1. Create a job from the CLI or the dashboard.
-2. Set a working directory, and add job dependencies when work must wait for earlier jobs to finish.
-3. Wevra breaks the job into the work needed for the selected mode.
-4. Top-level jobs stay serial by default. Independent jobs can opt into safe parallel execution when their workspaces do not overlap.
-5. If clarification is needed, Wevra pauses and asks the user.
-6. If agent actions require operator approval, Wevra pauses and waits in the `Agents` tab until each run is allowed or denied.
-7. If a dependency fails, the blocked job stays out of execution until you ignore the dependency or cancel the job from the overview.
-8. In `implementation` mode, Wevra runs the existing test suite and then the final review pass.
-9. Work is only complete when the final review passes.
+2. Choose a working directory, and add job dependencies when work must wait for earlier jobs to finish.
+3. Optionally ask Wevra to preview a dependency-aware job split before creating multiple jobs.
+4. Wevra breaks each job into the work needed for the selected mode.
+5. Top-level jobs stay serial by default. Independent jobs can opt into safe parallel execution when their workspaces do not overlap.
+6. If clarification is needed, Wevra pauses and asks the user.
+7. If agent actions require operator approval, Wevra pauses and waits in the `Agents` tab until each run is allowed or denied.
+8. If a dependency fails or is canceled, the blocked job stays out of execution until you ignore the dependency or cancel the job from the overview.
+9. In `implementation` mode, Wevra runs the existing test suite and then the final review pass.
+10. In `dogfooding` mode, Wevra reads the runbook, exercises the documented workflow, applies fixes, and re-validates the flow.
+11. Work is only complete when the final review passes.
 
 You can also manage the dashboard from the CLI:
 

@@ -9,6 +9,7 @@ PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS commands (
     id TEXT PRIMARY KEY,
+    title TEXT NOT NULL DEFAULT '',
     goal TEXT NOT NULL,
     stage TEXT NOT NULL,
     workflow_mode TEXT NOT NULL DEFAULT 'auto',
@@ -183,6 +184,7 @@ def initialize_database(db_path: Path) -> Path:
     with connect(db_path) as conn:
         conn.executescript(SCHEMA)
         ensure_column(conn, "commands", "workflow_mode", "TEXT NOT NULL DEFAULT 'auto'")
+        ensure_column(conn, "commands", "title", "TEXT NOT NULL DEFAULT ''")
         ensure_column(conn, "commands", "approval_mode", "TEXT NOT NULL DEFAULT 'auto'")
         ensure_column(conn, "commands", "effective_mode", "TEXT")
         ensure_column(conn, "commands", "backend", "TEXT NOT NULL DEFAULT 'inherit'")

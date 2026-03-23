@@ -29,6 +29,7 @@ from wevra.models import (
     CommandStage,
     EventRecord,
     InstructionRecord,
+    JobTitleOutput,
     JobSplitDraftItem,
     JobSplitDraftOutput,
     JobSplitPreview,
@@ -507,6 +508,7 @@ def format_agent_log_line(message: str, *, channel: Optional[str] = None) -> str
 
 def command_from_row(row) -> CommandRecord:
     payload = dict(row)
+    payload["title"] = (payload.get("title") or payload.get("goal") or "").strip()
     payload["allow_parallel"] = bool(payload.get("allow_parallel", 0))
     payload["replan_requested"] = bool(payload.get("replan_requested", 0))
     payload["stop_requested"] = bool(payload.get("stop_requested", 0))
@@ -2332,6 +2334,152 @@ def _normalized_output_locale(locale: Optional[str]) -> str:
     return "ja" if str(locale or "").lower().startswith("ja") else "en"
 
 
+def _fallback_command_title(
+    goal: str,
+    workflow_mode: WorkflowMode,
+    *,
+    locale: Optional[str] = None,
+) -> str:
+    output_locale = _normalized_output_locale(locale)
+    compact_goal = " ".join(str(goal or "").strip().split())
+    if not compact_goal:
+        return "ジョブ" if output_locale == "ja" else "Job"
+    first_line = str(goal or "").strip().splitlines()[0].strip()
+    if first_line and len(first_line) <= 48:
+        return first_line
+    if workflow_mode == WorkflowMode.DOGFOODING:
+        return "dogfooding"
+    if workflow_mode == WorkflowMode.PLANNING:
+        return "計画を作る" if output_locale == "ja" else "Create a plan"
+    if workflow_mode == WorkflowMode.RESEARCH:
+        return "調査する" if output_locale == "ja" else "Research the request"
+    if workflow_mode == WorkflowMode.REVIEW:
+        return "レビューする" if output_locale == "ja" else "Review the request"
+    if workflow_mode == WorkflowMode.IMPLEMENTATION:
+        return "実装する" if output_locale == "ja" else "Implement the change"
+    return "ジョブ" if output_locale == "ja" else "Job"
+
+
+def _mock_command_title(
+    goal: str,
+    workflow_mode: WorkflowMode,
+    *,
+    locale: Optional[str] = None,
+) -> str:
+    output_locale = _normalized_output_locale(locale)
+    compact_goal = " ".join(str(goal or "").strip().split())
+    if not compact_goal:
+        return _fallback_command_title(goal, workflow_mode, locale=locale)
+    if len(compact_goal) <= 48:
+        return compact_goal
+    if output_locale == "ja":
+        prefixes = {
+            WorkflowMode.IMPLEMENTATION: "実装",
+            WorkflowMode.RESEARCH: "調査",
+            WorkflowMode.REVIEW: "レビュー",
+            WorkflowMode.PLANNING: "計画",
+            WorkflowMode.DOGFOODING: "dogfooding",
+            WorkflowMode.AUTO: "ジョブ",
+        }
+        return f"{prefixes.get(workflow_mode, 'ジョブ')}: {compact_goal[:22]}"
+    prefixes = {
+        WorkflowMode.IMPLEMENTATION: "Implement",
+        WorkflowMode.RESEARCH: "Research",
+        WorkflowMode.REVIEW: "Review",
+        WorkflowMode.PLANNING: "Plan",
+        WorkflowMode.DOGFOODING: "Dogfood",
+        WorkflowMode.AUTO: "Job",
+    }
+    return f"{prefixes.get(workflow_mode, 'Job')}: {compact_goal[:30]}"
+
+
+def _job_title_prompt(
+    goal: str,
+    workflow_mode: WorkflowMode,
+    runbook_path: Optional[str],
+    *,
+    locale: Optional[str] = None,
+) -> str:
+    output_language = "Japanese" if _normalized_output_locale(locale) == "ja" else "English"
+    runbook_block = f"Runbook path: {runbook_path}\n" if runbook_path else ""
+    return (
+        "You are naming a Wevra job for the dashboard.\n"
+        "Return only JSON that matches the schema.\n"
+        "Write a concise title for a top-level job.\n"
+        "The title must be short, specific, and useful in a job list.\n"
+        "Do not repeat the full brief. Do not use vague labels like 'Task', 'Work', or 'Handle request'.\n"
+        "Focus on the concrete deliverable or phase.\n"
+        "Avoid trailing punctuation. Keep it under 48 characters when possible.\n"
+        f"Write the title in {output_language}.\n"
+        f"Workflow mode: {workflow_mode.value}\n"
+        f"{runbook_block}"
+        f"Job brief:\n{goal}"
+    )
+
+
+def _structured_command_title(
+    *,
+    runtime: RuntimeBackend,
+    model: str,
+    settings: AppConfig,
+    goal: str,
+    workflow_mode: WorkflowMode,
+    workspace_root: str,
+    runbook_path: Optional[str],
+    locale: Optional[str],
+) -> str:
+    backend = StructuredCliBackend(
+        runtime,
+        model,
+        ApprovalMode.AUTO,
+        settings.agent_timeout_seconds,
+        runtime_home=settings.runtime_home,
+    )
+    payload = backend._run_structured(  # noqa: SLF001
+        _job_title_prompt(goal, workflow_mode, runbook_path, locale=locale),
+        JobTitleOutput.model_json_schema(),
+        workspace_root,
+    )
+    title = JobTitleOutput.model_validate(payload).title.strip()
+    return title or _fallback_command_title(goal, workflow_mode, locale=locale)
+
+
+def generate_command_title(
+    *,
+    goal: str,
+    workflow_mode: WorkflowMode,
+    workspace_root: str | Path,
+    runbook_path: Optional[str | Path] = None,
+    backend: Optional[RuntimeBackend] = None,
+    settings: Optional[AppConfig] = None,
+    repo_root: Optional[Path] = None,
+    locale: Optional[str] = None,
+) -> str:
+    resolved_settings = resolve_settings(settings=settings, repo_root=repo_root)
+    resolved_root = normalized_workspace_root(workspace_root)
+    resolved_runbook_path: Optional[str] = None
+    if runbook_path and str(runbook_path).strip():
+        resolved_runbook_path = normalized_runbook_path(runbook_path, resolved_root)
+    planner_role = resolved_settings.role_for("planner")
+    runtime = backend or planner_role.runtime
+    model = planner_role.model if runtime == planner_role.runtime else ""
+    if runtime == RuntimeBackend.MOCK:
+        return _mock_command_title(goal, workflow_mode, locale=locale)
+    try:
+        return _structured_command_title(
+            runtime=runtime,
+            model=model,
+            settings=resolved_settings,
+            goal=goal,
+            workflow_mode=workflow_mode,
+            workspace_root=resolved_root,
+            runbook_path=resolved_runbook_path,
+            locale=locale,
+        )
+    except Exception:
+        return _fallback_command_title(goal, workflow_mode, locale=locale)
+
+
 def _mock_job_split_preview(
     goal: str,
     workspace_root: str,
@@ -2348,7 +2496,7 @@ def _mock_job_split_preview(
                 items=[
                     JobSplitDraftItem(
                         key="implement",
-                        title="実装を進める",
+                        title="コード変更を実装する",
                         goal=f"メインの作業ディレクトリで、依頼内容に沿った実装変更を行う: {goal}",
                         workflow_mode=WorkflowMode.IMPLEMENTATION,
                         workspace_path=".",
@@ -2365,7 +2513,7 @@ def _mock_job_split_preview(
                     ),
                     JobSplitDraftItem(
                         key="verify",
-                        title="仕上がりを確認する",
+                        title="変更結果をレビューする",
                         goal=f"実装変更と文書更新をまとめて確認し、仕上がりをレビューする: {goal}",
                         workflow_mode=WorkflowMode.REVIEW,
                         depends_on=["implement", "docs"],
@@ -2380,7 +2528,7 @@ def _mock_job_split_preview(
                 items=[
                     JobSplitDraftItem(
                         key="implement",
-                        title="Implement the requested change",
+                        title="Implement the code changes",
                         goal=f"Apply the requested code changes in the main workspace for: {goal}",
                         workflow_mode=WorkflowMode.IMPLEMENTATION,
                         workspace_path=".",
@@ -2400,7 +2548,7 @@ def _mock_job_split_preview(
                     ),
                     JobSplitDraftItem(
                         key="verify",
-                        title="Review the combined result",
+                        title="Review the completed changes",
                         goal=(
                             "Review the finished implementation and documentation updates together for "
                             f"the requested change: {goal}"
@@ -2419,7 +2567,7 @@ def _mock_job_split_preview(
                 items=[
                     JobSplitDraftItem(
                         key="prepare",
-                        title="変更計画を固める",
+                        title="実装計画を作る",
                         goal=f"現状を確認し、この依頼を進めるための具体的な計画を作成する: {goal}",
                         workflow_mode=WorkflowMode.PLANNING,
                         workspace_path=".",
@@ -2437,7 +2585,7 @@ def _mock_job_split_preview(
                     ),
                     JobSplitDraftItem(
                         key="verify",
-                        title="仕上がりをレビューする",
+                        title="変更結果をレビューする",
                         goal=f"実装後の変更内容を確認し、依頼内容どおりに仕上がっているか検証する: {goal}",
                         workflow_mode=WorkflowMode.REVIEW,
                         depends_on=["implement"],
@@ -2452,7 +2600,7 @@ def _mock_job_split_preview(
                 items=[
                     JobSplitDraftItem(
                         key="prepare",
-                        title="Plan the requested change",
+                        title="Create the implementation plan",
                         goal=(
                             "Inspect the current state and produce a concrete implementation plan for: "
                             f"{goal}"
@@ -2463,7 +2611,7 @@ def _mock_job_split_preview(
                     ),
                     JobSplitDraftItem(
                         key="implement",
-                        title="Implement the requested change",
+                        title="Apply the requested changes",
                         goal=(
                             "Apply the requested change in the workspace based on the approved plan: "
                             f"{goal}"
@@ -2476,7 +2624,7 @@ def _mock_job_split_preview(
                     ),
                     JobSplitDraftItem(
                         key="verify",
-                        title="Review the finished change",
+                        title="Review the completed implementation",
                         goal=(
                             "Review and validate the completed change after implementation for: "
                             f"{goal}"
@@ -2510,9 +2658,9 @@ def _split_preview_prompt(
         "Prefer 2 to 4 jobs.\n"
         "Use workflow modes from: implementation, research, review, planning, dogfooding.\n"
         "Each item must include a stable key, title, goal, workflow_mode, workspace_path, depends_on, allow_parallel, and optional rationale.\n"
-        "Write titles as concise dashboard labels that describe the actual deliverable or phase.\n"
+        "Write titles as concise dashboard labels that describe the actual deliverable, artifact, or phase.\n"
         "Write each goal as a self-contained job brief that tells the worker exactly what to produce.\n"
-        "Avoid vague goals such as 'prepare the approach', 'implement the change', or 'verify the result' unless they are qualified with the actual subject of the work.\n"
+        "Avoid vague titles or goals such as 'prepare the approach', 'implement the change', 'verify the result', or '実装を進める' unless they are qualified with the actual subject of the work.\n"
         "Downstream jobs must mention what they are building on or checking. Example: 'Update the README and CLI help text to match the new flag names.'\n"
         "For planning jobs, state what plan or specification should be produced. For review jobs, state what should be reviewed and why.\n"
         "workspace_path must be relative to the base working directory. Use '.' when the job should run in the base working directory.\n"
@@ -2626,6 +2774,7 @@ def submit_job_split_preview(
     for item in ordered:
         command = submit_command(
             db_path,
+            title=item.title,
             goal=item.goal,
             workflow_mode=item.workflow_mode,
             priority=priority,
@@ -3151,6 +3300,7 @@ def submit_command(
     goal: str,
     workflow_mode: WorkflowMode,
     priority: Priority,
+    title: Optional[str] = None,
     approval_mode: ApprovalMode = ApprovalMode.AUTO,
     backend: Optional[RuntimeBackend] = None,
     workspace_root: Optional[Path] = None,
@@ -3159,6 +3309,7 @@ def submit_command(
     allow_parallel: bool = False,
     settings: Optional[AppConfig] = None,
     repo_root: Optional[Path] = None,
+    locale: Optional[str] = None,
 ) -> CommandRecord:
     settings = resolve_settings(settings=settings, repo_root=repo_root)
     initialize_database(db_path)
@@ -3175,6 +3326,16 @@ def submit_command(
     elif runbook_path and str(runbook_path).strip():
         resolved_runbook_path = normalized_runbook_path(runbook_path, resolved_root)
     selected_backend = backend or RuntimeBackend.INHERIT
+    resolved_title = (title or "").strip() or generate_command_title(
+        goal=goal,
+        workflow_mode=workflow_mode,
+        workspace_root=resolved_root,
+        runbook_path=resolved_runbook_path,
+        backend=selected_backend if selected_backend != RuntimeBackend.INHERIT else None,
+        settings=settings,
+        repo_root=repo_root,
+        locale=locale,
+    )
 
     with connect(db_path) as conn:
         existing_rows = conn.execute("SELECT id FROM commands").fetchall()
@@ -3192,6 +3353,7 @@ def submit_command(
                 raise ValueError("parallel_workspace_overlap")
         created = _insert_command_record(
             conn,
+            title=resolved_title,
             goal=goal,
             workflow_mode=workflow_mode,
             approval_mode=approval_mode,
@@ -3523,6 +3685,7 @@ def ignore_command_dependencies(db_path: Path, command_id: str) -> CommandRecord
 def _insert_command_record(
     conn,
     *,
+    title: str,
     goal: str,
     workflow_mode: WorkflowMode,
     approval_mode: ApprovalMode,
@@ -3538,16 +3701,17 @@ def _insert_command_record(
     conn.execute(
         """
         INSERT INTO commands (
-            id, goal, stage, workflow_mode, approval_mode, effective_mode, priority, backend, workspace_root, runbook_path, allow_parallel,
+            id, title, goal, stage, workflow_mode, approval_mode, effective_mode, priority, backend, workspace_root, runbook_path, allow_parallel,
             resume_stage, resume_hint, final_response, failure_reason, operator_issue_kind, operator_issue_detail,
             operator_issue_agent_run_id, operator_issue_task_id, operator_issue_role_name, operator_issue_runtime,
             operator_issue_model, question_state, planning_attempts, run_count, replan_requested, stop_requested,
             version, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             command_id,
+            title,
             goal,
             CommandStage.QUEUED.value,
             workflow_mode.value,
@@ -3593,6 +3757,7 @@ def _insert_command_record(
         command_id,
         "command_submitted",
         {
+            "title": title,
             "goal": goal,
             "workflow_mode": workflow_mode.value,
             "approval_mode": approval_mode.value,
@@ -3780,6 +3945,7 @@ def cancel_command_with_repair(
 
         repair_command = _insert_command_record(
             conn,
+            title=repair_goal,
             goal=repair_goal,
             workflow_mode=WorkflowMode.IMPLEMENTATION,
             approval_mode=command.approval_mode,

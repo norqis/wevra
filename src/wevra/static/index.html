@@ -3152,7 +3152,10 @@
     }
 
     function commandTitle(command) {
-      return command ? goalDisplayParts(command.goal).title : '';
+      if (!command) return '';
+      const explicitTitle = String(command.title || '').trim();
+      if (explicitTitle) return explicitTitle;
+      return goalDisplayParts(command.goal).title;
     }
 
     function executionStrategyLabel(command) {
@@ -3512,7 +3515,7 @@
     }
 
     function buildRepairGoal(command) {
-      const title = displayGoal(command?.goal || command?.id || 'job');
+      const title = commandTitle(command) || displayGoal(command?.goal || command?.id || 'job');
       return currentLocale() === 'ja'
         ? `中断したジョブの変更を元に戻す: ${title}`
         : `Restore changes left by interrupted job: ${title}`;
@@ -4020,7 +4023,7 @@
       state.resultSectionTabByCommand[command.id] = activeKey;
       const activeSection = sections.find((section) => section.key === activeKey) || null;
 
-      resultModalTitleEl.textContent = `${t('result')} · ${displayGoal(command.goal)}`;
+      resultModalTitleEl.textContent = `${t('result')} · ${commandTitle(command) || displayGoal(command.goal)}`;
       resultModalTabsEl.innerHTML = sections
         .map((section) => `
           <button
@@ -4265,7 +4268,7 @@
       if (!command) return;
       const interrupted = command.stage === 'waiting_operator' && Boolean(command.operator_issue_kind);
       operatorIssueModalTitleEl.textContent = interrupted ? t('operatorIssueModalTitle') : t('cancelModalTitle');
-      operatorIssueModalContextEl.textContent = `${interrupted ? t('operatorIssueModalContext') : t('cancelModalContext')} ${displayGoal(command.goal)}`;
+      operatorIssueModalContextEl.textContent = `${interrupted ? t('operatorIssueModalContext') : t('cancelModalContext')} ${commandTitle(command) || displayGoal(command.goal)}`;
       document.getElementById('operatorIssueModalEyebrow').textContent = interrupted ? t('operatorIssueModalEyebrow') : t('cancelModalEyebrow');
       document.getElementById('operatorRepairChoiceTitle').textContent = t('operatorRepairChoiceTitle');
       document.getElementById('operatorRepairChoiceBody').textContent = t('operatorRepairChoiceBody');
@@ -4290,7 +4293,7 @@
       operatorResumeModalTitleEl.textContent = t('operatorResumeModalTitle');
       operatorResumeModalContextEl.textContent = formatText(
         t('operatorResumeModalContext'),
-        { job: displayGoal(command.goal) }
+        { job: commandTitle(command) || displayGoal(command.goal) }
       );
       operatorResumeBackendEl.innerHTML = options.map((runtime) => `
         <option value="${escapeHtml(runtime)}" ${runtime === selected ? 'selected' : ''}>${escapeHtml(runtimeOptionLabel(runtime))}</option>
@@ -4833,7 +4836,6 @@
         ? command.blocking_dependency_ids
         : command.depends_on || []).map((commandId) => dependencyTitle(commandId, snapshot));
       const allDependencyTitles = dependencyTitles(command, snapshot);
-      const goalParts = goalDisplayParts(command.goal);
       const dependencyBannerClass = command.dependency_state === 'failed' ? 'warn' : '';
       const dependencyActionBusy = state.dependencyActionInFlight === command.id;
       const dependencyFailureType = dependencyBlockType(command, snapshot);
@@ -4923,9 +4925,9 @@
           <div class="overview-panel-head">
             <div class="overview-copy">
               <div class="overview-kicker">${escapeHtml(t('overview'))}</div>
-              <h2 class="overview-title">${escapeHtml(goalParts.title || displayGoal(command.goal))}</h2>
-              ${goalParts.detail ? `
-                <div class="overview-subtitle">${escapeHtml(goalParts.detail)}</div>
+              <h2 class="overview-title">${escapeHtml(commandTitle(command) || displayGoal(command.goal))}</h2>
+              ${displayGoal(command.goal) && displayGoal(command.goal) !== (commandTitle(command) || '') ? `
+                <div class="overview-subtitle">${escapeHtml(displayGoal(command.goal))}</div>
               ` : ''}
               <div class="overview-path-shell">
                 <div class="overview-path-label">${escapeHtml(t('workingDirectory'))}</div>
@@ -5239,6 +5241,7 @@
           approval_mode: approvalMode,
           priority,
           backend,
+          locale: currentLocale(),
           workspace_root: workspaceRoot,
           runbook_path: runbookPath || null,
           depends_on_command_ids: dependencyIds,

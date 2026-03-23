@@ -75,6 +75,7 @@ from wevra.service import (
     execute_deterministic_test_task,
     infer_mode_from_goal,
     infer_mode_from_specs,
+    generate_command_title,
     generate_job_split_preview,
     ignore_command_dependencies,
     is_deterministic_test_gate,
@@ -383,7 +384,7 @@ def test_generate_job_split_preview_returns_dependency_graph(tmp_path):
     assert len(preview.items) == 3
     assert preview.items[0].key == "implement"
     assert preview.items[1].key == "docs"
-    assert preview.items[0].title == "Implement the requested change"
+    assert preview.items[0].title == "Implement the code changes"
     assert "Apply the requested code changes in the main workspace" in preview.items[0].goal
     assert preview.items[1].allow_parallel is False
     assert preview.items[2].depends_on == ["implement", "docs"]
@@ -405,10 +406,33 @@ def test_generate_job_split_preview_uses_requested_locale(tmp_path):
     )
 
     assert preview.summary == "計画、実装、確認の3段階に分けて進めます。"
-    assert preview.items[0].title == "変更計画を固める"
+    assert preview.items[0].title == "実装計画を作る"
     assert "具体的な計画を作成する" in preview.items[0].goal
     assert preview.items[1].title == "変更を実装する"
-    assert preview.items[2].title == "仕上がりをレビューする"
+    assert preview.items[2].title == "変更結果をレビューする"
+
+
+def test_generate_command_title_falls_back_when_structured_runtime_errors(tmp_path, monkeypatch):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    settings.roles["planner"].runtime = RuntimeBackend.CODEX
+    settings.roles["planner"].model = "gpt-test"
+    monkeypatch.setattr(
+        service_module,
+        "_structured_command_title",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("cli failed")),
+    )
+
+    title = generate_command_title(
+        goal="README の CLI 説明を整理して最新状態に合わせる",
+        workflow_mode=WorkflowMode.PLANNING,
+        workspace_root=tmp_path,
+        settings=settings,
+        repo_root=tmp_path,
+        locale="ja",
+    )
+
+    assert title == "README の CLI 説明を整理して最新状態に合わせる"
 
 
 def test_submit_job_split_preview_creates_commands_with_dependencies(tmp_path):
@@ -444,6 +468,62 @@ def test_submit_job_split_preview_creates_commands_with_dependencies(tmp_path):
     assert len(verify_command.depends_on) == 2
 
 
+def test_submit_command_persists_generated_title(tmp_path, monkeypatch):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+    monkeypatch.setattr(
+        service_module,
+        "generate_command_title",
+        lambda **kwargs: "CLI 表示を整理する",
+    )
+
+    command = submit_direct(
+        tmp_path,
+        settings,
+        goal="CLI フラグ名を変更して README の例も更新する",
+        workflow_mode=WorkflowMode.IMPLEMENTATION,
+        priority=Priority.HIGH,
+        locale="ja",
+    )
+
+    assert command.title == "CLI 表示を整理する"
+    assert command.goal == "CLI フラグ名を変更して README の例も更新する"
+
+    with connect(settings.db_path) as conn:
+        row = conn.execute(
+            "SELECT title, goal FROM commands WHERE id = ?", (command.id,)
+        ).fetchone()
+    assert row["title"] == "CLI 表示を整理する"
+    assert row["goal"] == "CLI フラグ名を変更して README の例も更新する"
+
+
+def test_submit_job_split_preview_persists_preview_titles(tmp_path):
+    init_repo_config(tmp_path)
+    settings = load_config(tmp_path)
+
+    preview = generate_job_split_preview(
+        goal="README と CLI 表示を整理する",
+        workspace_root=tmp_path,
+        settings=settings,
+        repo_root=tmp_path,
+        locale="ja",
+    )
+
+    created = submit_job_split_preview(
+        settings.db_path,
+        preview=preview,
+        approval_mode=ApprovalMode.AUTO,
+        priority=Priority.HIGH,
+        settings=settings,
+        repo_root=tmp_path,
+    )
+
+    preview_by_goal = {item.goal: item.title for item in preview.items}
+    assert {command.title for command in created} == set(preview_by_goal.values())
+    for command in created:
+        assert command.title == preview_by_goal[command.goal]
+
+
 def test_split_preview_prompt_requires_concrete_job_goals(tmp_path):
     prompt = _split_preview_prompt(
         "Rename CLI flags and update the README usage examples",
@@ -453,7 +533,8 @@ def test_split_preview_prompt_requires_concrete_job_goals(tmp_path):
     )
 
     assert "Write each goal as a self-contained job brief" in prompt
-    assert "Avoid vague goals such as 'prepare the approach'" in prompt
+    assert "Avoid vague titles or goals such as 'prepare the approach'" in prompt
+    assert "実装を進める" in prompt
     assert "For planning jobs, state what plan or specification should be produced." in prompt
     assert "Update the README and CLI help text to match the new flag names." in prompt
     assert "Write the summary, titles, goals, and rationale in Japanese." in prompt

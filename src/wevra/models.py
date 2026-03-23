@@ -37,6 +37,7 @@ class OperatorIssueKind(str, Enum):
     PROVIDER_LIMIT = "provider_limit"
     AUTH_REQUIRED = "auth_required"
     INTERACTIVE_PROMPT = "interactive_prompt"
+    RUNTIME_ENVIRONMENT = "runtime_environment"
     RUNTIME_TIMEOUT = "runtime_timeout"
     RUNTIME_INTERRUPTED = "runtime_interrupted"
 
@@ -264,6 +265,8 @@ class PlannerOutput(BaseModel):
     workflow_mode: Optional[WorkflowMode] = None
     tasks: List[PlannerTaskSpec] = Field(default_factory=list)
     question: Optional[str] = None
+    job_contract: Optional[str] = None
+    job_memory: Optional[str] = None
     final_response: Optional[str] = None
     failure_reason: Optional[str] = None
 
@@ -313,6 +316,7 @@ class WorkerOutput(BaseModel):
     result: Dict[str, Any] = Field(default_factory=dict)
     question: Optional[str] = None
     resolution_mode: Optional[QuestionResolutionMode] = None
+    job_memory: Optional[str] = None
     failure_reason: Optional[str] = None
 
 
@@ -320,6 +324,7 @@ class ReviewerOutput(BaseModel):
     decision: ReviewDecision
     summary: str
     findings: List[str] = Field(default_factory=list)
+    job_memory: Optional[str] = None
     failure_reason: Optional[str] = None
 
 

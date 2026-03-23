@@ -30,6 +30,7 @@ from wevra.models import (
 )
 from wevra.runtime_registry import runtime_label, runtime_option_payload
 from wevra.service import (
+    advance_frontier_once,
     answer_question,
     approve_agent_run,
     approve_agent_runs_batch,
@@ -52,7 +53,6 @@ from wevra.service import (
     generate_job_split_preview,
     submit_command,
     submit_job_split_preview,
-    tick_once,
 )
 
 
@@ -350,6 +350,7 @@ def build_command_detail(
     artifacts = [
         artifact.model_dump(mode="json")
         for artifact in list_artifacts(settings.db_path, command_id)
+        if artifact.kind == "result_markdown"
     ]
     instructions = [
         instruction.model_dump(mode="json")
@@ -519,7 +520,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     {"ok": False, "error": "workspace_root_required"},
                 )
                 return
-            runbook_path_raw = str(payload.get("runbook_path", "")).strip()
+            runbook_path_value = payload.get("runbook_path")
+            runbook_path_raw = (
+                str(runbook_path_value).strip() if runbook_path_value is not None else ""
+            )
             locale = str(payload.get("locale", "")).strip() or None
             workspace_root = Path(workspace_root_raw).expanduser()
             try:
@@ -561,7 +565,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             backend_raw = str(payload.get("backend", "")).strip().lower()
             backend = RuntimeBackend(backend_raw) if backend_raw else None
-            runbook_path_raw = str(payload.get("runbook_path", "")).strip()
+            runbook_path_value = payload.get("runbook_path")
+            runbook_path_raw = (
+                str(runbook_path_value).strip() if runbook_path_value is not None else ""
+            )
             locale = str(payload.get("locale", "")).strip() or None
             workspace_root = Path(workspace_root_raw).expanduser()
             try:
@@ -840,8 +847,10 @@ class WevraDashboardServer(ThreadingHTTPServer):
             engine_thread.join(timeout=2)
 
 
-def engine_poll_delay(action: str) -> float:
-    if action in {"no_op", "blocked", "approval_required"}:
+def engine_poll_delay(actions: list[str]) -> float:
+    if actions and all(
+        action in {"no_op", "blocked", "operator_attention_required"} for action in actions
+    ):
         return 0.6
     return 0.05
 
@@ -850,17 +859,18 @@ def engine_loop(server: WevraDashboardServer) -> None:
     while not server.stop_event.is_set():
         try:
             with server.state_lock:
-                outcome = tick_once(
+                outcomes = advance_frontier_once(
                     server.settings.db_path,
                     settings=server.settings,
                     repo_root=server.repo_root,
                 )
+            last_action = "parallel_batch" if len(outcomes) > 1 else outcomes[0].action
             with server.engine_state_lock:  # type: ignore[attr-defined]
                 server.engine_state = {  # type: ignore[attr-defined]
                     "status": "running",
                     "last_error": None,
                     "updated_at": iso_now(),
-                    "last_action": outcome.action,
+                    "last_action": last_action,
                 }
         except Exception as exc:
             with server.engine_state_lock:  # type: ignore[attr-defined]
@@ -871,7 +881,7 @@ def engine_loop(server: WevraDashboardServer) -> None:
                 }
             server.stop_event.wait(1.0)
             continue
-        server.stop_event.wait(engine_poll_delay(outcome.action))
+        server.stop_event.wait(engine_poll_delay([outcome.action for outcome in outcomes]))
 
 
 def create_server(repo_root: Path, port: int) -> ThreadingHTTPServer:

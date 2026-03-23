@@ -125,6 +125,35 @@ def test_dashboard_browser_submit_and_view_result(tmp_path, monkeypatch):
         expect(page.locator("#resultModalContent")).to_contain_text("Completed tasks:")
 
 
+def test_dashboard_browser_submit_modal_guidance_is_localized(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    read_json(runner.invoke(app, ["init"]))
+
+    with dashboard_server(tmp_path) as base_url, browser_page() as page:
+        page.goto(base_url)
+        page.locator("#openSubmitBtn").click()
+
+        expect(page.locator("#submitModal")).to_contain_text("Single job")
+        expect(page.locator("#submitModal")).to_contain_text(
+            "Launch one job now. Choose an execution mode"
+        )
+        expect(page.locator("#submitModal")).to_contain_text(
+            "Optionally choose earlier jobs that this job should wait for."
+        )
+        expect(page.locator("#submitModal")).to_contain_text(
+            "Use parallel execution only when this workspace is independent."
+        )
+        expect(page.locator("#submitModal")).not_to_contain_text("submitModeGuideSingleTitle")
+        expect(page.locator("#submitModal")).not_to_contain_text("dependencyGuideAvailable")
+        expect(page.locator("#submitModal")).not_to_contain_text("parallelGuideAvailable")
+
+        page.locator("#submitModeSplitTab").click()
+        expect(page.locator("#submitModal")).to_contain_text("Job split")
+        expect(page.locator("#submitModal")).to_contain_text(
+            "AI prepares a multiple-job proposal with dependencies."
+        )
+
+
 def test_dashboard_browser_planning_result_tabs_and_download(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     read_json(runner.invoke(app, ["init"]))
@@ -140,6 +169,7 @@ def test_dashboard_browser_planning_result_tabs_and_download(tmp_path, monkeypat
         page.locator("#submitBtn").click()
 
         expect(page.locator("#viewResultBtn")).to_be_enabled()
+        expect(page.locator("#commandDetail")).not_to_contain_text("Runbook Path")
         page.locator("#viewResultBtn").click()
         expect(page.locator("#resultModal")).to_be_visible()
         expect(page.locator("#resultModalTabs [data-result-tab]")).to_have_count(3)
@@ -522,8 +552,8 @@ def test_dashboard_browser_command_list_orders_active_waiting_then_terminal_and_
     read_json(runner.invoke(app, ["init"]))
     settings = load_config(tmp_path)
     monkeypatch.setattr(
-        "wevra.dashboard.tick_once",
-        lambda *args, **kwargs: service_module.TickOutcome(action="idle"),
+        "wevra.dashboard.advance_frontier_once",
+        lambda *args, **kwargs: [service_module.TickOutcome(action="no_op")],
     )
 
     running = service_module.submit_command(
